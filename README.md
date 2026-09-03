@@ -346,10 +346,18 @@ two-stage startup check, and health and drain endpoints.
 |   |   |-- observability/     # structlog and OpenTelemetry wiring
 |   |   |-- startup/           # two-stage boot checks
 |   |   `-- local_dev/         # personas and token minting for local work
-|   `-- django_service/        # the application package
-|       |-- users/             # users app, provisioning, API, commands
-|       |-- templates/
-|       `-- static/
+|   |-- django_service/        # the application package
+|   |   |-- users/             # users app, provisioning, API, commands
+|   |   |-- templates/
+|   |   `-- static/
+|   `-- django_apps/           # domain applications (planned -- see below)
+|       |-- identity/
+|       |-- collectors/
+|       |-- evidence/
+|       |-- policies/
+|       |-- reporting/
+|       |-- ai_integration/
+|       `-- core/
 |-- tests/
 |   |-- unit/                  # no database, network, or filesystem
 |   |-- integration/           # marked `integration`
@@ -359,27 +367,33 @@ two-stage startup check, and health and drain endpoints.
     `-- planning-artifacts/    # brief, PRD, architecture
 ```
 
-`src/` is the import root and is deliberately *not* a package, so `config` and
-`django_service` import as top-level packages. It is declared in exactly one
-place -- `[tool.hatch.build.targets.wheel]` in `pyproject.toml`, which remaps
+`src/` is the import root and is deliberately *not* a package, so `config`,
+`django_service` and `django_apps` import as top-level packages. It is declared
+in exactly one place -- `[tool.hatch.build.targets.wheel]` in `pyproject.toml`,
+which remaps
 `src/` onto the wheel root. The editable install is what puts it on `sys.path` at
 runtime; no entrypoint, pixi task or test setting declares it a second time.
 
 ### Planned domain applications
 
 The evidence pipeline is not yet built. As it lands it will be added under
-`src/django_service/` as separate Django applications:
+`src/django_apps/` -- a third top-level package beside `config` and
+`django_service` -- with one pluggable Django application per business domain:
 
-- **identity/** -- package identity resolution, canonical inventory, mapping overrides.
-- **collectors/** -- evidence collection from source repositories, PyPI, conda-forge, and vulnerability sources.
-- **evidence/** -- append-only evidence models, timestamped observations, retrieval interfaces.
-- **policies/** -- deterministic policy evaluation, scoring, priority, and work-type assignment.
-- **reporting/** -- operational reports, views, dashboards, exports.
-- **ai_integration/** -- LangChain tools, DB-GPT configuration, governed query interfaces.
-- **core/** -- shared utilities, base models, middleware, cross-cutting concerns.
+- **identity/** -- package identity resolution, canonical inventory management, and mapping overrides.
+- **collectors/** -- evidence collection from source repositories, PyPI, conda-forge, vulnerability sources, and other external systems.
+- **evidence/** -- append-only evidence storage models, timestamped observations, and retrieval interfaces.
+- **policies/** -- deterministic policy evaluation, scoring, priority assignment, and work-type recommendation.
+- **reporting/** -- operational reports, views, dashboards, and export functionality.
+- **ai_integration/** -- LangChain tools, DB-GPT configuration, and governed AI query interfaces.
+- **core/** -- shared utilities, base models, common middleware, and cross-cutting concerns.
 
-LangFlow workflow definitions and scheduler integration scripts will follow the
-same rule: they land when they exist, not before.
+Two further trees are planned alongside them:
+
+- **flows/langflow/** -- LangFlow workflow definitions for orchestrating investigation, reporting, and operational workflows.
+- **scripts/schedulers/** -- deployment scripts, scheduler integration configurations, and operational automation for Celery, cron, or other approved schedulers.
+
+None of these directories exists yet. They land when they are built, not before.
 
 ## Initial Delivery Plan
 
