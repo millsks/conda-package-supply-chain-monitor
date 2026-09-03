@@ -1,0 +1,655 @@
+[workspace]
+authors = ["Kevin Mills <millsks@gmail.com>"]
+channels = ["conda-forge"]
+name = "conda-package-supply-chain-monitor"
+platforms = ["osx-arm64", "linux-64", "win-64"]
+version = "0.1.0"
+requires-pixi = ">=0.70.2"
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies. conda-forge is the single source for every third-party
+# package -- there are no exceptions. [pypi-dependencies] holds only this
+# project's own editable install.
+# ---------------------------------------------------------------------------
+[dependencies]
+python = "3.14.*"
+# The client library is held at 17 to match the `postgres:17` server the gate
+# runs against (.github/workflows/ci.yml). This is what constrains `psycopg`
+# below -- see the note there before changing either.
+libpq = ">=17,<18"
+celery = ">=5.6,<6"
+crispy-bootstrap5 = ">=2026.3,<2027"
+# Django 5.2 LTS, supported to April 2028. The cap is the next *minor*, not the
+# next major: 5.3 is a feature release like 6.0, and `>=5.2,<6` would admit it,
+# which is the thing this pin exists to prevent. The LTS is a minor series, so
+# the cap is the next minor.
+#
+# Why this is a change rather than the original choice: 6.0 was never chosen
+# against alternatives. It arrived with the cookiecutter-django origin (a96be2d),
+# which tracks the current feature release, and was written as `>=6.0,<7` one
+# commit later in 45afb1c. The only thing ever decided was 6.0 rather than 6.1,
+# because django-celery-beat caps `<6.1` -- a question about which *feature*
+# release to take. A feature release is supported for months; components
+# generated from this accelerator inherit whatever it pins, so the short window
+# propagates into every one of them. 5.2 sits well inside that `>=2.2,<6.1` cap.
+#
+# Successor, written down so the exit is not re-derived: Django 6.2 LTS, due
+# April 2027. Moving to it means `>=6.2,<6.3` here, the matching django-stubs
+# series below, and re-running R-1's spike, whose verdict is version-scoped.
+#
+# No headroom below 5.2, read back from pixi.lock rather than remembered. Three
+# packages in this tree require `django >=5.2` and are the reason there is no
+# room underneath: django-redis 7.0.0 -- which declares `django >=5.2,<7.0`, a
+# cap as well as a floor -- djangorestframework 3.18.0 and django-debug-toolbar
+# 7.0.0. So 5.2 is the minimum viable Django here, and a further downgrade is
+# refused on evidence rather than re-investigated.
+#
+# tests/unit/test_dependency_policy.py holds both halves: that this stays the
+# LTS series, and that the django-stubs pins below keep the same minor.
+django = ">=5.2,<5.3"
+django-allauth = ">=65.19,<66"
+# The three packages below are django-allauth's `socialaccount` extra, declared
+# directly because the conda-forge django-allauth 65.19 recipe encodes none of
+# it: its run requirements are asgiref, django and python alone, while upstream
+# names oauthlib, requests and pyjwt[crypto]. AD-31 wires
+# allauth.socialaccount.providers.openid_connect, so this is not optional --
+# without them the OIDC login route is an ImportError rather than a redirect.
+#
+# `requests` is imported at the top of
+# allauth/socialaccount/providers/openid_connect/provider.py. It already reaches
+# this environment, but only as a transitive of
+# opentelemetry-exporter-otlp-proto-http -- and the spine's supply-chain rule is
+# that transitive availability is not declaration, so changing the OTLP exporter
+# would otherwise break authentication.
+requests = ">=2.34,<3"
+# ID-token decoding runs through allauth/socialaccount/internal/jwtkit.py, which
+# imports `jwt`. Absent from pixi.lock entirely until this line.
+pyjwt = ">=2.13,<3"
+# The `crypto` half of pyjwt[crypto]: jwtkit's signature verification is
+# `cryptography` under another name. Declared with this story rather than with
+# Story 2.7's Bearer path because allauth reaches for it the moment interactive
+# sign-in lands.
+cryptography = ">=50.0,<51"
+django-anymail = ">=15.1,<16"
+# Resolved from conda-forge since build 2.9.0 pyhcf101f3_1. Earlier builds
+# transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"`
+# without the environment marker, applying the cap unconditionally, which
+# collided with opentelemetry-api's importlib-metadata>=6.0 and made the two
+# impossible to install together. The solver enforces this on its own: an
+# older build cannot satisfy both constraints, so it will not be selected.
+#
+# Build pyhcf101f3_2 moved pytest from run requirements to test, so it no
+# longer lands in the runtime environment (feedstock PR #19). The version pin
+# below is build-agnostic; the lock file is what holds the resolved build.
+#
+# Also watch: the recipe caps `django <6.1`, which will block a Django 6.1
+# upgrade until it is relaxed.
+django-celery-beat = ">=2.9,<3"
+# django-celery-beat's own dependencies, declared explicitly so the solver
+# resolves them from this channel rather than leaving them to arrive behind it.
+django-timezone-field = ">=7.2,<8"
+python-crontab = ">=3.3,<4"    # django-celery-beat parses crontab schedules with it
+cron-descriptor = ">=1.4,<2"   # django-celery-beat requires <2.0.0
+django-cors-headers = ">=4.9,<5"
+django-crispy-forms = ">=2.6,<3"   # conda-forge tops out at 2.6 (PyPI has 2.7)
+django-environ = ">=0.14,<0.15"
+django-redis = ">=7.0,<8"
+djangorestframework = ">=3.17,<4"
+drf-spectacular = ">=0.30,<0.31"
+# The C response parser redis-py selects automatically when it is importable and
+# falls back from silently when it is not -- a performance difference rather than
+# an error, so nothing would report its absence. Neither django-redis nor
+# redis-py depends on it (both declare it an optional extra), so undeclared it
+# would simply never be installed.
+hiredis = ">=3.4,<4"
+# Upper-pinned, unusually. conda-forge builds `psycopg-c` against exactly one
+# libpq major: 3.2.4-3.2.10 link libpq 17, and 3.2.11 onward link libpq 18.
+# This window is therefore the whole set compatible with the libpq 17 pin above.
+# Lift both together when the gate's PostgreSQL server moves to 18.
+psycopg = ">=3.2.4,<3.2.11"
+redis-py = ">=8.1,<9"
+uvicorn = ">=0.52,<0.53"
+whitenoise = ">=6.12,<7"
+# Structured logging. django-structlog binds request_id/user_id and propagates
+# them into Celery tasks; its conda recipe also pulls django-extensions and
+# django-ipware, which upstream treats as optional extras.
+structlog = ">=26.1,<27"
+django-structlog = ">=10.1,<11"
+# OpenTelemetry: traces only. Metrics and the OTLP logs signal are additive
+# later and need no restructuring.
+opentelemetry-api = ">=1.44,<2"
+opentelemetry-sdk = ">=1.44,<2"
+opentelemetry-exporter-otlp-proto-http = ">=1.44,<2"
+opentelemetry-instrumentation-django = ">=0.65b0"
+# Optional import of the Django instrumentor, and required in practice: without
+# it `_is_asgi_supported` is False and its middleware returns early for ASGI
+# requests, silently producing no span. uvicorn -- both `serve` and the
+# production uvicorn-worker -- is exactly that path.
+opentelemetry-instrumentation-asgi = ">=0.65b0"
+opentelemetry-instrumentation-celery = ">=0.65b0"
+opentelemetry-instrumentation-psycopg = ">=0.65b0"
+opentelemetry-instrumentation-redis = ">=0.65b0"
+# Backing packages for PyPI extras that conda-forge splits out:
+# django-allauth[mfa] (fido2, qrcode) is deliberately absent: authentication is
+# delegated to an OpenID Connect provider, so any second factor is enforced at
+# the IdP and `allauth.mfa` is never installed.
+uvicorn-standard = "*"  # uvicorn[standard]
+# Build backend for the editable install below. It lives here rather than in
+# the dev feature because [pypi-options] no-build-isolation requires the
+# backend to be present in whichever environment installs the package -- which
+# includes the runtime-only default environment.
+hatchling = ">=1.27,<2"
+hatch-vcs = ">=0.5,<1"   # derives the version from git tags
+
+# gunicorn is POSIX-only and has no conda-forge win-64 build; uvicorn-worker is
+# its worker class, so both are scoped to the platforms that can run them.
+# Windows development uses `pixi run runserver` / uvicorn directly.
+[target.linux-64.dependencies]
+gunicorn = ">=26.0,<27"
+uvicorn-worker = ">=0.4,<0.5"
+
+[target.osx-arm64.dependencies]
+gunicorn = ">=26.0,<27"
+uvicorn-worker = ">=0.4,<0.5"
+
+# The application itself, and nothing else. Everything it needs is declared
+# above as a conda package, so this entry only puts the source tree on the
+# path. A third-party package appearing here is a supply-chain exception and
+# needs the reasoning and an exit condition recorded beside it --
+# tests/unit/test_dependency_policy.py fails until that happens.
+[pypi-dependencies]
+conda-package-supply-chain-monitor = { path = ".", editable = true }
+
+# Build with the conda-forge hatchling/hatch-vcs from the dev feature instead
+# of letting the build frontend fetch its own copies from PyPI.
+[pypi-options]
+no-build-isolation = ["conda-package-supply-chain-monitor"]
+
+[feature.dev.dependencies]
+python-build = ">=1.3,<2"
+conventional-commit-hook = ">=0.1,<1"   # commit-msg hook
+coverage = ">=7.15,<8"
+django_coverage_plugin = ">=3.2,<4"
+django-debug-toolbar = ">=7.0,<8"
+django-extensions = ">=4.1,<5"
+# Version-locked to Django's minor series: the 5.2 stub line is built against
+# Django 5.2, so this moves in the same change as the `django` pin above or
+# strict mypy type-checks a 5.2 runtime against another release's stubs and
+# still exits 0 -- wrong checking that passes, which is worse than none. Strict
+# is a gate condition (Story 1.3, AD-18), so this is a correctness pin rather
+# than tidiness, and tests/unit/test_dependency_policy.py asserts the minors
+# match.
+django-stubs = ">=5.2,<5.3"
+# Declared rather than left transitive, and pinned to the same series for the
+# same reason as the line above. django-stubs 5.2.9 requires only
+# `django-stubs-ext >=5.2.9`, which left the solver free to take -- and it did
+# take -- django-stubs-ext 6.0.8 beside the 5.2 stubs. It is the runtime half of
+# the same distribution, so "the stubs track the runtime series" has to cover it
+# too or the invariant is asserted for two of the three packages that carry it.
+# The floor is 5.2.9 because that is what django-stubs 5.2.9 itself requires.
+django-stubs-ext = ">=5.2.9,<5.3"
+django-upgrade = ">=1.31,<2"
+# Moved with the two pins above, and not by choice: this line tracks
+# `django-stubs`, not `djangorestframework`. The solver settled it -- with
+# `django-stubs` at 5.2 the old `>=3.17,<4` had no viable option, because
+# djangorestframework-stubs 3.17.0/3.17.1 require `django-stubs >=6.0.4` and
+# 3.18.0 requires `>=6.0.9`. 3.16 is the line built against the 5.2 stubs, so it
+# is where the LTS move lands; the runtime `djangorestframework` pin is
+# untouched and still resolves 3.18.0. Move all three together at the next LTS.
+djangorestframework-stubs = ">=3.16.9,<3.17"
+djlint = ">=1.43,<2"
+factory_boy = ">=3.3,<4"
+# Generates CHANGELOG.md for the `changelog` task, which release.yml also runs.
+# Unpinned deliberately: it is a standalone Rust binary invoked as `git cliff`
+# with no Python API this project imports, so a new release cannot break an
+# import. Its configuration lives in [tool.git-cliff] in pyproject.toml, which
+# is the surface a breaking change would land on.
+git-cliff = "*"
+ipdb = ">=0.13,<0.14"
+mypy = ">=2.3,<3"
+pre-commit = ">=4.6,<5"
+pre-commit-hooks = ">=6.0,<7"   # provides the local file-hygiene hooks
+pytest = ">=9.1,<10"
+pytest-cov = ">=7.0,<8"
+pytest-django = ">=4.13,<5"
+pytest-sugar = ">=1.1,<2"
+# Declared because tests/unit/test_gate_contract.py imports it directly to parse
+# the workflow files. It already reaches the environment transitively, but
+# transitive availability is not declaration.
+pyyaml = ">=6.0,<7"
+mkdocs = ">=1.6,<2"
+mkdocs-material = ">=9.7,<10"
+ruff = ">=0.16,<0.17"
+watchdog = "*"          # werkzeug[watchdog]
+watchfiles = ">=1.2,<2"
+werkzeug = ">=3.1,<4"
+
+# ---------------------------------------------------------------------------
+# R-1's spike, and nothing else. Why this feature exists, what retires it and
+# what the spike concluded are all recorded *below* the table header rather
+# than here: tests/unit/test_dependency_policy.py reads the comment block
+# immediately above the declaration and stops at any line that is not a `#`
+# comment -- a `[table]` header included -- so anything written above the header
+# is invisible to every assertion in that file and could be deleted without
+# failing anything.
+# ---------------------------------------------------------------------------
+[feature.spike-storage.dependencies]
+# ---- Why this feature exists, and what retires it -------------------------
+# django-storages is declared here rather than in [dependencies] because
+#   FR-50's rule is that fitness is proven before a feature is committed to --
+#   and a runtime declaration is that commitment. The package resolves from
+#   conda-forge like everything else; this is a dependency held out of the
+#   runtime set until it has been shown to work, not a supply-chain carve-out,
+#   and the project still carries none of those.
+# Exit condition: the recorded verdict below. Epic 7 Story 7.5 moves this
+#   declaration into the `storage` feature, carrying the verdict block with it,
+#   if and only if the verdict permits. Epic 8 Story 8.1 then deletes
+#   [feature.spike-storage] and the `spike-storage` environment with it.
+# Cost of that deletion, recorded here because here is where it will be done:
+#   six assertions across three test modules hard-name this feature and go with
+#   it. tests/unit/test_dependency_policy.py --
+#   test_the_storage_spike_is_staged_rather_than_committed_to,
+#   test_the_storage_spike_is_declared_in_no_other_dependency_table,
+#   test_the_spike_environment_shares_the_solve_group,
+#   test_the_spike_verdict_is_recorded_beside_the_declaration,
+#   test_the_recorded_verdict_names_the_versions_the_lock_resolves and
+#   test_the_docs_copy_of_the_verdict_matches_the_manifest.
+#   tests/unit/test_gate_contract.py -- test_the_storage_spike_is_not_a_gate_step,
+#   test_the_spike_task_names_a_file_that_exists and
+#   test_the_gate_cannot_collect_the_storage_spike (which asserts
+#   tests/spikes/ exists). tests/unit/test_suite_policy.py -- the
+#   RECORDED_EXEMPTIONS entry, which fails from both directions. Removing the
+#   feature without removing tests/spikes/ and these entries in the same change
+#   leaves the gate red.
+# ---- R-1 verdict, recorded where the dependency is declared (AC #1) --------
+# Verdict: proven with a stated bound.
+# Recorded: 2026-08-16, by tests/spikes/spike_django_storages_fitness.py.
+#   Amended 2026-08-16 by the story's review pass, which narrowed three claims
+#   that said more than the spike proved; the verdict itself did not move.
+#   Re-run 2026-08-16 against the 5.2 LTS runtime after Story 1.9 moved the pin:
+#   29 assertions passed unchanged, so the verdict holds on LTS and the scope
+#   caveat that stood here has been deleted, which is what that caveat itself
+#   said would happen once the spike caught up. (Deliberately not quoting its
+#   marker text: the gate check matches that prefix wherever it appears in this
+#   block, so prose about a caveat reads to it as a live one.)
+# Tested against: django-storages 1.14.6, Django 5.2, Python 3.14, boto3
+#   1.43.65 -- the versions the spine's Stack table names, each read back from
+#   the installed distribution by the spike rather than assumed, and each
+#   reconciled against pixi.lock on every `pixi run ci` by
+#   test_the_recorded_verdict_names_the_versions_the_lock_resolves. The spike
+#   itself runs in no automated path, so that gate-side check is what stops a
+#   version bump inheriting this verdict instead of re-earning it.
+# Upstream, as of 2026-08-16: master declares `Framework :: Django` 4.2, 5.2 and
+#   6.0 and Python 3.10-3.14 (commit #1545, 2026-08-02) -- the first activity
+#   there in a long while, and it covers the runtime this project ships. It is
+#   UNRELEASED: master still reports __version__ 1.14.6 and the newest tag is
+#   1.14.6, so conda-forge has nothing newer to package. Do not treat a release
+#   as imminent -- the Django 5.2 support commit (#1520) landed 2025-06-17 and
+#   has sat unreleased since. Watch signal: a tag above 1.14.6. If one lands,
+#   the declared-support gap closes on a version bump and rung 2 of the ladder
+#   below (feedstock push + time-boxed index exception) is never needed.
+# Class path: storages.backends.s3.S3Storage. The legacy
+#   storages.backends.s3boto3.S3Boto3Storage also exists in 1.14.6 and is a
+#   subclass of it, kept for compatibility; Epic 7 names the former.
+# Call sites exercised, all without a network: the backend module imports and
+#   the storage class instantiates; STORAGES["default"] resolves through
+#   django.core.files.storage.storages["default"] and default_storage; save,
+#   open, exists, delete, url, size, listdir and get_available_name are all
+#   present and accept the minimal and maximal positional calls Django 6.0's
+#   Storage base declares; the two keyword calls Django actually makes --
+#   save(..., max_length=) and get_available_name(..., max_length=) -- bind; the
+#   private hooks the inherited methods delegate to, _save and _open, accept the
+#   two-argument call Django's base class makes to them; boto3 builds its
+#   session, resolves the endpoint and assembles a client offline; and no
+#   DeprecationWarning or RemovedInDjango*Warning is raised on a fresh import of
+#   storages, boto3 and botocore or on instantiation.
+# Two of those eight prove nothing about django-storages, recorded because
+#   listing them without saying so would overstate the evidence: S3Storage.save
+#   and S3Storage.open are the identical function objects as Django 6.0's
+#   Storage.save and Storage.open -- the package overrides _save and _open, not
+#   the public methods -- so a signature check of those two compares Django with
+#   itself. The set is frozen in the spike, and the overrides where the real
+#   behaviour lives are checked separately.
+# django.core.checks.run_checks() reports no error with the backend configured,
+#   and this is a weak signal rather than proof: Django does not instantiate a
+#   storage backend during system checks. Setting STORAGES["default"]["BACKEND"]
+#   to a module that does not exist and calling run_checks() returns an empty
+#   list -- verified. The only check that reads STORAGES is
+#   staticfiles.checks.check_storages, which inspects the staticfiles alias. So
+#   what this leg shows is that configuring the backend introduces no other
+#   check error, not that the backend is check-clean.
+# FR-38, stated as the spike found it rather than as it was first written:
+#   django-storages 1.14.6 reads only access_key and secret_key from the process
+#   environment, via its internal lookup_env on AWS_ACCESS_KEY_ID and
+#   AWS_SECRET_ACCESS_KEY. endpoint_url, region_name and bucket_name come from
+#   *Django settings* alone -- proved by withholding each option in turn and
+#   watching those three come back None, and by putting a value in
+#   settings.AWS_STORAGE_BUCKET_NAME and watching it arrive. "Configuration from
+#   the environment alone" is therefore the application's job: the settings
+#   module routes those three from os.environ into
+#   STORAGES["default"]["OPTIONS"]. That routing is what Story 7.5 must
+#   reproduce, and it must raise ImproperlyConfigured -- not the spike's bare
+#   KeyError -- when a variable is missing.
+# Recorded divergence, neither failed on nor hidden: S3Storage spells Django's
+#   `Storage.listdir(self, path)` as `listdir(self, name)`. It is harmless
+#   because `listdir` is not one of the methods Django calls by keyword, and not
+#   because Django calls positionally only -- it does not; see the two
+#   max_length call sites above. A rename touching save, get_available_name or
+#   either max_length parameter would break Django itself. A keyword call
+#   `listdir(path=...)` still raises TypeError. Frozen in the spike, so a second
+#   rename fails rather than passing unremarked.
+# Bound -- what is NOT proven: the round-trip leg (save -> exists -> open ->
+#   size -> url -> delete against a live S3-compatible endpoint) did not run.
+#   It is armed by SPIKE_STORAGE_ROUND_TRIP and no endpoint was stood up. So the
+#   wire protocol against a real bucket is unproven; what is proven is that the
+#   package loads, configures and conforms to Django 6.0's storage contract on
+#   Python 3.14. Set SPIKE_STORAGE_ROUND_TRIP=1 together with
+#   AWS_S3_ENDPOINT_URL and the four other AWS_* variables (a MinIO container
+#   will do) and re-run `pixi run spike-storage` to close it. The opt-in is
+#   deliberate: without it the spike ignores ambient AWS values entirely, so
+#   running the documented command cannot reach a bucket a developer's shell
+#   happens to name.
+# What the live leg does to the bucket when it is armed: it writes one object
+#   under a key carrying a fresh UUID, having first asserted that key is free,
+#   with file_overwrite disabled so a collision is renamed rather than
+#   overwritten; teardown deletes both the key it meant to write and whatever
+#   name save() returned. It touches nothing it did not create.
+# The full escalation ladder is in docs/development.md, "Object storage
+#   fitness (R-1)".
+# ---------------------------------------------------------------------------
+django-storages = ">=1.14.6,<2"
+
+# `default` is runtime only -- it is what a production image would install.
+# `dev` layers the toolchain on top. Both share a solve-group so the packages
+# they have in common resolve to identical versions.
+#
+# `spike-storage` layers R-1's spike dependency on top of `dev` and joins the
+# same solve-group, which is not optional (AD-3): without it the spike would
+# resolve its own Django and prove nothing about the one the product ships.
+#
+# `gate` carries no dependencies at all. It exists to hold the `ci` task in a
+# feature that belongs to `dev` and to nothing else -- see the comment above
+# [feature.gate.tasks] for why the gate has to be reachable from exactly one
+# environment, and why `spike-storage` layering the `dev` feature is what forced
+# the point.
+#
+# Tasks resolve to the environment that defines them: runtime tasks live in
+# [tasks], development tasks in [feature.dev.tasks], so `pixi run test` selects
+# the dev environment on its own and needs no -e flag.
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev", "gate"], solve-group = "default" }
+spike-storage = { features = ["dev", "spike-storage"], solve-group = "default" }
+
+[activation.env]
+# No COMPONENT_* variable may be declared here (AD-13). This is the table the
+# `default` environment resolves, and the golden base runs pixi, so whatever
+# sits here reaches production: a COMPONENT_RUNTIME=local written here would
+# arrive in the deployed image and invert the fail-closed locality default,
+# disarming every refusal built on it. `default` declaring nothing is what
+# leaves the deployment platform's own configuration -- an OpenShift configmap
+# or equivalent -- in sole control of the variable.
+#
+# COMPONENT_PROCESS is forbidden more broadly still: not here, and not in any
+# [feature.<name>.activation.env] either. Placed in any activation env it would
+# make every management command declare itself a serving process -- `pixi run
+# migrate` included, a release-stage step, which then refuses on the
+# unapplied-migrations condition and deadlocks the release. Serving processes
+# declare it in their own task `env` (Epic 5, AD-14) and nowhere else.
+#
+# tests/unit/test_locality_declaration.py asserts both prohibitions over the
+# materialized manifest, platform-scoped tables included.
+#
+# django_coverage_plugin is a dynamic file tracer, which needs sys.settrace.
+# On Python 3.12+ coverage defaults to the `sysmon` core, which does not
+# support such plugins -- templates get discovered but never traced, and
+# silently report 0%. Force the C trace core so template coverage is real.
+COVERAGE_CORE = "ctrace"
+
+# Locality is declared by the *environment*, not by the task (AD-13), and this
+# is its one declaration site in the whole repository.
+#
+# Every developer path resolves to the `dev` environment and inherits
+# COMPONENT_RUNTIME=local from here -- `runserver`, `serve-reload`,
+# `makemigrations`, `test`, `test-integration`, `test-cov`, `typecheck`,
+# `precommit`, `ruff-report`, `spike-storage`, and an ad-hoc `pixi run -e dev
+# -- <cmd>` or `pixi shell -e dev` alike. The `default` environment declares
+# nothing and therefore reads *deployed*, which is what the golden base runs
+# and what the release stage invokes: bare `pixi run migrate` and `pixi run
+# collectstatic` resolve in `default` and correctly read deployed. A developer
+# who wants those to behave locally runs `pixi run -e dev migrate`.
+#
+# Why not on the tasks. A task's `env` *overrides* the caller's environment
+# (probed on pixi 0.70.2), so a task-level COMPONENT_RUNTIME=local on `migrate`
+# could not be overridden by the deployment platform's configmap: the
+# production release stage would read *local* and skip every stage-1 refusal
+# built on it, with no way for the platform to correct it. Declaring nothing in
+# `default` inverts that -- absence fails closed to *deployed*, and the platform
+# keeps sole control of the variable. So no task declares COMPONENT_RUNTIME in
+# its own `env`, and tests/unit/test_locality_declaration.py asserts that none
+# does.
+#
+# Absent or unrecognized means *deployed* (src/config/locality.py), so a
+# declaration lost between here and production leaves the refusals armed rather
+# than disarmed.
+[feature.dev.activation.env]
+COMPONENT_RUNTIME = "local"
+# Turns on django-debug-toolbar and django-extensions in
+# config/settings/local.py. They ship only in this feature, so the runtime
+# environment leaves the flag off and Django starts without them.
+DJANGO_DEBUG_APPS = "True"
+
+# ---------------------------------------------------------------------------
+# Tasks. Every task carries an explicit `default-environment`, so `pixi run
+# <task>` never has to be given -e and never prompts to choose -- tasks in
+# [tasks] belong to the default feature and are therefore visible from both
+# environments, which is exactly the ambiguity this removes.
+#
+# `description` is what `pixi task list` shows.
+# ---------------------------------------------------------------------------
+
+# ---- Django (runtime environment) ----
+# Operational commands a deployment also runs, so they belong to the runtime
+# environment. They work there because config/settings/local.py gates
+# debug_toolbar and django_extensions behind DJANGO_DEBUG_APPS, which only the
+# dev environment sets.
+[tasks]
+manage = { cmd = "python manage.py", default-environment = "default", description = "Run a Django management command" }
+migrate = { cmd = "python manage.py migrate", default-environment = "default", description = "Apply database migrations" }
+collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "default", description = "Collect static files into staticfiles/" }
+createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
+# The admin process AD-31 declares, and `component.toml`'s one
+# `[[admin_processes]]` entry names by exactly this task name.
+#
+# It sits here rather than beside `worker` and `beat` for a reason the position
+# alone does not carry: it must be **outside** the `# feature:celery` region
+# below. Expired session rows and expired mapper epoch records accumulate in all
+# six combinations, and background task processing exists in two of them, so a
+# prune declared inside that region would be stripped from the four components
+# whose session table nobody is watching -- which is exactly why AD-31 makes
+# pruning an admin process instead of a beat entry in the first place.
+#
+# It declares **no `env` table at all**, and both halves of that are asserted.
+# No COMPONENT_PROCESS: an admin process is not a serving process, and one that
+# said it was would fire the serving-process refusals on the very maintenance it
+# was invoked to do (AD-13's deadlock; tests/unit/test_process_model.py). No
+# COMPONENT_RUNTIME: locality is declared by the environment, never by a task
+# (tests/unit/test_locality_declaration.py).
+#
+# No schedule is encoded here or in `component.toml`. FR-44's scheduling half is
+# the deployment repository's; the component declares only that the process
+# exists and what it is called.
+prune = { cmd = "python manage.py prune_expired_state", default-environment = "default", description = "Admin process: prune expired sessions and mapper epoch records" }
+# The cross-platform *local* ASGI server, and not a process type. uvicorn runs
+# on all three platforms, unlike the gunicorn+uvicorn-worker pairing the `web`
+# process uses, which is POSIX-only -- which is the only reason this task exists
+# beside `web` at all.
+#
+# It is emphatically not "production-like", and has not been since the locality
+# contract landed: bare `pixi run serve` resolves in `default`, reads *deployed*,
+# and config/asgi.py's DJANGO_SETTINGS_MODULE fallback then imports
+# config.settings.local -- which stage-1 condition 1 refuses outright
+# (src/config/startup/stage_one.py). The invocation is `pixi run -e dev serve`,
+# which resolves in `dev`, reads *local*, and is what the description now says.
+# A deployment runs `web`; this is a developer's. (Story 5.2 resolved this in
+# favour of correcting the description rather than changing the entrypoint
+# default: manage.py carries the same local fallback, so moving asgi.py's alone
+# would be half a fix for a property the refusal already guarantees.)
+serve = { cmd = "uvicorn config.asgi:application", default-environment = "default", description = "Serve with uvicorn (local ASGI; run it as `pixi run -e dev serve`)" }
+
+# ---- Serving processes (AD-14) ----
+# The process model. The deployment repository invokes `pixi run <process>` and
+# enumerates the set with `pixi task list`; there is no Procfile and none will be
+# added (AD-15: materialized components ship no Dockerfile either, so `pixi run`
+# against the golden base *is* the invocation path).
+#
+# Each one declares COMPONENT_PROCESS in its own `env` and declares **no**
+# COMPONENT_RUNTIME, thereby inheriting *deployed* from the `default`
+# environment's silence (AD-13). Adding a runtime here "for clarity" inverts the
+# fail-closed property, and tests/unit/test_locality_declaration.py fails the
+# gate on any task that does. The membership rule for the process group is
+# structural rather than nominal (AD-26): the group is exactly the set of tasks
+# whose `env` declares COMPONENT_PROCESS, and
+# tests/unit/test_process_model.py reconciles it against component.toml's
+# `[[processes]]` in both directions.
+#
+# gunicorn and uvicorn-worker are declared only under
+# [target.linux-64.dependencies] and [target.osx-arm64.dependencies] above --
+# gunicorn has no conda-forge win-64 build, which is also AD-18's reason the
+# six-combination harness is Linux-only. Windows development uses `serve`.
+#
+# No grace period and no port are encoded in the command. AD-22 gives the
+# grace-period value to the deployment repository, and gunicorn's own
+# GUNICORN_CMD_ARGS environment variable is the injection point for that, for
+# --bind and for worker counts -- so none of it needs a component-side flag.
+web = { cmd = "gunicorn config.asgi:application -k config.workers.DrainingUvicornWorker --bind 0.0.0.0:8000", default-environment = "default", env = { COMPONENT_PROCESS = "web" }, description = "Serving process: gunicorn + uvicorn worker (deployed)" }
+# The first `# feature:` region in this manifest (AD-24). `worker` and `beat`
+# exist only where background task processing is selected -- two of the six
+# combinations -- so they are removed by declared marker rather than surviving
+# into a component the deployment repository would then try to run.
+#
+# Everything the region needs explaining is written *inside* it, below the
+# opening marker rather than above it. A comment placed above would survive the
+# strip and leave a non-Celery component carrying prose about a `--scheduler`
+# flag on a task it does not have -- the orphan-residue category AD-24 names,
+# arriving through the one file that declares the regions. Markers stay flush
+# against the span they delimit, the convention Story 4.4 established when a
+# blank-separated marker did not survive `ruff format`.
+# feature:celery
+# The region is *placed* here and **declared** in `accelerator.toml` in Epic 7,
+# which is where AD-24's `[[regions]]` array lives. Epic 7 author: this pair,
+# path `pixi.toml`, feature `celery`, is one of the entries you need; an
+# undeclared region is one the materializer never strips.
+#
+# `config.celery_app` is src/config/celery_app.py. The explicit --scheduler is
+# belt-and-braces: CELERY_BEAT_SCHEDULER already names the database scheduler in
+# src/config/settings/base.py, and the two must agree. Neither command carries a
+# flag that alters shutdown semantics -- no --pool=solo, no -Ofair -- because
+# Story 5.4's drain ordering depends on Celery's default warm shutdown.
+worker = { cmd = "celery -A config.celery_app worker -l INFO", default-environment = "default", env = { COMPONENT_PROCESS = "worker" }, description = "Serving process: Celery worker (deployed)" }
+beat = { cmd = "celery -A config.celery_app beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler", default-environment = "default", env = { COMPONENT_PROCESS = "beat" }, description = "Serving process: Celery beat, exactly one replica (deployed)" }
+# /feature:celery
+# The local personas (FR-19). It belongs here rather than in [feature.dev.tasks]
+# because src/config/local_dev/ is `core` and ships in every component: the path
+# is guarded by a refusal rather than stripped, so it must be runnable from the
+# runtime environment for that refusal to be the thing that stops it.
+#
+# It declares no `env`, and must not. Locality is declared exactly once, in
+# [feature.dev.activation.env] (AD-13 as amended), and a task `env` overrides
+# the caller's -- tests/unit/test_locality_declaration.py fails the gate on any
+# task that declares COMPONENT_RUNTIME. So the invocation is
+# `pixi run -e dev seed-personas`, which resolves in `dev` and inherits
+# COMPONENT_RUNTIME=local; bare `pixi run seed-personas` resolves in `default`,
+# reads *deployed*, and is correctly refused with ImproperlyConfigured.
+seed-personas = { cmd = "python -m config.local_dev.seed", default-environment = "default", description = "Seed the local development personas" }
+# The local programmatic credential (FR-20). Mints a JWT signed by the keypair
+# `src/config/local_dev/keys.py` generates on demand into the gitignored
+# `.local-dev-keys/`, which local settings point the JWKS location at, so the
+# real Bearer authentication class verifies it with nothing stubbed.
+#
+# Same placement and the same absent `env` as seed-personas above, for the same
+# two reasons. Invoke it as `pixi run -e dev mint-token <persona-key>`; the bare
+# form resolves in `default`, reads *deployed*, and is refused before a key is
+# generated -- which is the refusal being the guard rather than the task being
+# hidden.
+mint-token = { cmd = "python -m config.local_dev.mint", default-environment = "default", description = "Mint a development JWT for a local persona" }
+
+# ---- Development-only Django commands ----
+# The dev server, autoreload and migration authoring. These run with
+# DJANGO_DEBUG_APPS on, so the debug toolbar is available.
+[feature.dev.tasks]
+runserver = { cmd = "python manage.py runserver", default-environment = "dev", description = "Django development server (with debug toolbar)" }
+# --reload-dir is a file-watch target, not an import-root declaration, so it
+# stays; --app-dir would be a second declaration site and is gone (AD-7).
+serve-reload = { cmd = "uvicorn config.asgi:application --reload --reload-dir src", default-environment = "dev", description = "Serve with uvicorn and autoreload" }
+makemigrations = { cmd = "python manage.py makemigrations", default-environment = "dev", description = "Generate new migrations" }
+
+# ---- Standard harness ----
+bootstrap = { cmd = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg", default-environment = "dev", description = "Install the git hooks" }
+format = { cmd = "ruff format .", default-environment = "dev", description = "Format the code with ruff" }
+lint = { cmd = "ruff check .", default-environment = "dev", description = "Lint with ruff" }
+typecheck = { cmd = "mypy src/", default-environment = "dev", description = "Type-check with mypy" }
+test = { cmd = "pytest tests/unit/", default-environment = "dev", description = "Unit tests only (fast, no I/O)" }
+test-integration = { cmd = "pytest tests/integration/", default-environment = "dev", description = "Integration tests only" }
+# The floor, declared once (AD-20): ninety percent, including templates,
+# everywhere. Never lowered, never made per-directory, and never cleared by a
+# pragma on unreached code -- a pragma raises the percentage by shrinking the
+# denominator, which is the same blinding by a quieter route.
+# tests/unit/test_coverage_policy.py asserts that this manifest declares the
+# floor exactly once, that the value is 90, and that no competing declaration
+# exists in pyproject.toml's coverage or pytest tables.
+test-cov = { cmd = "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90", default-environment = "dev", description = "Full suite with coverage, fails under 90%" }
+# --exit-zero so the report is always produced; `lint` is what gates on findings.
+ruff-report = { cmd = "ruff check . --output-format json --output-file ruff-report.json --exit-zero", default-environment = "dev", description = "Write ruff findings as JSON for SonarCloud" }
+# --no-isolation uses the conda-forge hatchling/hatch-vcs already in the
+# environment rather than fetching them from PyPI into a throwaway build env.
+build = { cmd = "python -m build --no-isolation", default-environment = "dev", description = "Build the wheel and sdist" }
+docs = { cmd = "mkdocs build --strict", default-environment = "dev", description = "Build the documentation" }
+docs-serve = { cmd = "mkdocs serve", default-environment = "dev", description = "Serve the documentation with live reload" }
+changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
+precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
+
+# ---- The gate ----
+# `gate` is a feature with no dependencies of its own. It exists so that `ci` is
+# reachable from exactly one environment, and it is not decoration:
+#
+# Every other task pins `default-environment`, which is what makes `pixi run
+# <task>` unambiguous however many environments carry the feature that declares
+# it. `ci` cannot -- pixi rejects `default-environment` on a task that declares
+# only `depends-on` ("Unexpected keys, expected only 'cmd', 'depends-on',
+# 'description', 'args'"). So the only thing that can keep `pixi run ci`
+# unambiguous is the task being visible from one environment, which means the
+# feature declaring it belonging to one environment. `dev` is that environment;
+# `spike-storage` layers the dev *feature* and would otherwise have offered a
+# second `ci`, and Epic 8's six-environment matrix would have offered six.
+#
+# The gate itself (AD-18): one task, one invocation, and CI runs exactly this
+# and nothing else -- so a developer's `pixi run ci` and the pipeline's execute
+# the identical sequence.
+#
+# Order is load-bearing and fast-fail-first: the static checks run before the
+# suite, so a type or lint error surfaces without paying for the tests. pixi
+# executes `depends-on` sequentially in declaration order, stops at the first
+# failure and propagates its exit code, which is why the order lives in this
+# list rather than in a chain of per-task `depends-on` -- chaining would make
+# `pixi run lint` drag the whole gate behind it.
+[feature.gate.tasks]
+ci = { depends-on = [
+  "precommit",  # ruff format + ruff lint (auto-fix) + mypy, over every file
+  "build",      # the package is distributable: catches import and packaging errors
+  "typecheck",  # mypy over the full src/ tree with strict pyproject.toml settings
+  "lint",       # ruff over everything, zero findings
+  "test-cov",   # full suite, coverage >= 90% including templates
+], description = "The gate: precommit, build, typecheck, lint, test-cov -- in that order" }
+
+# ---- R-1's spike (spike-storage environment) ----
+# Deliberately outside the gate. `test-cov` runs `pytest tests/` in the `dev`
+# environment, where django-storages is absent, so the spike is kept out of
+# collection by *name* rather than by a pytest flag: the file is
+# `spike_*.py`, which `[tool.pytest.ini_options] python_files` does not match,
+# and pytest collects it here only because it is named on the command line.
+# The alternative -- `-m "not spike"` on `test-cov` -- is closed by AD-20:
+# tests/unit/test_coverage_policy.py bans `-m` on the floor-carrying task,
+# because that is how the floor would come to measure less than the whole suite.
+[feature.spike-storage.tasks]
+spike-storage = { cmd = "pytest tests/spikes/spike_django_storages_fitness.py -m spike", default-environment = "spike-storage", description = "R-1: prove django-storages against the locked Django and Python" }
