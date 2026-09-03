@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+from http import HTTPStatus
+from typing import TYPE_CHECKING
+
+import pytest
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.models import AnonymousUser
+from django.contrib.messages.middleware import MessageMiddleware
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpRequest
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
+
+from django_service.users.forms import UserAdminChangeForm
+from django_service.users.views import UserRedirectView
+from django_service.users.views import UserUpdateView
+from django_service.users.views import user_detail_view
+from tests.factories import UserFactory
+
+if TYPE_CHECKING:
+    from django.test import RequestFactory
+
+    from django_service.users.models import User
+
+pytestmark = pytest.mark.django_db
+
+
+class TestUserUpdateView:
+    """
+    TODO:
+        extracting view initialization code as class-scoped fixture
+        would be great if only pytest-django supported non-function-scoped
+        fixture db access -- this is a work-in-progress for now:
+        https://github.com/pytest-dev/pytest-django/pull/258
+    """
+
+    def dummy_get_response(self, request: HttpRequest):
+        return None
+
+    def test_get_success_url(self, user: User, rf: RequestFactory):
+        view = UserUpdateView()
+        request = rf.get("/fake-url/")
+        request.user = user
+
+        view.request = request
+        assert view.get_success_url() == f"/users/{user.username}/"
+
+    def test_get_object(self, user: User, rf: RequestFactory):
+        view = UserUpdateView()
+        request = rf.get("/fake-url/")
+        request.user = user
+
+        view.request = request
+
+        assert view.get_object() == user
+
+    def test_form_valid(self, user: User, rf: RequestFactory):
+        view = UserUpdateView()
+        request = rf.get("/fake-url/")
+
+        # Add the session/message middleware to the request
+        SessionMiddleware(self.dummy_get_response).process_request(request)
+        MessageMiddleware(self.dummy_get_response).process_request(request)
+        request.user = user
+
+        view.request = request
+
+        # Initialize the form
+        form = UserAdminChangeForm()
+        form.cleaned_data = {}
+        form.instance = user
+        view.form_valid(form)
+
+        messages_sent = [m.message for m in messages.get_messages(request)]
+        assert messages_sent == [_("Information successfully updated")]
+
+
+class TestUserRedirectView:
+    def test_get_redirect_url(self, user: User, rf: RequestFactory):
+        view = UserRedirectView()
+        request = rf.get("/fake-url")
+        request.user = user
+
+        view.request = request
+        assert view.get_redirect_url() == f"/users/{user.username}/"
+
+
+class TestUserDetailView:
+    def test_authenticated(self, user: User, rf: RequestFactory):
+        request = rf.get("/fake-url/")
+        request.user = UserFactory.create()
+        response = user_detail_view(request, username=user.username)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_not_authenticated(self, user: User, rf: RequestFactory):
+        """AC #1: an unauthenticated request to an authenticated page goes to the IdP.
+
+        `str` rather than `reverse`: `LOGIN_URL` is the provider's login route
+        resolved lazily in the settings module, not a URL *name* to be reversed
+        again. That change is the assertion -- the target is the OIDC redirect,
+        never allauth's local credential form at `/accounts/login/`.
+        """
+        request = rf.get("/fake-url/")
+        request.user = AnonymousUser()
+        response = user_detail_view(request, username=user.username)
+        login_url = str(settings.LOGIN_URL)
+
+        assert isinstance(response, HttpResponseRedirect)
+        assert response.status_code == HTTPStatus.FOUND
+        assert response.url == f"{login_url}?next=/fake-url/"
+        assert response.url.startswith(reverse("openid_connect_login", kwargs={"provider_id": "oidc"}))
+        assert not response.url.startswith(reverse("account_login"))
+
+    def test_not_authenticated_through_the_url_resolver(self, user: User, client):
+        """The same guarantee end to end, through the resolver and the middleware stack.
+
+        `test_not_authenticated` above calls the view directly, which proves the
+        mixin's behaviour but not the route's. This one is what AC #1 actually
+        says: a request to an authenticated page redirects to the IdP.
+        """
+        response = client.get(reverse("users:detail", kwargs={"username": user.username}))
+
+        assert response.status_code == HTTPStatus.FOUND
+        assert response.url.startswith(reverse("openid_connect_login", kwargs={"provider_id": "oidc"}))
+        assert not response.url.startswith(reverse("account_login"))
