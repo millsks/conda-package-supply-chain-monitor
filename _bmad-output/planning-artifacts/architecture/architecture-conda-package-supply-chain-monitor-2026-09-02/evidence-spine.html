@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Standalone copy of the architecture walkthrough deck.
+
+  The published Artifact version of this page is a fragment: the Artifact runtime
+  supplies the document skeleton, a small reset, and native mermaid rendering. This
+  file adds all three so it also opens correctly straight from the filesystem.
+
+  Keep this in sync with the spine and the solution design it summarizes -- it is a
+  rendering of them, not a third source of truth.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.4.1/mermaid.min.js"></script>
+</head>
+<body>
+<title>Evidence Spine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --ink:#101C24;
+  --ink-2:#3A4A55;
+  --ink-3:#69787F;
+  --ground:#F2F5F5;
+  --surface:#FFFFFF;
+  --surface-2:#E8EDED;
+  --rule:#CFD8D8;
+  --rule-strong:#A9B7B7;
+  --accent:#0F6455;
+  --accent-soft:#DCEAE5;
+  --copper:#9C4E24;
+  --copper-soft:#F2E2D8;
+
+  --s-ok:#0F6455;
+  --s-unknown:#7A6520;
+  --s-notfound:#3F5F7A;
+  --s-na:#7C8688;
+  --s-error:#9E2F26;
+
+  --shadow:0 1px 2px rgba(16,28,36,.06), 0 8px 24px -12px rgba(16,28,36,.18);
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"Public Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --serif:"Newsreader",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#E6EDEC; --ink-2:#AEBFBD; --ink-3:#7E9290;
+    --ground:#0D1516; --surface:#141F20; --surface-2:#1B2829;
+    --rule:#2A3A3B; --rule-strong:#3E5254;
+    --accent:#54B49E; --accent-soft:#153029;
+    --copper:#D08A5F; --copper-soft:#332116;
+    --s-ok:#54B49E; --s-unknown:#C7A94A; --s-notfound:#7FA6C4;
+    --s-na:#8D9A9C; --s-error:#DE7A6E;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#E6EDEC; --ink-2:#AEBFBD; --ink-3:#7E9290;
+  --ground:#0D1516; --surface:#141F20; --surface-2:#1B2829;
+  --rule:#2A3A3B; --rule-strong:#3E5254;
+  --accent:#54B49E; --accent-soft:#153029;
+  --copper:#D08A5F; --copper-soft:#332116;
+  --s-ok:#54B49E; --s-unknown:#C7A94A; --s-notfound:#7FA6C4;
+  --s-na:#8D9A9C; --s-error:#DE7A6E;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px 96px}
+h1,h2,h3{text-wrap:balance;margin:0}
+a{color:var(--accent)}
+
+/* ---------- masthead ---------- */
+.masthead{
+  border-bottom:2px solid var(--ink);
+  padding:44px 0 20px; margin-bottom:34px;
+}
+.eyebrow{
+  font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3); margin-bottom:18px;
+}
+h1{
+  font-family:var(--serif); font-weight:500; font-size:clamp(40px,6.5vw,68px);
+  line-height:1.02; letter-spacing:-.02em;
+}
+h1 em{font-style:italic; color:var(--accent)}
+.thesis{
+  font-family:var(--serif); font-size:clamp(18px,2.2vw,22px); line-height:1.5;
+  color:var(--ink-2); max-width:62ch; margin-top:18px;
+}
+.meta{
+  display:flex; flex-wrap:wrap; gap:0 34px; margin-top:26px;
+  font-family:var(--mono); font-size:12px; color:var(--ink-3);
+}
+.meta b{color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums}
+
+/* ---------- section scaffold ---------- */
+section{margin-top:68px; scroll-margin-top:20px}
+.sec-head{display:flex; align-items:baseline; gap:14px; border-bottom:1px solid var(--rule); padding-bottom:10px; margin-bottom:26px}
+.sec-head h2{font-family:var(--serif); font-weight:600; font-size:29px; letter-spacing:-.01em}
+.sec-head .tag{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3); letter-spacing:.1em; text-transform:uppercase}
+.lede{max-width:66ch; color:var(--ink-2); margin-bottom:26px}
+
+/* ---------- driving properties ---------- */
+.props{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule)}
+.prop{background:var(--surface); padding:24px}
+.prop h3{font-family:var(--serif); font-size:20px; font-weight:600; margin-bottom:8px}
+.prop p{margin:0; font-size:14.5px; color:var(--ink-2)}
+.prop .out{margin-top:14px; font-family:var(--mono); font-size:11.5px; color:var(--accent); letter-spacing:.04em}
+
+/* ---------- five states ---------- */
+.states{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px}
+.state{
+  background:var(--surface); border:1px solid var(--rule);
+  border-top:3px solid var(--c); padding:16px 16px 18px;
+}
+.state code{font-family:var(--mono); font-size:13px; font-weight:700; color:var(--c); display:block; margin-bottom:6px}
+.state p{margin:0; font-size:13.5px; color:var(--ink-2); line-height:1.5}
+.states-note{
+  margin-top:18px; padding:16px 20px; background:var(--copper-soft);
+  border-left:3px solid var(--copper); font-size:14.5px; color:var(--ink-2);
+}
+.states-note b{color:var(--ink)}
+
+/* ---------- layers ---------- */
+.layers{display:grid; grid-template-columns:minmax(260px,340px) 1fr; gap:26px; align-items:start}
+@media(max-width:820px){.layers{grid-template-columns:1fr}}
+.stack{display:flex; flex-direction:column; gap:0; border:1px solid var(--rule); background:var(--surface)}
+.lyr{
+  display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  padding:13px 15px; background:none; border:0; border-bottom:1px solid var(--rule);
+  font:inherit; color:var(--ink); cursor:pointer; position:relative;
+}
+.lyr:last-child{border-bottom:0}
+.lyr:hover{background:var(--surface-2)}
+.lyr[aria-selected="true"]{background:var(--accent-soft)}
+.lyr[aria-selected="true"]::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent)}
+.lyr .nm{font-family:var(--mono); font-size:13px; font-weight:500}
+.lyr .dep{margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--ink-3)}
+.lyr.inherited .nm{color:var(--ink-3); font-style:italic}
+.panel{background:var(--surface); border:1px solid var(--rule); padding:26px 28px; min-height:280px; box-shadow:var(--shadow)}
+.panel h3{font-family:var(--serif); font-size:23px; font-weight:600; margin-bottom:4px}
+.panel .sub{font-family:var(--mono); font-size:11.5px; color:var(--ink-3); margin-bottom:16px; letter-spacing:.04em}
+.panel p{margin:0 0 14px; font-size:15px; color:var(--ink-2); max-width:62ch}
+.owns{list-style:none; padding:0; margin:0 0 16px; display:flex; flex-wrap:wrap; gap:7px}
+.owns li{font-family:var(--mono); font-size:11.5px; padding:4px 9px; background:var(--surface-2); border:1px solid var(--rule); color:var(--ink-2)}
+.govern{display:flex; flex-wrap:wrap; gap:6px; padding-top:14px; border-top:1px solid var(--rule)}
+.ad-chip{font-family:var(--mono); font-size:11px; font-weight:500; color:var(--accent); border:1px solid var(--accent); padding:3px 7px}
+
+/* ---------- paths ---------- */
+.toggle{display:inline-flex; border:1px solid var(--rule-strong); margin-bottom:22px}
+.toggle button{
+  font:inherit; font-family:var(--mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+  padding:9px 18px; background:var(--surface); color:var(--ink-2); border:0; cursor:pointer;
+}
+.toggle button + button{border-left:1px solid var(--rule-strong)}
+.toggle button[aria-pressed="true"]{background:var(--ink); color:var(--ground)}
+.steps{counter-reset:step; display:flex; flex-direction:column; gap:0; border-left:2px solid var(--rule)}
+.step{position:relative; padding:0 0 24px 30px}
+.step:last-child{padding-bottom:0}
+.step::before{
+  counter-increment:step; content:counter(step);
+  position:absolute; left:-13px; top:0; width:24px; height:24px; border-radius:50%;
+  background:var(--accent); color:#fff; font-family:var(--mono); font-size:11px; font-weight:700;
+  display:grid; place-items:center;
+}
+.step h4{margin:0 0 5px; font-size:15.5px; font-weight:600}
+.step p{margin:0; font-size:14.5px; color:var(--ink-2); max-width:64ch}
+.step .why{margin-top:7px; font-size:13.5px; color:var(--ink-3); border-left:2px solid var(--rule-strong); padding-left:11px}
+
+/* ---------- invariants ---------- */
+.grp{margin-bottom:30px}
+.grp > h3{
+  font-family:var(--mono); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ink-3); padding-bottom:8px; border-bottom:1px solid var(--rule); margin-bottom:0;
+}
+.ad{border-bottom:1px solid var(--rule)}
+.ad summary{
+  display:grid; grid-template-columns:92px 1fr auto; gap:16px; align-items:baseline;
+  padding:13px 4px; cursor:pointer; list-style:none;
+}
+.ad summary::-webkit-details-marker{display:none}
+.ad summary:hover{background:var(--surface-2)}
+.ad .id{font-family:var(--mono); font-size:12px; font-weight:700; color:var(--accent)}
+.ad .ttl{font-size:15px; font-weight:500}
+.ad .st{font-family:var(--mono); font-size:10px; letter-spacing:.1em; color:var(--ink-3); text-transform:uppercase}
+.ad .st.adopted{color:var(--s-ok)}
+.ad .st.new{color:var(--copper)}
+.ad .body{padding:2px 4px 20px 112px; max-width:78ch}
+@media(max-width:700px){
+  .ad summary{grid-template-columns:1fr auto; gap:4px}
+  .ad .id{grid-column:1/-1}
+  .ad .body{padding-left:4px}
+}
+.ad .body dt{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin-top:12px}
+.ad .body dd{margin:3px 0 0; font-size:14.5px; color:var(--ink-2)}
+.ad .body dd:first-of-type{margin-top:0}
+
+/* ---------- pitfalls ---------- */
+.pits{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:20px}
+.pit{background:var(--surface); border:1px solid var(--rule); border-top:3px solid var(--copper); padding:24px}
+.pit h3{font-family:var(--serif); font-size:21px; font-weight:600; margin-bottom:10px}
+.pit p{margin:0 0 12px; font-size:14.5px; color:var(--ink-2)}
+.pit .fix{font-family:var(--mono); font-size:12px; color:var(--accent); padding-top:12px; border-top:1px solid var(--rule)}
+
+/* ---------- deferred ---------- */
+table{width:100%; border-collapse:collapse; font-size:14.5px}
+.tblwrap{overflow-x:auto; border:1px solid var(--rule); background:var(--surface)}
+th{
+  text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--ink-3); font-weight:500;
+  padding:12px 16px; border-bottom:1px solid var(--rule-strong); white-space:nowrap;
+}
+td{padding:13px 16px; border-bottom:1px solid var(--rule); color:var(--ink-2); vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr.blocker td{background:var(--copper-soft); color:var(--ink)}
+tr.blocker td:first-child{font-weight:600}
+
+/* ---------- diagrams ---------- */
+.dia{background:var(--surface); border:1px solid var(--rule); padding:22px; overflow-x:auto; margin-bottom:14px}
+.dia pre.mermaid{background:none; margin:0; text-align:center}
+.cap{font-family:var(--mono); font-size:11.5px; color:var(--ink-3); margin-bottom:26px}
+
+/* ---------- footer ---------- */
+footer{margin-top:76px; padding-top:22px; border-top:2px solid var(--ink); font-family:var(--mono); font-size:12px; color:var(--ink-3)}
+footer .row{display:flex; flex-wrap:wrap; gap:10px 28px}
+
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){
+  .panel{transition:none}
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">Conda Package Supply Chain Monitor · Architecture Walkthrough</div>
+  <h1>Unknown is <em>not</em> clean.</h1>
+  <p class="thesis">A supply-chain monitor earns its keep by being believed. The expensive failure is not a missed CVE — it is a package that reads clean because a lookup failed, a mapping was never resolved, or evidence went stale unnoticed. Every decision below follows from refusing to let that happen.</p>
+  <div class="meta">
+    <span><b>24</b> invariants</span>
+    <span><b>41</b> requirements</span>
+    <span><b>9</b> epics</span>
+    <span><b>10,000</b> packages</span>
+    <span>spine status <b>final</b></span>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head"><h2>Three properties of the problem</h2><span class="tag">why this shape</span></div>
+  <p class="lede">Almost every rule in the spine traces back to one of these. They are properties of the domain, not preferences about code.</p>
+  <div class="props">
+    <div class="prop">
+      <h3>It must be believed</h3>
+      <p>Someone acts — or fails to act — on the word "clean". A false clean is worse than a missing answer, because a missing answer gets chased.</p>
+      <div class="out">→ five outcome states, never four</div>
+    </div>
+    <div class="prop">
+      <h3>It must be reconstructable</h3>
+      <p>Months later, someone asks why a package was flagged, or why it wasn't. That question is unanswerable if the system overwrote what it knew.</p>
+      <div class="out">→ append-only evidence, versioned policy</div>
+    </div>
+    <div class="prop">
+      <h3>Its inputs are unreliable</h3>
+      <p>Source repos, PyPI, conda-forge, advisory feeds, the KEV catalog — each with its own rate limits and outages, none related to the others.</p>
+      <div class="out">→ collectors share nothing but the log</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>The five states</h2><span class="tag">the recurring motif</span></div>
+  <p class="lede">Every derived status in the system carries these. They are one enum, defined once, with fixed lowercase values and a single precedence order — and no rollup, serializer, export or generated answer is permitted to collapse them.</p>
+  <div class="states">
+    <div class="state" style="--c:var(--s-ok)"><code>determinate</code><p>A real answer. Current, compliant, ready — whatever the policy computed.</p></div>
+    <div class="state" style="--c:var(--s-unknown)"><code>unknown</code><p>We looked and could not tell. Distinct from clean, and never rendered as blank.</p></div>
+    <div class="state" style="--c:var(--s-notfound)"><code>not_found</code><p>The source answered, and the thing is not there. An answer, not an absence.</p></div>
+    <div class="state" style="--c:var(--s-na)"><code>not_applicable</code><p>The check does not apply to this package type. Never folded into clean or unknown.</p></div>
+    <div class="state" style="--c:var(--s-error)"><code>error</code><p>The lookup failed. Traceable to the run and the trace id that produced it.</p></div>
+  </div>
+  <p class="states-note"><b>The counter-metric names the failure mode.</b> Rising "percentage of packages showing clean" is tracked precisely so nobody optimizes it. Driving it up by resolving <code>unknown</code> or <code>unmapped</code> into clean would defeat the entire product while every dashboard improved.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>The layers</h2><span class="tag">select to inspect</span></div>
+  <p class="lede">Layered pipes-and-filters over an append-only log. Dependency direction is downward only — collectors never import policies, policies never import collectors or workflow, nothing imports reporting.</p>
+  <div class="layers">
+    <div class="stack" role="tablist" aria-label="Architecture layers">
+      <button class="lyr inherited" role="tab" data-k="platform" aria-selected="false"><span class="nm">src/config</span><span class="dep">inherited</span></button>
+      <button class="lyr" role="tab" data-k="core" aria-selected="true"><span class="nm">core</span><span class="dep">← platform</span></button>
+      <button class="lyr" role="tab" data-k="identity" aria-selected="false"><span class="nm">identity</span><span class="dep">← core</span></button>
+      <button class="lyr" role="tab" data-k="evidence" aria-selected="false"><span class="nm">evidence</span><span class="dep">← core</span></button>
+      <button class="lyr" role="tab" data-k="collectors" aria-selected="false"><span class="nm">collectors</span><span class="dep">← ev, id</span></button>
+      <button class="lyr" role="tab" data-k="policies" aria-selected="false"><span class="nm">policies</span><span class="dep">← ev, id</span></button>
+      <button class="lyr" role="tab" data-k="workflow" aria-selected="false"><span class="nm">workflow</span><span class="dep">← pol, id</span></button>
+      <button class="lyr" role="tab" data-k="reporting" aria-selected="false"><span class="nm">reporting</span><span class="dep">← pol, wf</span></button>
+      <button class="lyr" role="tab" data-k="ai" aria-selected="false"><span class="nm">ai_integration</span><span class="dep">leaf</span></button>
+    </div>
+    <div class="panel" id="panel" role="tabpanel" aria-live="polite"></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>The two paths</h2><span class="tag">sync / async boundary</span></div>
+  <p class="lede">The dividing line is easy to state and easy to violate. "Let me just refresh this package inline" is the most natural thing a developer will write, and it blocks a web worker on a rate-limited third party until the request times out.</p>
+  <div class="toggle" role="group" aria-label="Choose a path">
+    <button id="tb" aria-pressed="true">Batch path</button>
+    <button id="tr" aria-pressed="false">Request path</button>
+  </div>
+  <div id="path-batch" class="steps"></div>
+  <div id="path-request" class="steps" hidden></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Containers</h2><span class="tag">C4 level 2</span></div>
+  <div class="dia">
+<pre class="mermaid">
+graph TB
+  R["Reviewers<br/>3 roles"] --> WEB["web<br/>gunicorn + DrainingUvicornWorker<br/>rolling"]
+  IDP[("Organization IdP<br/>OIDC")] -.->|claims| WEB
+  WEB --> PG[("PostgreSQL 17<br/>default: read-write<br/>analytics: SELECT on views")]
+  WEB --> RD[("Redis<br/>broker + cache")]
+  WEB --> LF["langflow<br/>own image + process type"]
+  WORK["worker<br/>collect / policy / verify"] --> PG
+  WORK --> RD
+  WORK -->|outbound| EXT[("Source repos, PyPI,<br/>conda-forge, advisories, KEV")]
+  BEAT["beat<br/>replicas 1, stop-before-start"] --> RD
+  LF -->|analytics alias| PG
+  WEB -.->|OTLP when set| OT["collector"]
+  WORK -.->|OTLP when set| OT
+</pre>
+  </div>
+  <p class="cap">beat is pinned to one replica with stop-before-start replacement — two schedulers would double-fire every cadence. LangFlow is a separate image so its dependency pins never have to reconcile with this component's.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>The invariants</h2><span class="tag">24 rules · select to expand</span></div>
+  <p class="lede">Each fixes something two independently-built units could otherwise choose incompatibly. <span style="color:var(--s-ok)">ADOPTED</span> means reality or an upstream document already settled it; <span style="color:var(--copper)">NET-NEW</span> means nothing in the codebase does this yet.</p>
+  <div id="ads"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Two things people will get wrong</h2><span class="tag">under deadline pressure</span></div>
+  <div class="pits">
+    <div class="pit">
+      <h3>The inventory table is not the export</h3>
+      <p>The requirements list <code>P</code>, <code>Rank</code>, <code>Score</code>, <code>Work</code>, <code>Vuln</code> and more as inventory fields, because that is the shape consumers read today. Every one of them is <em>derived</em>.</p>
+      <p>Make them columns on <code>Package</code> and either policy writes the package row — taking the audit trail with it — or they sit permanently null.</p>
+      <div class="fix">Projected at read time by reporting. The export keeps its headings; the models do not.</div>
+    </div>
+    <div class="pit">
+      <h3>A finding is not an evidence row</h3>
+      <p>Evidence is append-only, so today's row for CVE-2026-1234 is superseded tomorrow by a new row with a new id. A queue item keyed on that id resurrects as brand-new unactioned work after every re-collection, forever.</p>
+      <p>Key it on <code>package + work_type</code> instead and accepting one CVE accepts them all.</p>
+      <div class="fix">Key on a finding key — re-observation-stable, declared per evidence table.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Deliberately not decided</h2><span class="tag">eight deferrals, one blocker</span></div>
+  <p class="lede">Each is deferred because the decision needs information the project does not have yet, and the architecture is arranged so acquiring it later is cheap.</p>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>Deferred</th><th>Why it can wait</th><th>What makes it cheap later</th></tr></thead>
+    <tbody>
+      <tr><td>Priority rules &amp; score function</td><td>Encodes a risk posture that does not exist yet</td><td>Versioned data, not code</td></tr>
+      <tr><td>Freshness targets, observation windows</td><td>Need a real collection cycle to calibrate</td><td>Per-collector configuration</td></tr>
+      <tr><td>p95 latency budget, export row cap</td><td>Need a populated inventory to measure</td><td>Settings constants, already structurally enforced</td></tr>
+      <tr><td>Advisory &amp; KEV sources</td><td>Licensing unresolved</td><td>Collector swappable without touching policy</td></tr>
+      <tr><td>License policy content</td><td>Needs an organizational baseline</td><td>Versioned data</td></tr>
+      <tr><td>Self-hosted model</td><td>Depends on a data-handling ruling</td><td>Read-only alias holds either way</td></tr>
+      <tr><td>Non-Python conda artifacts</td><td>Later phase</td><td><code>not_applicable</code> modeled from v1 — a data change, not a migration</td></tr>
+      <tr class="blocker"><td>The analytics fitness spike</td><td>Blocks its epic rather than deferring inside it</td><td>EP-NL is not plannable until LangChain's conda-forge availability and its Python 3.14 resolution are established</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="states-note" style="margin-top:22px"><b>DB-GPT was evaluated and rejected.</b> No Python 3.14 classifier and CI covering only 3.10 and 3.11, against a repository pinned to <code>python = "3.14.*"</code> with no alternative; <code>sqlalchemy &lt;2.0.29</code> and <code>fastapi &lt;0.113.0</code> pins mutually exclusive with LangFlow's floors; and unestablished conda-forge availability against a supply-chain rule the test suite enforces. Natural-language querying is served by LangChain tools over the governed views instead.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Build order</h2><span class="tag">epic dependencies</span></div>
+  <div class="dia">
+<pre class="mermaid">
+graph LR
+  PLAT["EP-PLATFORM<br/>imported"] --> EV["EP-EVIDENCE"]
+  PLAT --> ID["EP-IDENTITY"]
+  ID --> CUR["EP-CURRENCY"]
+  ID --> SEC["EP-SECURITY"]
+  ID --> PY["EP-PY314"]
+  EV --> CUR
+  EV --> SEC
+  CUR --> SEC
+  CUR --> PRI["EP-PRIORITY"]
+  SEC --> PRI
+  PRI --> APP["EP-APP"]
+  APP --> NL["EP-NL<br/>spike-gated"]
+</pre>
+  </div>
+  <p class="cap">EP-EVIDENCE is listed after the collectors in the requirements but is a dependency of them — build the append-only base and the run ledger first, or every collector invents its own. EP-APP sits behind EP-PRIORITY because the queues rank by bucket and score, and there is nothing to rank until priority exists.</p>
+</section>
+
+<footer>
+  <div class="row">
+    <span>ARCHITECTURE-SPINE.md — the contract</span>
+    <span>solution-design.md — the reasoning</span>
+    <span>.memlog.md — the decision trail</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <span>Product identifiers carry <b style="color:var(--ink)">CPM-</b>; bare AD-n / FR-n belong to the imported platform and are never reused.</span>
+  </div>
+</footer>
+
+</div>
+
+<script>
+const LAYERS = {
+  platform:{t:"Inherited platform",s:"src/config/ · not ours to change",
+    p:"Configuration, the two-stage startup refusal gates, OIDC authentication and group-claim sync, structured logging and tracing, health and drain endpoints, the Celery app, and the component.toml deployment contract.",
+    p2:"The product does not reimplement any of it — and cannot modify it: the platform's contributable-settings allowlist forbids a domain app from touching authentication backends, permission classes or middleware.",
+    o:["settings + startup gates","OIDC + group sync","structlog + OpenTelemetry","probes + drain","Celery","component.toml"],
+    a:["AD-8","AD-10","AD-22","AD-24","AD-28","CG-3","R-2"]},
+  core:{t:"core",s:"the shared kernel",
+    p:"The things that must be defined exactly once, or the layers above will diverge.",
+    p2:"If two apps would otherwise each invent something — a status type, a retry policy, a permission class — it belongs here. This is the smallest app and the one with the widest blast radius.",
+    o:["OutcomeState + precedence","append-only base model","run-ledger models","role permission classes","collector base: retry, backoff, rate limit"],
+    a:["CPM-AD-2","CPM-AD-5","CPM-AD-13","CPM-AD-20"]},
+  identity:{t:"identity",s:"who a package is",
+    p:"One mutable row per package: canonical name, cross-ecosystem mappings, provenance, confidence. Nothing else — not a version, not a score, not a status.",
+    p2:"The strictest boundary in the design, and the one most likely to be violated, because the export contract looks like a table definition. It isn't.",
+    o:["canonical_name (unique, correctable)","purls, CPEs, feedstock URLs","identity_source, associator_key","confidence","identity_overrides"],
+    a:["CPM-AD-1","CPM-AD-3","CPM-AD-4","CPM-AD-14"]},
+  evidence:{t:"evidence",s:"what we observed, and when",
+    p:"Append-only. One table per kind of observation, every row carrying its source and observed_at. Nothing updates. Nothing deletes.",
+    p2:"Run ledgers are the deliberate exemption: a row that records both a start and a finish has to be mutable, and it is the only thing that survives a worker killed mid-call.",
+    o:["source_release_snapshots","pypi_release_snapshots","feedstock_snapshots","conda_package_snapshots","vulnerability_findings","kev_findings","license_findings","python314_findings"],
+    a:["CPM-AD-2","CPM-AD-3","CPM-AD-15","CPM-AD-23"]},
+  collectors:{t:"collectors",s:"the filters",
+    p:"One per source. Each writes its own evidence table and its own run-ledger row, reads only identity, and computes no status.",
+    p2:"A collector never imports or reads another. That isolation is what makes independent failure and independent cadence hold, and the rule exists so it cannot erode over time.",
+    o:["source release","PyPI","feedstock","published conda","vulnerability","KEV","license","Python 3.14"],
+    a:["CPM-AD-7","CPM-AD-15","CPM-AD-20","CPM-AD-23"]},
+  policies:{t:"policies",s:"the deterministic passes",
+    p:"Everything derived is computed here: currency, vulnerability and KEV rollups, license, Python 3.14 readiness, feedstock presence, remediation readiness, priority, score, work type.",
+    p2:"Rule content is versioned data, so a policy change is a data change with a version bump, not a deployment — and a change can be replayed over history without touching the network.",
+    o:["8 ordered passes","per-domain derived tables","the rollup writer","policy_runs"],
+    a:["CPM-AD-8","CPM-AD-11","CPM-AD-21"]},
+  workflow:{t:"workflow",s:"what humans decided",
+    p:"All three queues — identity review, remediation, compliance review — as one table keyed on a re-observation-stable finding key.",
+    p2:"Separate from evidence because a decision is not an observation, and separate from identity because it is not who the package is. Transitions are declared as data and applied under a row lock.",
+    o:["one queue table","finding keys","declared transitions","workflow audit"],
+    a:["CPM-AD-22","CPM-AD-13","CPM-AD-23"]},
+  reporting:{t:"reporting",s:"the surfaces",
+    p:"Views, API, exports, and the governed views the analytics layer reads. It projects; it does not compute.",
+    p2:"The projection maps names only — never values, never formatting. A derived status is emitted verbatim on every surface, so the export cannot quietly render unknown as an empty cell.",
+    o:["current-health view","package detail","role-scoped queues","operational reports","governed API + schema","governed SQL views"],
+    a:["CPM-AD-9","CPM-AD-10","CPM-AD-12","CPM-AD-24"]},
+  ai:{t:"ai_integration",s:"the leaf",
+    p:"LangChain tools over the governed views. Holds no write grant, reaches no table directly, and asserts no conclusion policy did not produce.",
+    p2:"Every tool returns a structured payload carrying evidence ids, sources and observation timestamps — never a rendered sentence. Adoption is gated by a fitness spike.",
+    o:["LangChain tool layer","LangFlow compositions (separate image)","analytics DB alias","governed views only"],
+    a:["CPM-AD-16","CPM-AD-17","CPM-AD-18","CPM-AD-24"]}
+};
+
+const panel = document.getElementById("panel");
+function render(k){
+  const d = LAYERS[k];
+  panel.innerHTML =
+    '<h3>'+d.t+'</h3><div class="sub">'+d.s+'</div>'+
+    '<p>'+d.p+'</p><p>'+d.p2+'</p>'+
+    '<ul class="owns">'+d.o.map(x=>'<li>'+x+'</li>').join('')+'</ul>'+
+    '<div class="govern">'+d.a.map(x=>'<span class="ad-chip">'+x+'</span>').join('')+'</div>';
+}
+document.querySelectorAll(".lyr").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".lyr").forEach(o=>o.setAttribute("aria-selected","false"));
+    b.setAttribute("aria-selected","true");
+    render(b.dataset.k);
+  });
+});
+render("core");
+
+const BATCH = [
+  {h:"Beat fires a collection run",t:"Not a collector — a run. For each package in scope, the collector base creates a run-ledger row with status running, before the first outbound call.",w:"An append-only ledger written only at the end leaves nothing at all when a worker is killed — exactly when it matters most."},
+  {h:"Check the observation window",t:"If a successful run already exists inside the configured window, the run records skipped and stops. A manually triggered recollection always bypasses the window.",w:"Otherwise the reviewer's “trigger a recollection” affordance silently does nothing."},
+  {h:"Call out, under the base's limits",t:"Timeout, rate limit, retry with backoff — all in the shared collector base, not reimplemented per collector."},
+  {h:"Insert the observation",t:"Never update, never dedupe with a unique constraint. observed_at is the moment of this observation. A failure inserts a row carrying error or not_found; it does not skip writing.",w:"No evidence table carries a constraint that suppresses an insert."},
+  {h:"Finalize the ledger in a finally",t:"Carrying the trace id of the task, so an error state is investigable rather than merely recorded. The transaction boundary is one package — a failure at package 9,000 never rolls back the first 8,999."},
+  {h:"A separate policy run",t:"One cut-off: the finished_at of a completed collection run, never now(). Passes run in declared order, each writing only its own per-domain table. A later pass reads an earlier one rather than re-deriving it.",w:"Two passes each calling update_or_create on the rollup is ordinary Django and completely broken — the second resets the first's columns to defaults."},
+  {h:"One writer composes the rollup",t:"A full-row replace per package, in one transaction, stamped with the run id, the cut-off and a per-domain version map. Exactly one row per inventory package, always — including unmapped ones."}
+];
+const REQ = [
+  {h:"Authenticate",t:"OIDC session; the provider's group claims resolve to one of three roles. Every view, viewset and report declares the role it requires via one permission class."},
+  {h:"Read derived state",t:"The rollup and workflow items, paginated — pagination is global and no view may opt out. Every status arrives with the computed_at and policy versions behind it."},
+  {h:"Write workflow state",t:"Advancing a queue item locks the row, checks the expected prior state, refuses on mismatch, and appends the audit row in the same transaction.",w:"Never on_commit, never a follow-up task — an audit lost on a worker restart is worse than no audit."},
+  {h:"Or write an identity override",t:"The one write that changes governed reference data. Requires the override permission and a non-empty reason; records actor, timestamp, prior value and new value."},
+  {h:"Anything else becomes a task",t:"A request may not make an outbound call, run a policy pass, or build an export beyond the configured row cap. It enqueues and returns an in-progress state.",w:"One settings constant sets that cap for every export path, so two surfaces cannot disagree."}
+];
+function steps(el,arr){
+  el.innerHTML = arr.map(s=>'<div class="step"><h4>'+s.h+'</h4><p>'+s.t+'</p>'+(s.w?'<p class="why">'+s.w+'</p>':'')+'</div>').join('');
+}
+steps(document.getElementById("path-batch"),BATCH);
+steps(document.getElementById("path-request"),REQ);
+const tb=document.getElementById("tb"), tr=document.getElementById("tr");
+const pb=document.getElementById("path-batch"), pr=document.getElementById("path-request");
+tb.addEventListener("click",()=>{tb.setAttribute("aria-pressed","true");tr.setAttribute("aria-pressed","false");pb.hidden=false;pr.hidden=true;});
+tr.addEventListener("click",()=>{tr.setAttribute("aria-pressed","true");tb.setAttribute("aria-pressed","false");pr.hidden=false;pb.hidden=true;});
+
+const ADS = [
+ ["Data ownership",[
+  ["CPM-AD-1","The package row is package identity and nothing else","",
+   "A collector or policy writing a version, a CVE, a build status or a score onto the package row, destroying history.",
+   "identity owns one mutable row per package: canonical name, mappings, provenance, confidence. The export contract's derived columns are projected at read time, not stored."],
+  ["CPM-AD-3","Surrogate key, correctable canonical name","adopted",
+   "Evidence tables taking a wide Python-specific string key that a non-Python package cannot satisfy and a rename cascades through.",
+   "Every evidence, rollup and workflow row references the package by integer primary key. canonical_name is unique and indexed, never a foreign-key target."],
+  ["CPM-AD-14","Governed reference data has exactly one write path","",
+   "A second, unaudited route to correcting a package identity appearing beside the audited one.",
+   "Identity is mutated by resolution or by the override path — nothing else. The override requires a reason and writes its audit row in the same transaction."]]],
+ ["Evidence discipline",[
+  ["CPM-AD-2","Evidence is append-only; run ledgers are not evidence","adopted",
+   "Two collectors disagreeing on whether re-observing an unchanged fact updates or inserts.",
+   "Evidence models refuse a save with a pk set. Run ledgers are the explicit exemption — created before the first call, finalized in a finally, so a killed process still leaves a row."],
+  ["CPM-AD-7","Collectors share nothing but the log; evidence always inserts","adopted",
+   "An implicit ordering dependency forming between collectors — and two collectors reading “idempotent” as a unique constraint versus a read-time dedup.",
+   "A collector reads only identity and writes only its own table. Evidence always inserts; idempotency is a property of the run ledger via an explicit observation window."],
+  ["CPM-AD-15","Every observation carries the platform's correlation identifiers","",
+   "An error state that is recorded but not investigable.",
+   "Run-ledger rows and overrides persist the trace id of the request or task that produced them. The product adds no correlation scheme of its own."],
+  ["CPM-AD-23","Transactions are per package; audits are atomic with their write","",
+   "A sweep in one transaction rolling back 8,999 good packages for the 9,000th — and an audit row written by on_commit lost on a worker restart.",
+   "The atomic unit is one package or one declared chunk. Every privileged write and its audit row are one atomic unit in one service function."]]],
+ ["Status semantics",[
+  ["CPM-AD-4","Confidence gates every outward claim, by writing a value","adopted",
+   "One policy treating unmapped as “nothing found” while another treats it as clean — and one policy skipping a package the others wrote.",
+   "One gate function called by the orchestrating run. It writes unknown; it never suppresses a row. inventory-derived sets a label and degrades nothing."],
+  ["CPM-AD-5","One status type, fixed values, one precedence order","",
+   "Two policies producing incompatible vocabularies, and three read surfaces inventing three different “worst of these” lattices.",
+   "One OutcomeState with fixed lowercase values; determinate values namespaced and inheriting the four sentinels by name and value. core defines the single precedence order."],
+  ["CPM-AD-6","Version authority is explicit per package","adopted",
+   "A package marked stale against an ecosystem that was never authoritative for it.",
+   "The authority order is data on the package. The chosen authority and its supporting evidence are stored with every currency result."]]],
+ ["Policy execution",[
+  ["CPM-AD-8","Policy is a separate versioned pass","adopted",
+   "A collector computing a status inline, making the result unreproducible and coupling collection cadence to policy versions.",
+   "A pass reads evidence at a stated cut-off and never mutates it. Rule sets are versioned data; re-running a version against a cut-off must reproduce identical output."],
+  ["CPM-AD-21","One orchestrated policy run owns the rollup","",
+   "Two passes writing the current-health row with different cut-offs and versions, clobbering each other's columns.",
+   "Passes write only per-domain tables keyed (package, policy_run). One writer composes the rollup per package in one transaction, with the run's cut-off and a per-domain version map."],
+  ["CPM-AD-11","Current health is a refreshed rollup table, one row per package","",
+   "The most-read object built one way and operated as another, with no owner for its staleness.",
+   "A Django-managed table written by the orchestrating run — not a materialized view — so it stays in the migration graph. Exactly one row per package, always."]]],
+ ["The application surface",[
+  ["CPM-AD-9","The request/task boundary","",
+   "A rate-limited external call blocking a web worker until the request times out.",
+   "A request may read derived state and evidence, and write workflow state or an override. It may not call out, run a pass, or build an oversized export."],
+  ["CPM-AD-10","Derived state is read-only to the application","",
+   "A view “fixing” a status, so the policy engine stops being the source of truth.",
+   "No write path to a derived status or to evidence. Serializers over derived models are explicitly read-only."],
+  ["CPM-AD-12","Pagination is structural","new",
+   "One endpoint paginating and another not, at 10,000 rows.",
+   "Default pagination class and max page size set globally; no view may opt out. Neither exists in the codebase today."],
+  ["CPM-AD-13","Authorization is declared per surface, enforced centrally","",
+   "Each view inventing its own role check, so a queue leaks to the wrong role.",
+   "One permission class from core; queue write access is role-scoped per transition, so one item can legitimately be advanced by two roles in sequence."],
+  ["CPM-AD-22","One workflow app owns every queue item, keyed on a finding key","",
+   "An accepted finding resurrecting as new work because it was keyed on an evidence row id that re-observation replaces.",
+   "All three queues are filtered views over one table. Transitions are declared as data and applied under select_for_update. Routing changes a field; it never creates a second item."],
+  ["CPM-AD-24","Every read surface projects the same values","",
+   "The export rendering unknown as a blank cell — destroying the five states in the one artifact that leaves the system.",
+   "A status is emitted verbatim on API, export and governed view. Every rollup status column appears in the governed views, diff-tested."]]],
+ ["Analytics and structure",[
+  ["CPM-AD-16","Analytics reads a second connection, never the app's","new",
+   "The analytics layer handed the application's read-write role because the routing work was not anticipated.",
+   "A second alias with SELECT on governed views only, ATOMIC_REQUESTS false, and a router forbidding writes and migrations. Governed views are reversible RunSQL migrations."],
+  ["CPM-AD-17","Two analytics components, one in-process and one a deployment unit","new",
+   "An analytics runtime competing with request serving — and products with mutually exclusive pins landing in one environment.",
+   "LangChain as the tool layer, possibly a dependency. LangFlow as its own image and process type. DB-GPT rejected. Both gated by a fitness spike."],
+  ["CPM-AD-18","Tools return evidence references, never prose facts","",
+   "A model restating a number and losing the citation, making an answer unfalsifiable.",
+   "Every tool returns package id, status value, evidence table, evidence ids, sources and timestamps. Never a rendered sentence."],
+  ["CPM-AD-19","One app per domain, routed centrally","",
+   "Each domain inventing its own routing, serializer location and task conventions.",
+   "Each domain is one app laid out like the reference app, with an api/ subpackage carrying no urls.py — DRF routing registers centrally."],
+  ["CPM-AD-20","Scheduling is data; three queues by workload class","new",
+   "Cadence hard-coded per collector, and a compute-backed verification build starving the daily security sweep.",
+   "Cadences in the database scheduler. Three queues: collect (external I/O), policy (CPU), verify (builds). Neither task routes nor a default queue exists today."]]]
+];
+document.getElementById("ads").innerHTML = ADS.map(([g,items])=>
+  '<div class="grp"><h3>'+g+'</h3>'+items.map(([id,ttl,st,pv,rl])=>
+    '<details class="ad"><summary><span class="id">'+id+'</span><span class="ttl">'+ttl+'</span>'+
+    '<span class="st '+(st||'')+'">'+(st==='adopted'?'adopted':st==='new'?'net-new':'')+'</span></summary>'+
+    '<div class="body"><dl><dt>Prevents</dt><dd>'+pv+'</dd><dt>Rule</dt><dd>'+rl+'</dd></dl></div></details>'
+  ).join('')+'</div>').join('');
+</script>
+
+<script>
+  // Mermaid renders natively inside a published Artifact; locally it needs the CDN
+  // build above. If the script did not load, the diagram sources stay visible as
+  // preformatted text rather than disappearing.
+  if (window.mermaid) {
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches
+      && document.documentElement.getAttribute('data-theme') !== 'light';
+    window.mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: 'strict',
+      theme: dark ? 'dark' : 'neutral'
+    });
+  }
+</script>
+</body>
+</html>
