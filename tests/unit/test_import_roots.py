@@ -26,6 +26,7 @@ import ast
 import tomllib
 from functools import cache
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 import pytest
@@ -78,10 +79,38 @@ SYS_PATH_MUTATORS = frozenset({"append", "clear", "extend", "insert", "pop", "re
 # directly. `addsitedir` also processes any `.pth` inside the directory it adds.
 SITE_MUTATORS = frozenset({"site.addpackage", "site.addsitedir"})
 
-# The packages that `packages = [ "src/config", "src/django_service" ]` used to
-# enumerate. A `sources` remapping must not reinstate them entry by entry --
-# that is the per-package enumeration AD-6's graduation promise cannot afford.
-FORMERLY_ENUMERATED = ("config", "django_service")
+# The one import-root declaration, as it must read. Three *subtree* keys, which
+# is not the `packages = [ "src/config", "src/django_service" ]` per-package
+# enumeration they replaced: an application added under the second root arrives
+# inside an already-mapped subtree and needs no key of its own, which is AD-6's
+# graduation promise.
+#
+# Nor is it the `sources = [ "src", "src/django_apps" ]` an earlier plan (and
+# epics.md) called for. hatchling normalises `sources` into a mapping, sorts it
+# ascending and applies the *first* matching prefix, so "src" shadows
+# "src/django_apps" and the second root becomes a silent no-op -- a wheel that
+# builds, and applications that still import as `django_apps.core`. Enumerating
+# the subtrees removes the collision at its cause because no key is a prefix of
+# another, which is asserted below rather than eyeballed.
+EXPECTED_WHEEL_SOURCES = {
+    "src/config": "config",
+    "src/django_apps": "",
+    "src/django_service": "django_service",
+}
+
+# The subtree that is a path root rather than a package. It maps to the wheel
+# root (""), which is what makes `django_apps` never appear in an import
+# statement, and it carries no `__init__.py`. A `sources` key naming anything
+# *inside* it would be the per-application enumeration this table exists to
+# avoid.
+APPLICATION_ROOT = "src/django_apps"
+
+# Spelled out rather than derived from `EXPECTED_WHEEL_SOURCES`: a count taken
+# from that mapping would agree with the file automatically whenever the mapping
+# was updated alongside it, and the point of the count is to make a fourth key an
+# edit someone has to make here on purpose. It is the "declared in exactly one
+# place" claim reduced to a number.
+EXPECTED_SOURCE_COUNT = 3
 
 # Files at the repository root that carry a path-declaring section of their own.
 # None of them exists here, and each would be a second site if it did:
@@ -447,11 +476,69 @@ def test_pytest_django_declares_no_import_root(pyproject: dict[str, Any]) -> Non
 
 
 def test_the_wheel_target_declares_a_sources_remapping(pyproject: dict[str, Any]) -> None:
-    """The one retained site remaps a directory rather than listing packages."""
+    """The one retained site remaps directories rather than listing packages.
+
+    Pinned as the whole mapping, not as "the keys I care about are present": the
+    failure this catches is an *addition* -- a fourth key, or a key naming one
+    application -- as much as a removal, and a containment check sees neither.
+    """
     wheel = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
 
     assert "sources" in wheel, "the retained import-root site must declare `sources`"
-    assert "src" in wheel["sources"]
+    assert wheel["sources"] == EXPECTED_WHEEL_SOURCES
+
+
+def test_the_sources_mapping_declares_exactly_three_subtrees(pyproject: dict[str, Any]) -> None:
+    """Cardinality, asserted on its own so a fourth entry fails loudly.
+
+    Three keys, two roots: `src/config` and `src/django_service` both remap onto
+    themselves at the wheel root, which is one root (`src`); `src/django_apps`
+    maps onto "" and is the second. The count is what the "declared in exactly
+    one place" claim reduces to once the declaration is a table -- a table can
+    grow without any other test noticing.
+
+    Every assertion reads the parsed `pyproject.toml`. Comparing this module's
+    own constants against each other would be a case no repository change can
+    fail, which is the shape of an audit test that has stopped auditing.
+    """
+    sources = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["sources"]
+
+    # A list would still be a valid `sources` declaration to hatchling, and it
+    # is what the shadowed spelling this table replaced looked like. Checked
+    # first so a regression to one says that, rather than raising a TypeError
+    # from indexing a string by a path.
+    assert isinstance(sources, dict), sources
+    assert len(sources) == EXPECTED_SOURCE_COUNT, sorted(sources)
+    assert sources[APPLICATION_ROOT] == "", sources[APPLICATION_ROOT]
+
+
+def test_no_sources_key_shadows_another(pyproject: dict[str, Any]) -> None:
+    """No key is a path prefix of another, so hatchling's first-match cannot shadow.
+
+    hatchling sorts `sources` ascending and returns on the first matching
+    prefix, so a key that prefixes another silently wins for everything beneath
+    it. That is exactly how `sources = [ "src", "src/django_apps" ]` fails: the
+    build succeeds, and the second root does nothing. Asserted as the general
+    property rather than as "src is absent", because any future prefix pair
+    fails the same way.
+
+    Keys are normalised through `PurePosixPath` before they are compared.
+    `"src/django_apps/"` and `"./src/django_apps"` are the same subtree spelled
+    two ways, and an unnormalised comparison would see two distinct keys where
+    hatchling sees one -- the duplicate would slip past this case and past the
+    cardinality check with it.
+    """
+    declared = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["sources"]
+    keys = sorted(PurePosixPath(key) for key in declared)
+
+    duplicates = [key for key in keys if keys.count(key) > 1]
+    assert duplicates == [], f"these keys name one subtree under two spellings: {sorted(set(map(str, duplicates)))}"
+
+    shadowed = [
+        (str(outer), str(inner)) for outer in keys for inner in keys if outer != inner and outer in inner.parents
+    ]
+
+    assert shadowed == [], f"these keys shadow others under hatchling's first-prefix match: {shadowed}"
 
 
 def test_the_wheel_target_selects_only_the_source_tree(pyproject: dict[str, Any]) -> None:
@@ -469,19 +556,45 @@ def test_the_wheel_target_selects_only_the_source_tree(pyproject: dict[str, Any]
     assert wheel.get("only-include") == ["src"]
 
 
-def test_the_wheel_target_enumerates_no_packages(pyproject: dict[str, Any]) -> None:
-    """No per-package entry survives, under `packages` or inside `sources`.
+def test_the_wheel_target_generates_an_exact_editable_finder(pyproject: dict[str, Any]) -> None:
+    """`dev-mode-exact` is the key that keeps the second root from leaking a second spelling.
 
-    A `sources` list that spelled out ``src/config`` and ``src/django_service``
-    would be the same enumeration wearing a different key, and would make the
-    "adding an app needs no edit here" promise false again.
+    Without it hatchling writes the roots into the generated .pth as plain
+    directories, and `<repo>/src` on `sys.path` makes `django_apps` resolve as an
+    implicit namespace package even with no `__init__.py`. Every application then
+    has a working `django_apps.` spelling as well as its real one. With it the
+    editable install is a redirecting finder over exactly the three top-level
+    names, so the root is not importable at all.
+
+    Asserted here as a declaration; the behaviour it produces is asserted by
+    `tests/integration/test_import_resolution.py` and
+    `tests/unit/django_apps/test_core_app.py`. Both are needed: the built wheel
+    is identical either way, so no build check distinguishes them.
+    """
+    wheel = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
+
+    assert wheel.get("dev-mode-exact") is True
+
+
+def test_the_wheel_target_enumerates_no_applications(pyproject: dict[str, Any]) -> None:
+    """No per-application entry, under `packages` or inside `sources`.
+
+    `packages` is banned outright -- it is the key the remapping replaced. What
+    `sources` may not do is grow an entry per domain application: the three keys
+    it carries are subtrees of ``src/``, and every application lives *inside*
+    ``src/django_apps`` rather than beside it. A key under the application root
+    would make the "adding an app needs no edit here" promise false again, in
+    the one place the promise is kept.
     """
     wheel = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
 
     assert "packages" not in wheel
     assert "sources" in wheel
-    for entry in wheel["sources"]:
-        assert Path(entry).name not in FORMERLY_ENUMERATED, entry
+
+    root = Path(APPLICATION_ROOT)
+    enumerated = [entry for entry in wheel["sources"] if root in Path(entry).parents]
+
+    assert enumerated == [], f"these entries enumerate applications inside the second root: {enumerated}"
 
 
 def test_no_pixi_task_declares_an_import_root(pixi_manifest: dict[str, Any]) -> None:

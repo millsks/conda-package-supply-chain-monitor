@@ -122,7 +122,11 @@ lint.ignore = [
   # https://github.com/astral-sh/ruff/issues/7871
 ]
 lint.isort.force-single-line = true
-lint.isort.known-first-party = [ "config", "django_service", "tests" ]
+# One entry per top-level first-party name, and `conda_package_supply_chain_monitor`
+# is one name for every domain application present and future -- apps are
+# subpackages of it (see [tool.hatch.build.targets.wheel.sources]), so adding an
+# app needs no edit here and ruff needs no `src` entry for the second root.
+lint.isort.known-first-party = [ "conda_package_supply_chain_monitor", "config", "django_service", "tests" ]
 # Ruff's default is [ "TODO", "FIXME", "XXX" ] and setting this key *replaces*
 # the default rather than extending it, so all three are respelled here; a
 # four-element list that dropped them would silently switch off TODO/FIXME/XXX
@@ -160,38 +164,84 @@ fallback-version = "0.0.0"
 # sys.path at runtime -- hatchling's editable finder is generated from the
 # `sources` remapping below, which is why those fallbacks are removable.
 #
-# That finder is materialised as a generated .pth file in the environment's
-# site-packages (`_editable_impl_django_15_factor_base.pth`, containing
-# <repo>/src). It is not the "adding a .pth file" AD-7 forbids: a build-time
-# artifact regenerated from this table is an output of the one declaration,
-# whereas a hand-written .pth would be a second declaration nothing reconciles.
+# That finder is materialised in the environment's site-packages as a one-line
+# `_editable_impl_conda_package_supply_chain_monitor.pth` importing the
+# generated `_editable_impl_conda_package_supply_chain_monitor.py` beside it,
+# which installs a redirecting finder mapping the three top-level names onto
+# their source directories. It is not the "adding a .pth file" AD-7 forbids: a
+# build-time artifact regenerated from this table is an output of the one
+# declaration, whereas a hand-written .pth would be a second declaration nothing
+# reconciles.
 #
-# `sources` remaps the directory, not the packages inside it: everything under
-# src/ lands at the wheel root, so config/ and django_service/ are top-level
-# and an app added later needs no edit here (AD-6's graduation promise). This
-# deliberately replaces `packages = [ "src/config", "src/django_service" ]`, a
-# per-package enumeration that would need one line per app.
+# `dev-mode-exact` is what makes it a *finder* rather than a list of directories
+# to put on sys.path, and it is load-bearing rather than a preference. Without
+# it hatchling writes the roots themselves into the .pth -- <repo>/src and
+# <repo>/src/django_apps -- and `src` on sys.path makes `django_apps` resolve as
+# an implicit namespace package despite having no __init__.py. Every application
+# then acquires a second, silently-working spelling
+# (`django_apps.conda_package_supply_chain_monitor.core`), which is exactly the
+# thing this layout exists to prevent, and it appears only in the editable
+# install: the built wheel has no `django_apps` entry either way, so no build
+# check catches it. Verified both ways against a real install.
 #
-# `only-include` is load-bearing, not decoration: hatchling's default wheel file
-# selection looks for a package named after the project (`django_15_factor_base`),
-# which does not exist here. Without it the build still succeeds and quietly
-# ships a different set of files. tests/unit/test_import_roots.py asserts both
-# keys, and tests/integration/test_import_resolution.py asserts the built wheel's
-# top-level entries.
+# What it costs: the map is fixed at install time, so a brand-new *top-level*
+# package under src/ or src/django_apps/ needs a `pixi install` before it
+# resolves. A new application inside conda_package_supply_chain_monitor/ -- the
+# case AD-6's graduation promise is about -- needs nothing, because it is a
+# subpackage of an already-mapped name.
 #
-# Epic 9 adds the second root, src/django_apps/, to the `sources` array below
-# -- one more string in this same table, never a second declaration site.
-# Caveat for whoever does it: hatchling normalises `sources` into a mapping,
-# sorts it alphabetically ascending and applies the *first* matching prefix (the
-# `sources` property and `get_distribution_path` on its wheel builder config --
-# behaviour, not a line range, because hatchling is pinned >=1.27,<2 and line
-# numbers move within that window). "src" sorts before "src/django_apps" and
-# would therefore shadow it, leaving apps importable as `django_apps.billing`
-# rather than `billing`. That addition has to be verified against the built
-# wheel, not assumed.
+# `sources` remaps directories, not the packages inside them. It enumerates the
+# three *subtrees* of src/, which is not the per-package enumeration
+# `packages = [ "src/config", "src/django_service" ]` that it replaced: an
+# application added under src/django_apps/conda_package_supply_chain_monitor/
+# still needs no edit here (AD-6's graduation promise), because it arrives
+# inside an already-mapped subtree rather than as a new key.
+#
+# Why three keys rather than `sources = [ "src", "src/django_apps" ]`, which is
+# what an earlier plan (and epics.md) called for: hatchling normalises `sources`
+# into a mapping, sorts it alphabetically ascending and applies the *first*
+# matching prefix (the `sources` property and `get_distribution_path` on its
+# wheel builder config -- behaviour, not a line range, because hatchling is
+# pinned >=1.27,<2 and line numbers move within that window). "src" sorts before
+# "src/django_apps" and therefore shadows it, so the second root would be a
+# no-op and apps would still import as `django_apps.core`. Enumerating the
+# subtrees removes the collision at its cause: no key here is a prefix of
+# another, so nothing can be shadowed. tests/unit/test_import_roots.py pins the
+# cardinality and the no-prefix property.
+#
+# `src/django_apps` maps to "" -- the wheel root -- which is what makes it a
+# genuine second path root: `conda_package_supply_chain_monitor` lands top-level
+# and `django_apps` itself never appears in an import statement. It carries no
+# __init__.py for the same reason; it is a root, not a package.
+#
+# `only-include` is load-bearing, not decoration. Hatchling falls back to a
+# default file selection only when no selection option is set, and that fallback
+# hunts for a package named after the project -- `conda_package_supply_chain_monitor`
+# -- in four places: <name>/, src/<name>/, <name>.py, and a single glob match on
+# */<name>/. This story created a package with exactly that name, but at
+# src/django_apps/conda_package_supply_chain_monitor/, which is one level deeper
+# than the glob reaches, so none of the four hits. Verified by removing this key
+# and building: hatchling raises "Unable to determine which files to ship inside
+# the wheel" and the build fails outright.
+#
+# The trap is the near-miss, and it is closer than it was before this story. Move
+# that package up to src/conda_package_supply_chain_monitor/ and the */<name>/
+# glob matches, at which point the fallback silently selects `src` as a package
+# root -- reinstating exactly the "src" shadowing the sources mapping above exists
+# to remove, and doing it without an error. Naming the selection explicitly is
+# what keeps that a deliberate edit rather than a consequence of moving a
+# directory. tests/unit/test_import_roots.py asserts this key and all three
+# `sources` keys; tests/integration/test_import_resolution.py asserts the built
+# wheel's top-level entries, the applications one level below them, and the
+# editable install's resolution.
 [tool.hatch.build.targets.wheel]
 only-include = [ "src" ]
-sources = [ "src" ]
+dev-mode-exact = true
+
+[tool.hatch.build.targets.wheel.sources]
+"src/config" = "config"
+"src/django_apps" = ""
+"src/django_service" = "django_service"
 
 [tool.hatch.build.targets.sdist]
 include = [

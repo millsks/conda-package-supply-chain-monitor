@@ -187,6 +187,16 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "django_service.users",
+    # Domain applications live under the second import root, src/django_apps/,
+    # as subpackages of one distribution package. Appended, never prepended:
+    # `django_service.users` is the stage-2 owner (AD-26) and must stay first --
+    # tests/unit/startup/test_installed_apps_ordering.py asserts it.
+    #
+    # `component.toml`'s `adopted_apps` is the AD-8 declaration of the same
+    # adoption, but nothing consumes it into INSTALLED_APPS yet (that
+    # composition step is Epic 9), so the entry here is what actually installs
+    # the application today.
+    "conda_package_supply_chain_monitor.core",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps

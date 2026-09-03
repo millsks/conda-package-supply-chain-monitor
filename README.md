@@ -368,14 +368,15 @@ two-stage startup check, and health and drain endpoints.
 |   |   |-- users/             # users app, provisioning, API, commands
 |   |   |-- templates/
 |   |   `-- static/
-|   `-- django_apps/           # domain applications (planned -- see below)
-|       |-- identity/
-|       |-- collectors/
-|       |-- evidence/
-|       |-- policies/
-|       |-- reporting/
-|       |-- ai_integration/
-|       `-- core/
+|   `-- django_apps/           # second import root -- deliberately NOT a package
+|       `-- conda_package_supply_chain_monitor/   # every domain application
+|           |-- core/          # shared base models and utilities
+|           |-- identity/      # planned -- see below
+|           |-- collectors/
+|           |-- evidence/
+|           |-- policies/
+|           |-- reporting/
+|           `-- ai_integration/
 |-- tests/
 |   |-- unit/                  # no database, network, or filesystem
 |   |-- integration/           # marked `integration`
@@ -385,18 +386,22 @@ two-stage startup check, and health and drain endpoints.
     `-- planning-artifacts/    # brief, PRD, architecture
 ```
 
-`src/` is the import root and is deliberately *not* a package, so `config`,
-`django_service` and `django_apps` import as top-level packages. It is declared
-in exactly one place -- `[tool.hatch.build.targets.wheel]` in `pyproject.toml`,
-which remaps
-`src/` onto the wheel root. The editable install is what puts it on `sys.path` at
-runtime; no entrypoint, pixi task or test setting declares it a second time.
+`src/` and `src/django_apps/` are both import roots and neither is a package, so
+`config`, `django_service` and `conda_package_supply_chain_monitor` import as
+top-level names while `django_apps` itself never appears in an import statement.
+Both are declared in exactly one place -- the
+`[tool.hatch.build.targets.wheel]` table in `pyproject.toml`, whose `sources`
+mapping enumerates the three subtrees so that no key is a prefix of another.
+`dev-mode-exact` makes the editable install a redirecting finder over exactly
+those top-level names rather than a list of directories on `sys.path`; no
+entrypoint, pixi task or test setting declares a root a second time.
 
 ### Planned domain applications
 
-The evidence pipeline is not yet built. As it lands it will be added under
-`src/django_apps/` -- a third top-level package beside `config` and
-`django_service` -- with one pluggable Django application per business domain:
+The evidence pipeline is largely unbuilt. `core/` exists; the rest land under
+`src/django_apps/conda_package_supply_chain_monitor/` -- one distribution package
+holding one pluggable Django application per business domain, so every
+application shares a single stable top-level name:
 
 - **identity/** -- package identity resolution, canonical inventory management, and mapping overrides.
 - **collectors/** -- evidence collection from source repositories, PyPI, conda-forge, vulnerability sources, and other external systems.
@@ -404,7 +409,7 @@ The evidence pipeline is not yet built. As it lands it will be added under
 - **policies/** -- deterministic policy evaluation, scoring, priority assignment, and work-type recommendation.
 - **reporting/** -- operational reports, views, dashboards, and export functionality.
 - **ai_integration/** -- LangChain tools and governed AI query interfaces.
-- **core/** -- shared utilities, base models, common middleware, and cross-cutting concerns.
+- **core/** -- shared utilities, base models, common middleware, and cross-cutting concerns. *(exists)*
 
 Two further trees are planned alongside them:
 

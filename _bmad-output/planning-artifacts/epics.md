@@ -106,9 +106,14 @@ requirements but they gate or shape the stories below.
 
 **Net-new structure — nothing in `src/` does this yet:**
 
-- `src/django_apps/` does not exist. It is a second import root that must be declared in
-  `pyproject.toml`'s `[tool.hatch.build.targets.wheel]` sources, alongside the existing
-  `src/` remap. `src/` currently holds only `config/` and `django_service/`.
+- `src/django_apps/` is a second import root declared in `pyproject.toml`'s
+  `[tool.hatch.build.targets.wheel]` table. **Not** by appending it to a `sources` array
+  alongside `"src"` — `CPM-PLATFORM-S01` proved that a silent no-op, because hatchling sorts
+  `sources` ascending and matches the first prefix, so `"src"` always shadows
+  `"src/django_apps"`. The table carries a mapping of the three subtrees instead, plus
+  `dev-mode-exact` so the editable install is a finder rather than directories on `sys.path`.
+  Domain applications live under one package inside that root,
+  `conda_package_supply_chain_monitor`, and `django_apps` never appears in an import statement.
 - No DRF pagination is configured. `REST_FRAMEWORK` sets auth, permission and schema
   classes only — `DEFAULT_PAGINATION_CLASS` and `PAGE_SIZE` are absent (`CPM-AD-12`).
 - Only one `DATABASES` alias (`default`) exists, and `DATABASE_ROUTERS` is never assigned —

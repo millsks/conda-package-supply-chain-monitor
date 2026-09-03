@@ -98,6 +98,28 @@ UNROUTED_PATH = "/__import-probe__/"
 # `config.asgi.__file__` and `django_service.__file__`, one per line.
 PROBE_PATHS_PRINTED = 2
 
+# The second import root. A directory, never a package: it carries no
+# `__init__.py`, `[tool.hatch.build.targets.wheel.sources]` maps it onto the
+# wheel root, and it never appears in an import statement -- which is what
+# `test_the_second_import_root_is_not_itself_importable` asserts.
+APPLICATION_ROOT_NAME = "django_apps"
+
+# The one distribution package inside that root. Every domain application is a
+# subpackage of it, so they share a single stable top-level name and neither
+# `pyproject.toml` nor ruff needs an edit when one is added.
+APPLICATION_PACKAGE = "conda_package_supply_chain_monitor"
+
+# A wheel entry belonging to an application has at least three path parts -- the
+# application package, the application, and the file. The constant is the
+# minimum itself and is compared with `>=`, so the number and the comparison say
+# the same thing; a two-part entry
+# (`conda_package_supply_chain_monitor/__init__.py`) is the package's own module
+# rather than one of its applications.
+APPLICATION_MEMBER_MIN_PARTS = 3
+
+# The first such application, and the one this probe resolves.
+APPLICATION_PROBE = f"import {APPLICATION_PACKAGE}.core"
+
 
 def _subprocess_env() -> dict[str, str]:
     """Return an environment in which only the editable install can resolve src/.
@@ -122,6 +144,29 @@ def _subprocess_env() -> dict[str, str]:
     env.pop("DJANGO_SETTINGS_MODULE", None)
     env["PYTHONSAFEPATH"] = "1"
     return env
+
+
+def _package_names(directory: Path) -> set[str]:
+    """Return the names of the *packages* directly inside `directory`.
+
+    A directory qualifies only if it carries an `__init__.py`. Listing bare
+    directory names instead would let anything that happens to sit in the tree
+    -- an `.egg-info`, a generated asset directory, a stray checkout -- into the
+    expectation and fail the wheel comparison for a reason that has nothing to
+    do with the import roots. `__pycache__` is the one that exists in every
+    working tree, and it is excluded by the same rule that excludes the rest.
+
+    `src/django_apps` itself is excluded by this test too, which is correct: it
+    is a path root and carries no `__init__.py`.
+
+    Args:
+        directory: The tree to list. Asserted to exist by the caller.
+
+    Returns:
+        The immediate subdirectory names that are importable packages.
+
+    """
+    return {path.name for path in directory.iterdir() if (path / "__init__.py").is_file()}
 
 
 def _free_port() -> int:
@@ -501,9 +546,97 @@ def test_the_built_wheel_ships_the_source_tree_at_its_root(tmp_path: Path) -> No
     assert len(wheels) == 1, wheels
 
     with zipfile.ZipFile(wheels[0]) as archive:
-        top_level = {Path(name).parts[0] for name in archive.namelist()}
+        names = archive.namelist()
 
+    top_level = {Path(name).parts[0] for name in names}
     packages = {entry for entry in top_level if not entry.endswith(".dist-info")}
-    expected = {path.name for path in (REPO_ROOT / "src").iterdir() if path.is_dir() and not path.name.startswith("_")}
 
+    src_root = REPO_ROOT / "src"
+    application_root = src_root / APPLICATION_ROOT_NAME
+
+    # Guarded rather than assumed: a rename of the second root would otherwise
+    # surface as a FileNotFoundError from `iterdir()` several lines below,
+    # which says nothing about what broke.
+    assert application_root.is_dir(), f"the second import root is missing: {application_root}"
+    assert not (application_root / "__init__.py").exists(), "the second import root is a path root, not a package"
+
+    platform_packages = _package_names(src_root)
+    expected = platform_packages | _package_names(application_root)
+
+    assert expected, "the expectation is derived from the tree; an empty one would assert nothing"
     assert packages == expected, sorted(top_level)
+    assert APPLICATION_ROOT_NAME not in packages, sorted(top_level)
+
+    # The top-level check above stops at `conda_package_supply_chain_monitor`, so on its own it
+    # would not notice an application failing to ship: every app is a level deeper. Deriving the
+    # expectation from the tree is what makes "an app added later needs no edit here" a claim the
+    # gate rechecks rather than a comment -- add a package under the application package and this
+    # assertion demands the wheel carry it, with no `pyproject.toml` change to make it so.
+    expected_applications = _package_names(application_root / APPLICATION_PACKAGE)
+    shipped_applications = {
+        Path(name).parts[1]
+        for name in names
+        if Path(name).parts[0] == APPLICATION_PACKAGE and len(Path(name).parts) >= APPLICATION_MEMBER_MIN_PARTS
+    }
+
+    assert expected_applications, "an empty application set would make the comparison vacuous"
+    assert shipped_applications == expected_applications, sorted(names)
+
+
+@pytest.mark.integration
+def test_the_domain_application_resolves_in_a_plain_interpreter() -> None:
+    """The second root works in the runtime, not only in the built artifact.
+
+    Same control as `test_the_import_probe_resolves_in_a_plain_interpreter`, for
+    the root added second: ``PYTHONSAFEPATH`` is set and ``PYTHONPATH`` cleared,
+    so the only thing that can resolve `conda_package_supply_chain_monitor` is
+    the editable finder generated from
+    `[tool.hatch.build.targets.wheel.sources]`. This is the leg that would have
+    failed under the shadowed `sources = [ "src", "src/django_apps" ]` spelling,
+    where the wheel still builds.
+    """
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", f"{APPLICATION_PROBE} as app; print(app.__file__)"],
+        cwd=str(REPO_ROOT),
+        env=_subprocess_env(),
+        capture_output=True,
+        text=True,
+        timeout=PROBE_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    resolved = result.stdout.splitlines()
+    assert len(resolved) == 1, result.stdout
+    assert Path(resolved[0]).is_relative_to(REPO_ROOT / "src" / APPLICATION_ROOT_NAME / APPLICATION_PACKAGE / "core")
+
+
+@pytest.mark.integration
+def test_the_second_import_root_is_not_itself_importable() -> None:
+    """`django_apps` is a path root, so importing it fails rather than shadowing.
+
+    The negative half of the mapping. If `src/django_apps` were mapped to
+    anything but the wheel root -- or if it grew an `__init__.py` -- this import
+    would start succeeding and every application would have acquired a second,
+    silently-working spelling (`django_apps.conda_package_supply_chain_monitor.core`).
+
+    Asserted on the interpreter's own message naming *this* module, not merely
+    on a non-zero exit and not merely on the exception class: a broken
+    environment, a syntax error or a `ModuleNotFoundError` raised for some other
+    import would otherwise read as a pass on the one invariant here that can
+    only be checked negatively.
+    """
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", f"import {APPLICATION_ROOT_NAME}"],
+        cwd=str(REPO_ROOT),
+        env=_subprocess_env(),
+        capture_output=True,
+        text=True,
+        timeout=PROBE_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "ModuleNotFoundError" in result.stderr, result.stderr
+    assert f"No module named '{APPLICATION_ROOT_NAME}'" in result.stderr, result.stderr

@@ -96,8 +96,14 @@ TWO_DECLARATIONS_HEADING: Final[str] = "## The two declarations"
 
 # A declaration every case below starts from and mutates, so a case that removes
 # a key is visibly removing it rather than quietly never having written it.
+#
+# The adopted application is spelled `example_apps.billing` -- a synthetic
+# component's own distribution package, not this repository's. It must not be
+# spelled through `django_apps`: that is a path root rather than a package and is
+# deliberately not importable, so a fixture spelling it that way would be the one
+# place in the repository modelling an adoption that cannot resolve.
 VALID_DECLARATION: Final[str] = """
-adopted_apps = ["django_apps.example"]
+adopted_apps = ["example_apps.billing"]
 selected_features = ["celery", "redis"]
 
 [component]
@@ -268,16 +274,21 @@ def test_the_component_declares_its_name(document: dict[str, Any]) -> None:
     assert document["component"] == {"name": "conda-package-supply-chain-monitor"}
 
 
-def test_adopted_apps_is_present_and_is_a_list(document: dict[str, Any]) -> None:
-    """AC #4: the adopted-app list is present, and empty is an ordinary state.
+def test_adopted_apps_is_present_and_names_the_adopted_application(document: dict[str, Any]) -> None:
+    """AC #4: the adopted-app list is present, and it carries this repository's adoption.
 
-    Present *and* empty, which is the whole of AC #4: a component that adopts
-    nothing needs no special case, and the key existing is what keeps AD-8's
-    composition step from having to distinguish "adopted nothing" from "said
-    nothing".
+    The key existing is what keeps AD-8's composition step from having to
+    distinguish "adopted nothing" from "said nothing"; both of those remain
+    ordinary states and are exercised below against synthetic declarations --
+    present-and-empty by `test_a_present_but_empty_adopted_app_list_loads_as_empty`
+    and absent by `test_an_absent_adopted_app_list_loads_as_empty`, which are
+    different inputs and are asserted separately. What this asserts is the repository's
+    own state: `conda_package_supply_chain_monitor.core` is adopted, which is the
+    declaration half of the adoption whose installing half is `LOCAL_APPS` in
+    `src/config/settings/base.py`.
     """
     assert isinstance(document["adopted_apps"], list)
-    assert document["adopted_apps"] == []
+    assert document["adopted_apps"] == ["conda_package_supply_chain_monitor.core"]
 
 
 def test_selected_features_is_the_reference_combination(document: dict[str, Any]) -> None:
@@ -497,7 +508,7 @@ def test_the_package_imports_no_django_settings() -> None:
 def test_the_loader_reads_the_repositorys_own_declaration(declaration: ComponentDeclaration) -> None:
     """The no-argument path resolves the root file without importing settings."""
     assert declaration.name == "conda-package-supply-chain-monitor"
-    assert declaration.adopted_apps == ()
+    assert declaration.adopted_apps == ("conda_package_supply_chain_monitor.core",)
     assert declaration.selected_features == REFERENCE_FEATURES
     assert tuple(process.name for process in declaration.processes) == EXPECTED_PROCESSES
     assert declaration.databases[0].migrate == ("migrate --database default --noinput",)
@@ -528,8 +539,24 @@ def test_an_explicit_path_is_re_read_rather_than_served_from_the_cache(tmp_path:
 
 def test_an_absent_adopted_app_list_loads_as_empty(tmp_path: Path) -> None:
     """AC #4: no `None`, no sentinel, no caller-side special case."""
-    source = VALID_DECLARATION.replace('adopted_apps = ["django_apps.example"]\n', "")
+    source = VALID_DECLARATION.replace('adopted_apps = ["example_apps.billing"]\n', "")
     loaded = load_component_declaration(_write(tmp_path, source))
+    assert loaded.adopted_apps == ()
+
+
+def test_a_present_but_empty_adopted_app_list_loads_as_empty(tmp_path: Path) -> None:
+    """The state a component that adopts nothing actually writes, which is not the absent one.
+
+    Distinct from the case above, and it stopped being covered by the committed
+    file when this repository adopted its first application: `adopted_apps = []`
+    is present-and-empty, `adopted_apps` missing entirely is absent, and only the
+    second was exercised here. AD-8's composition step has to read both as
+    "adopted nothing" without a special case, so both are asserted -- against a
+    synthetic declaration, because the repository's own is no longer either one.
+    """
+    source = VALID_DECLARATION.replace('adopted_apps = ["example_apps.billing"]', "adopted_apps = []")
+    loaded = load_component_declaration(_write(tmp_path, source))
+
     assert loaded.adopted_apps == ()
 
 
@@ -597,8 +624,8 @@ def test_celery_without_redis_is_refused(tmp_path: Path) -> None:
     ("original", "replacement"),
     [
         ('name = "example"', "name = 3"),
-        ('adopted_apps = ["django_apps.example"]', "adopted_apps = 7"),
-        ('adopted_apps = ["django_apps.example"]', "adopted_apps = [7]"),
+        ('adopted_apps = ["example_apps.billing"]', "adopted_apps = 7"),
+        ('adopted_apps = ["example_apps.billing"]', "adopted_apps = [7]"),
         ('selected_features = ["celery", "redis"]', 'selected_features = "celery"'),
         ("[[databases]]", "[databases]"),
         ('alias = "default"', "alias = 1"),
