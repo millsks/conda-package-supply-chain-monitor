@@ -1,6 +1,8 @@
-# CPM-PLATFORM-S01: A second import root for domain applications
+---
+status: draft
+---
 
-Status: ready-for-dev
+# CPM-PLATFORM-S01: A second import root for domain applications
 
 Epic: `CPM-EP-PLATFORM` — The service platform
 
