@@ -227,6 +227,21 @@ A check that does not apply to a package is never folded into clean or unknown.
   five distinct, separately displayable states everywhere they appear.
 - No rollup, view, export, or generated answer collapses them.
 
+#### CPM-FR-42: Inventory ingestion
+
+The system acquires the package inventory from the organization's internal source, together
+with the internal usage signals that later rank and score it.
+
+**Consequences (testable):**
+- Ingestion is an observation: each run writes append-only rows and never updates a prior one.
+- A package named by the source for the first time gains an identity row at `unmapped`
+  confidence; ingestion never asserts a mapping (CPM-FR-1).
+- A package absent from a later run is recorded as absent with a timestamp; no package is
+  deleted, and it keeps its row in the current-health rollup.
+- The internal usage signals are read at a stated evidence cut-off, so a policy replay
+  reproduces identical results (CPM-FR-22).
+- The source location and its credentials come from the environment (CPM-NFR-10).
+
 ### 4.2 Evidence collection
 
 **Description:** Independent collectors observe one surface each and write one evidence
@@ -667,8 +682,8 @@ requirement-level exclusions are stated here because they bound FRs above:
 
 **In scope**
 
-- Package identity resolution, provenance, confidence, the review queue, and the audited
-  override (CPM-FR-1 – CPM-FR-6).
+- Inventory ingestion, package identity resolution, provenance, confidence, the review
+  queue, and the audited override (CPM-FR-1 – CPM-FR-6, CPM-FR-42).
 - All eight collectors and the collection-run record (CPM-FR-7 – CPM-FR-15).
 - All eight policy areas, priority, score, and work type, versioned and replayable
   (CPM-FR-16 – CPM-FR-22, CPM-FR-40, CPM-FR-41).
@@ -726,7 +741,7 @@ Non-positional keys. Adding an epic never renumbers another.
 | Key | Delivers | Requirements | Depends on |
 |---|---|---|---|
 | `CPM-EP-PLATFORM` | Django service platform: settings, OIDC authorization, probes, Celery, observability, deployment contract. **Largely complete — imported.** | CPM-FR-28, CPM-FR-29, CPM-FR-30, CPM-FR-39, CPM-NFR-10, CPM-NFR-12, CPM-NFR-13 | — |
-| `CPM-EP-IDENTITY` | Package identity resolution, the inventory, provenance, confidence, review queue, audited override | CPM-FR-1 – CPM-FR-6, CPM-FR-32 | `CPM-EP-PLATFORM` |
+| `CPM-EP-IDENTITY` | Package identity resolution, the inventory, provenance, confidence, review queue, audited override | CPM-FR-1 – CPM-FR-6, CPM-FR-32, CPM-FR-42 | `CPM-EP-PLATFORM` |
 | `CPM-EP-CURRENCY` | Source, PyPI, feedstock, and published-conda collectors; version currency and feedstock presence policies | CPM-FR-7 – CPM-FR-10, CPM-FR-15, CPM-FR-16, CPM-FR-40 | `CPM-EP-IDENTITY` |
 | `CPM-EP-SECURITY` | Vulnerability, KEV, and license collectors and their policies; remediation readiness | CPM-FR-11 – CPM-FR-13, CPM-FR-17, CPM-FR-18, CPM-FR-41 | `CPM-EP-IDENTITY`, `CPM-EP-CURRENCY` |
 | `CPM-EP-PY314` | Python 3.14 static assessment, then optional build and import verification | CPM-FR-14, CPM-FR-19 | `CPM-EP-IDENTITY` |
@@ -742,7 +757,13 @@ them; it is sequenced first in delivery. `CPM-EP-NL` is post-MVP (§7).
 
 1. Which advisory and KEV data sources are available and licensed for use? Blocks `CPM-EP-SECURITY`.
 2. What license allow/deny policy seeds CPM-FR-18? Blocks `CPM-EP-SECURITY`.
-3. What is the source of the internal usage fields that drive the CPM-FR-20 score? Blocks `CPM-EP-PRIORITY`.
+3. What is the source of the internal usage fields (`platforms`, `apps`, `downloads`,
+   `versions`, `internal_component_count`, `internal_lob_count`), and what is the inventory
+   source that carries them (CPM-FR-42)? Blocks `CPM-EP-PRIORITY`, whose score reads them;
+   also constrains `CPM-EP-IDENTITY`, whose review queue ranks by usage breadth (CPM-FR-4),
+   and `CPM-EP-APP`, whose identity queue inherits that ranking (CPM-FR-25). The mechanism
+   is buildable without the answer — `CPM-AD-25` fixes that these arrive as evidence and are
+   read at a cut-off — but no story may invent the field set or the source.
 4. Which conda channels and platforms are monitored (CPM-FR-10)? Blocks `CPM-EP-CURRENCY`.
 5. What is the p95 latency budget for CPM-NFR-5, and at what inventory size is it measured?
 6. Does the internal-data handling requirement force a private or self-hosted model
@@ -820,7 +841,9 @@ already tracked · update feedstock · validate Python 3.14 · review license ·
 
 ### A.2 Evidence tables
 
-Append-only, keyed by package, source, and observation time (CPM-FR-36).
+Append-only, keyed by package, source, and observation time (CPM-FR-36). An
+`inventory_snapshots` row is keyed the same way; the package shell it references is created
+by resolution in the same transaction, never by the collector (`CPM-AD-25`).
 
 | Table | Records |
 |---|---|
@@ -835,6 +858,7 @@ Append-only, keyed by package, source, and observation time (CPM-FR-36).
 | `collection_runs` | Collector, package, status, error detail, start and finish times, correlation identifiers |
 | `policy_runs` | Policy version, run timestamp, evidence cut-off, status |
 | `identity_overrides` | Actor, timestamp, prior value, new value, reason (CPM-FR-3) |
+| `inventory_snapshots` | Source package key, internal usage signals as observed, presence or absence, observation time (CPM-FR-42) |
 
 ### A.3 Derived statuses
 
