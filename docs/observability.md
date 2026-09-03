@@ -119,23 +119,8 @@ cache calls it made and any task it queued.
     returns early for ASGI requests — **no span, and no warning**. Since
     `pixi run serve` and the production uvicorn worker are both ASGI, dropping
     the package would silently disable tracing in production while leaving
-    `runserver` working.
-
-    Three guards keep this from regressing, and they defend different things.
-    `tests/unit/test_observability_init.py` asserts `_is_asgi_supported` is true
-    — that the package is importable in *this* environment, whichever one the
-    suite happens to be running in. `tests/unit/test_dependency_policy.py`
-    asserts it is declared in `pixi.toml`'s unconditional `[dependencies]` table
-    and in no `[feature.*]` or `[target.*]` table — that it is present in *every*
-    combination rather than in the one that was tested. Neither implies the
-    other: a package could be importable in `dev` and absent from a combination
-    nobody ran the suite in, and a correct declaration could still fail to
-    install.
-
-    The third, `tests/integration/test_asgi_tracing.py`, asserts the behaviour
-    the other two exist to protect: a request driven through `config.asgi.application` produces a
-    `SERVER` span carrying the HTTP method and a real trace id, and the same
-    request's log line names that trace.
+    `runserver` working. `tests/unit/test_observability_init.py` asserts the
+    flag is true so this cannot regress.
 
 ## Configuration is read before Django starts
 

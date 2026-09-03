@@ -27,15 +27,7 @@ class TestAsgiInstrumentationIsAvailable:
     def test_asgi_support_is_enabled(self):
         from opentelemetry.instrumentation.django.middleware.otel_middleware import _is_asgi_supported  # noqa: PLC0415
 
-        assert _is_asgi_supported is True, (
-            f"_is_asgi_supported is {_is_asgi_supported!r}, which means "
-            "opentelemetry-instrumentation-asgi is not importable in this environment. The Django "
-            "instrumentor's middleware then returns early for every ASGI request and produces no span and "
-            "no warning -- tracing does not fail, it silently stops. Both `pixi run serve` (uvicorn) and "
-            "the production gunicorn + uvicorn-worker pairing are exactly that path, so the whole of FR-47 "
-            "would be lost in production while `runserver` kept working. Restore the declaration in "
-            "pixi.toml's [dependencies]; tests/unit/test_dependency_policy.py guards it staying there."
-        )
+        assert _is_asgi_supported is True
 
 
 class TestReadDotEnv:
