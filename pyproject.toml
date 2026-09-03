@@ -1,0 +1,439 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatchling", "hatch-vcs" ]
+
+[project]
+name = "conda-package-supply-chain-monitor"
+# Version is derived from git tags by hatch-vcs; see [tool.hatch.version].
+dynamic = [ "version" ]
+description = "A Django application accelerator template based on 15 factor application principles."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Kevin Samuel Mills", email = "millsks@gmail.com" },
+]
+requires-python = "==3.14.*"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+]
+# Runtime and development dependencies are declared in pixi.toml, which sources
+# them from conda-forge. pixi.toml is the single source of truth for versions;
+# this file carries build metadata and tool configuration only.
+dependencies = [ ]
+
+# ==== djLint ====
+[tool.djlint]
+blank_line_after_tag = "load,extends"
+custom_blocks = "element,slot"
+close_void_tags = true
+format_css = true
+format_js = true
+ignore = "H006,H030,H031"
+include = "H017,H035"
+indent = 2
+max_line_length = 119
+profile = "django"
+css.indent_size = 2
+js.indent_size = 2
+
+# ==== ruff ====
+[tool.ruff]
+# 120, not the ruff default of 88. E501 stays selected, so the limit is enforced
+# rather than advisory.
+line-length = 120
+
+# Exclude a variety of commonly ignored directories.
+extend-exclude = [
+  "*/migrations/*.py",
+  "staticfiles/*",
+  # Vendored tooling, not project source.
+  ".agents",
+  ".bmad-loop",
+  ".claude",
+  ".pixi",
+  "_bmad",
+  # Planning artifacts. Prose, not source -- and their fenced python blocks
+  # quote upstream code verbatim, so formatting them would misrepresent what
+  # the quoted source actually looks like.
+  "_bmad-output",
+]
+
+lint.select = [
+  "A",
+  "ASYNC",
+  "B",
+  "BLE",
+  "C4",
+  "C90",
+  "COM",
+  "DJ",
+  "DTZ",
+  "E",
+  "EM",
+  "ERA",
+  "EXE",
+  "F",
+  "FA",
+  "FBT",
+  "FLY",
+  "G",
+  "I",
+  "ICN",
+  "INP",
+  "INT",
+  "ISC",
+  "N",
+  "PD",
+  "PERF",
+  "PGH",
+  "PIE",
+  "PL",
+  "PT",
+  "PTH",
+  "PYI",
+  "Q",
+  "RET",
+  "RSE",
+  "RUF",
+  "S",
+  "SIM",
+  "SLF",
+  "SLOT",
+  "T10",
+  "T20",
+  "TC",
+  "TID",
+  "TRY",
+  "UP",
+  "W",
+  "YTT",
+]
+lint.ignore = [
+  # Conflicts with the formatter, which owns trailing commas -- ruff warns on
+  # every run while this is selected. Arrives via the "COM" group above; COM818
+  # and COM819 do not conflict and stay enabled.
+  "COM812", # Trailing comma missing
+  "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+  "S101",   # Use of assert detected https://docs.astral.sh/ruff/rules/assert/
+  "SIM102", # sometimes it's better to nest
+  # of types for comparison.
+  # Deactivated because it can make the code slow:
+  # https://github.com/astral-sh/ruff/issues/7871
+]
+lint.isort.force-single-line = true
+lint.isort.known-first-party = [ "config", "django_service", "tests" ]
+# Ruff's default is [ "TODO", "FIXME", "XXX" ] and setting this key *replaces*
+# the default rather than extending it, so all three are respelled here; a
+# four-element list that dropped them would silently switch off TODO/FIXME/XXX
+# handling tree-wide.
+#
+# "feature" is the fourth, and it is not a to-do marker. AD-24 delimits a
+# feature-owned region with paired line comments spelled exactly
+# `# feature:<name>` and `# /feature:<name>` -- see
+# src/config/startup/stage_one.py, which carries the first two. ERA001 reads the
+# *opening* marker as commented-out code (the closing one escapes it on the
+# leading slash), so `pixi run ci` fails on an unmodified AD-24 marker without
+# this line. Declaring the tag says `feature:` is a recognized annotation, which
+# is what it is.
+#
+# The alternative, `# noqa: ERA001` on every opening marker, was rejected: it
+# changes the marker's own line text, and Story 8.3's stripper has to match that
+# line. Cost of this spelling: any comment beginning `feature` is exempt from
+# ERA001 tree-wide. FIX and TD are not selected, so nothing else reads task-tags.
+lint.task-tags = [ "TODO", "FIXME", "XXX", "feature" ]
+
+# ==== pyproject-fmt ====
+[tool.pyproject-fmt]
+keep_full_version = true
+
+# ==== hatch ====
+[tool.hatch.version]
+source = "vcs"
+# Used when no git tag is reachable (shallow CI clones, fresh repos).
+fallback-version = "0.0.0"
+
+# The one import-root declaration site in this repository (AD-7). Every other
+# site is gone: no `sys.path` insert in manage.py, asgi.py or wsgi.py, no
+# `--app-dir src` in any pixi task, no "src" in the pytest `pythonpath`. The
+# editable install (pixi.toml [pypi-dependencies]) is what puts this root on
+# sys.path at runtime -- hatchling's editable finder is generated from the
+# `sources` remapping below, which is why those fallbacks are removable.
+#
+# That finder is materialised as a generated .pth file in the environment's
+# site-packages (`_editable_impl_django_15_factor_base.pth`, containing
+# <repo>/src). It is not the "adding a .pth file" AD-7 forbids: a build-time
+# artifact regenerated from this table is an output of the one declaration,
+# whereas a hand-written .pth would be a second declaration nothing reconciles.
+#
+# `sources` remaps the directory, not the packages inside it: everything under
+# src/ lands at the wheel root, so config/ and django_service/ are top-level
+# and an app added later needs no edit here (AD-6's graduation promise). This
+# deliberately replaces `packages = [ "src/config", "src/django_service" ]`, a
+# per-package enumeration that would need one line per app.
+#
+# `only-include` is load-bearing, not decoration: hatchling's default wheel file
+# selection looks for a package named after the project (`django_15_factor_base`),
+# which does not exist here. Without it the build still succeeds and quietly
+# ships a different set of files. tests/unit/test_import_roots.py asserts both
+# keys, and tests/integration/test_import_resolution.py asserts the built wheel's
+# top-level entries.
+#
+# Epic 9 adds the second root, src/django_apps/, to the `sources` array below
+# -- one more string in this same table, never a second declaration site.
+# Caveat for whoever does it: hatchling normalises `sources` into a mapping,
+# sorts it alphabetically ascending and applies the *first* matching prefix (the
+# `sources` property and `get_distribution_path` on its wheel builder config --
+# behaviour, not a line range, because hatchling is pinned >=1.27,<2 and line
+# numbers move within that window). "src" sorts before "src/django_apps" and
+# would therefore shadow it, leaving apps importable as `django_apps.billing`
+# rather than `billing`. That addition has to be verified against the built
+# wheel, not assumed.
+[tool.hatch.build.targets.wheel]
+only-include = [ "src" ]
+sources = [ "src" ]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src",
+  "tests",
+  "manage.py",
+  "mkdocs.yml",
+  "docs",
+  "README.md",
+  "LICENSE",
+]
+
+# ==== pytest ====
+[tool.pytest.ini_options]
+addopts = [
+  "--ds=config.settings.test",
+  "--reuse-db",
+  "--import-mode=importlib",
+]
+minversion = "9.0"
+# An import-root declaration pytest-django would otherwise make on this
+# project's behalf (AD-7). It defaults to true, and when it is on pytest-django
+# walks up looking for manage.py and does `sys.path.insert(0, <its directory>)`
+# -- a live seventh declaration site, putting the repository root on sys.path on
+# every test run. Off, so the editable install generated from
+# [tool.hatch.build.targets.wheel] is the only thing that resolves `config` and
+# `django_service`, under pytest exactly as under gunicorn.
+# tests/unit/test_import_roots.py asserts this stays false.
+django_find_project = false
+testpaths = [ "tests" ]
+python_files = [
+  "tests.py",
+  "test_*.py",
+]
+markers = [
+  "integration: marks tests as integration tests requiring real I/O, network, or DB",
+  # R-1's django-storages fitness spike. It runs only in the `spike-storage`
+  # pixi environment, via `pixi run spike-storage`, and never in the gate --
+  # `test-cov` runs `pytest tests/`, and `python_files` below does not match the
+  # `spike_*.py` module the spike lives in, so collection never reaches it.
+  # The marker is registered here so `-m spike` selects rather than warns.
+  "spike: marks the R-1 django-storages fitness spike; runs only in the spike-storage environment",
+  # FR-16's claim marker. `@pytest.mark.forbidden_state("<state_id>")` says "this
+  # test configures that forbidden state and asserts the refusal", and
+  # tests/unit/startup/test_refusal_coverage_audit.py reconciles the claims
+  # against tests/unit/startup/forbidden_states.py in both directions. Registered
+  # rather than left unknown because `--strict-markers` is one flag away and,
+  # more to the point, an unregistered marker is a typo that warns instead of
+  # failing -- which is exactly how a state would go unclaimed unnoticed.
+  "forbidden_state: names the FR-16 forbidden state this test configures and asserts the refusal of",
+]
+
+# ==== Coverage ====
+[tool.coverage.run]
+include = [ "src/**" ]
+# The closed, carrier-declared surface (AD-20). `include` above and `omit`
+# below are one surface, and it is closed: adding an entry is a deliberate act,
+# never an incidental one. Two tests hold that, and they hold different halves
+# of it: tests/unit/test_coverage_policy.py reconciles what is declared here
+# against the frozen list it carries, so an addition fails until it is recorded
+# there; tests/integration/test_coverage_measurement.py reconciles this
+# declaration against the configuration a measured run is actually using, which
+# is what catches a .coveragerc or a COVERAGE_RCFILE displacing this table
+# without touching it. Narrowing `include` fails the same way an omit addition
+# does, because narrowing what is measured blinds the only residue detector
+# this product has just as effectively as omitting a path (CG-1).
+#
+# A second exclusion surface exists and is deliberately not reconciled against
+# this one: sonar-project.properties declares sonar.coverage.exclusions for the
+# merge-blocking SonarCloud gate. It governs the published coverage view rather
+# than the pytest-cov floor, and it does not agree entry-for-entry with the
+# list below. tests/unit/test_coverage_policy.py freezes it as it stands, so
+# the divergence is recorded rather than drifting; closing it means editing an
+# external gate's input and is a later, deliberate act.
+#
+# One caveat, asserted rather than left implicit: `test-cov` passes --cov=src,
+# which sets coverage's *source*, and a source supersedes `include` -- coverage
+# says so on every run ("--include is ignored because --source is set"). So
+# `include` here is the declared bound while the task's --cov argument is the
+# bound in force. test_the_floor_task_measures_the_whole_suite_and_the_whole_
+# source_tree pins the latter, so narrowing either one fails the gate.
+#
+# Recorded here, not resolved: `include = [ "src/**" ]` leaves
+# tools/materializer/ and tools/harness/ -- both drawn by the Structural Seed,
+# neither existing yet -- outside measurement. Widening `include` when they
+# arrive is therefore a deliberate change to a declared surface rather than an
+# unnoticed one. This story pins the value; it does not take that decision.
+#
+# Epic 7 moves this declaration into accelerator.toml. tests/coverage_policy.py
+# is the single reader every assertion goes through, so the reads move in that
+# one module. What moves with it, elsewhere: the frozen expectations
+# (CLOSED_OMIT, CLOSED_INCLUDE, CLOSED_EXCLUDE, CLOSED_SONAR_EXCLUSIONS,
+# COVERAGE_SOURCE, COVERAGE_FLOOR) live in tests/unit/test_coverage_policy.py
+# and are repointed there. And two assertions have to be rewritten rather than
+# repointed -- test_no_line_exclusion_surface_is_declared and
+# test_no_per_directory_narrowing_is_declared assert that a table in *this
+# file* does not exist, which is a claim the carrier cannot inherit unchanged.
+omit = [
+  "*/migrations/*",
+  "*/tests/*",
+  "**/*.egg-info/**",       # setuptools build artifacts, not source
+  "src/config/wsgi.py",     # deployment entrypoints: no logic, exercised by the
+  "src/config/asgi.py",     # WSGI/ASGI server rather than by the test suite
+]
+# Measures Django templates alongside Python. Requires
+# TEMPLATES[0]["OPTIONS"]["debug"] = True, which config/settings/test.py sets,
+# and COVERAGE_CORE=ctrace, set in pixi.toml -- see below.
+plugins = [ "django_coverage_plugin" ]
+
+[tool.coverage.django_coverage_plugin]
+# Defaults to "html, txt, tex", which makes coverage treat stray .txt files
+# (setuptools' SOURCES.txt, for one) as templates. Every template here is HTML.
+template_extensions = "html"
+
+# ==== mypy ====
+[tool.mypy]
+# The only Python this project supports. requires-python above pins ==3.14.*
+# and pixi.toml pins python = "3.14.*", so 3.14 is the floor and the ceiling
+# both; there is no older runtime for mypy to check compatibility against.
+python_version = "3.14"
+# Strict is a gate condition, not an advisory (NFR-4, AD-18). `pixi run ci`
+# chains `typecheck`, so an unannotated definition fails the build rather than
+# warning -- which is the point: a relaxation here would otherwise land as one
+# line in a config table that nobody reads as a change in what the gate
+# enforces. tests/unit/test_typing_policy.py asserts this stays true.
+#
+# `strict` subsumes warn_unused_ignores, warn_redundant_casts and
+# warn_unused_configs. They stay declared because they are explicit and
+# harmless, and because they survive independently if strict ever moves.
+strict = true
+# Not implied by strict, and deliberately kept: several conda-forge packages in
+# the runtime set ship no stubs. Removing it is a separate decision that needs
+# every third-party import checked first.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+plugins = [
+  "mypy_django_plugin.main",
+  "mypy_drf_plugin.main",
+]
+
+[[tool.mypy.overrides]]
+# Django migrations should not produce any errors:
+module = "*.migrations.*"
+ignore_errors = true
+# This is not the silencing AC #2 of Story 1.3 forbids. It predates strict mode
+# and was not introduced to make it pass: it covers generated migration files,
+# which no rule in this product asks anyone to annotate, and it matches the
+# exclusions ruff (`extend-exclude = ["*/migrations/*.py", ...]`) and
+# pre-commit (`exclude: ... src/django_service/contrib/sites/migrations/`)
+# already apply. Do not extend the module pattern to any hand-written module --
+# errors in code a person wrote get fixed at the source.
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+# git-cliff configuration for changelog generation
+[tool.git-cliff.changelog]
+# changelog header
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+# template for the changelog body
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}**{{commit.scope}}**: {% endif %}{{ commit.message | upper_first }}\
+    {% endfor %}
+{% endfor %}\n
+"""
+# template for the changelog footer
+footer = """
+<!-- generated by git-cliff -->
+"""
+# remove the leading and trailing s
+trim = true
+# postprocessors
+postprocessors = [
+  # { pattern = '<REPO>', replace = "https://github.com/millsks/conda-package-supply-chain-monitor" }, # replace repository URL
+]
+
+[tool.git-cliff.git]
+# parse the commits based on https://www.conventionalcommits.org
+conventional_commits = true
+# filter out the commits that are not conventional
+filter_unconventional = true
+# process each line of a commit as an individual commit
+split_commits = false
+# regex for preprocessing the commit messages
+commit_preprocessors = [
+  # Replace issue numbers
+  #{ pattern = '\\((\\w+\\s)?#([0-9]+)\\)', replace = "([#${2}](https://github.com/millsks/conda-package-supply-chain-monitor/issues/${2}))" },
+  # Check spelling of the commit with https://github.com/crate-ci/typos
+  # If the spelling is incorrect, it will be automatically fixed.
+  #{ pattern = '.*', replace_command = 'typos --write-changes -' },
+]
+# regex for parsing and grouping commits
+commit_parsers = [
+  { message = "^feat", group = "⭐ Features" },
+  { message = "^fix", group = "🐛 Bug Fixes" },
+  { message = "^doc", group = "📚 Documentation" },
+  { message = "^perf", group = "⚡ Performance" },
+  { message = "^refactor", group = "🚜 Refactor" },
+  { message = "^style", group = "🎨 Styling" },
+  { message = "^test", group = "🧪 Testing" },
+  { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore\\(deps.*\\)", skip = true },
+  { message = "^chore\\(pr\\)", skip = true },
+  { message = "^chore\\(pull\\)", skip = true },
+  { message = "^build", group = "📦 Build" },
+  { message = "^chore|^ci", group = "⚙️ Miscellaneous Tasks" },
+  { body = ".*security", group = "🔒 Security" },
+  { message = "^revert", group = "◀️ Revert" },
+  { message = "^Merge branch", skip = true },
+  { message = "^Release v", skip = true },
+]
+# protect breaking changes from being skipped due to matching a skipping commit_parser
+protect_breaking_commits = false
+# filter out the commits that are not matched by commit parsers
+filter_commits = false
+# regex for matching git tags
+tag_pattern = "v[0-9].*"
+# regex for skipping tags
+# skip_tags = ""
+# regex for ignoring tags
+# ignore_tags = ""
+# sort the tags topologically
+topo_order = false
+# sort the commits inside sections by oldest/newest order
+sort_commits = "oldest"
+# limit the number of commits included in the changelog.
+# limit_commits = 42

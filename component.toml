@@ -1,0 +1,187 @@
+# ============================================================================
+# component.toml -- what this component states about *itself* (AD-28).
+#
+# Disposition: `core`. This file always travels. It is present in the reference
+# application and in every materialized component alike, which is the whole
+# point of it: a rule a component must obey at runtime cannot live in a file the
+# component does not have.
+#
+# Epic 7 must list this path as `core` explicitly when it authors
+# `accelerator.toml`. AD-2 makes an *unlisted* input `machinery`, so an omission
+# there would silently stop this file travelling -- exactly the failure AD-28
+# exists to prevent. Until that declaration exists, this comment is where the
+# disposition is stated.
+#
+# ---- The placement rule (AD-28) ----
+#
+#   * A rule the component must obey at **runtime or deploy time** belongs
+#     here. The adopted-application list, the selected-feature list, per-database
+#     requiredness, per-database release-stage migration steps and the
+#     process-model constraints are all of that kind: the component obeys them
+#     inside a tree that does not have `accelerator.toml`.
+#
+#   * A rule **only the materializer needs** belongs in `accelerator.toml`.
+#     Feature surfaces, dispositions, AD-25 parameter sites, presets, the closed
+#     contributable surface and the pinned verification subset are all of that
+#     kind. `accelerator.toml` is `machinery` and never travels, so a runtime
+#     rule placed there is a rule a materialized component cannot read.
+#
+# So: nothing here is a disposition, a parameter site, a preset or a feature
+# surface, and nothing here duplicates a concern `pyproject.toml` or `pixi.toml`
+# already owns. `tests/unit/test_component_declaration.py` asserts the top-level
+# key set against that closed list, which is the mechanical form of the rule.
+# `docs/deployment.md` carries the same split in prose.
+#
+# ---- This file is a region-bearing `core` path (AD-24) ----
+#
+# The process-model constraints below describe process types that exist in only
+# two of the six valid combinations, so the lines that declare them are
+# feature-owned. They are delimited by paired line comments in TOML's own
+# comment syntax -- `# feature:<name>` and `# /feature:<name>` -- which is the
+# only sub-file removal mechanism AD-24 permits. Without them AD-14's two-way
+# gate test fails in the four non-Celery combinations by declaring processes
+# with no matching task.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Top-level keys come first: in TOML a bare key written after a table header
+# belongs to that table, so `adopted_apps` and `selected_features` are declared
+# above `[component]` rather than below it.
+# ---------------------------------------------------------------------------
+
+# The reusable Django applications this component has adopted, in the order
+# AD-8's composition step applies them. Order is load-bearing here -- unlike
+# `selected_features` below -- because contributions are appended in it.
+#
+# Empty is a valid, ordinary state and needs no special case: the reference
+# application adopts nothing. Adoption is explicit and is two lines, never one --
+# a `pixi.toml` dependency and an entry here. Nothing self-registers, and
+# entry-point discovery is forbidden (AD-8). Epic 9 is the consumer; no
+# discovery, scanning or `INSTALLED_APPS` inference is implemented against it
+# here.
+adopted_apps = []
+
+# The features this combination selected (AD-28).
+#
+# **Why it lives here and not in `accelerator.toml`.** This is the only
+# declaration of the combination's features present at settings import in *both*
+# trees. `accelerator.toml` is `machinery` and does not travel, so it cannot be
+# read by a materialized component at all. `.accelerator.json` cannot serve
+# either: AD-17 gives the reference application no stamp, so a mechanism reading
+# it would work in every materialized component and fail in the one tree that
+# has to gate itself. AD-8's refusal of a contribution naming an unselected
+# feature reads this list; Epic 9 implements that refusal, not this story.
+#
+# **Why one feature per line.** `selected_features` is not *removed* per
+# combination -- it takes a different *value* per combination, which is neither a
+# disposition nor a declared AD-25 parameter. Writing it as a multi-line array
+# with each entry inside its own AD-24 marker pair produces the per-combination
+# value through the one mechanism AD-24 permits, and needs no new machinery. If
+# Epic 7 or Epic 8 finds a materializer-side value rewrite preferable, that is
+# their call to make against AD-24's "no other sub-file removal mechanism is
+# permitted", and the outcome belongs in Story 5.1 rather than in a quiet
+# divergence between the two files.
+#
+# The selectable features are exactly `celery`, `redis` and `storage`. The
+# server-rendered interface is immovable core and is **not** a feature (AD-29,
+# revision 3), so `ui` must never appear here. The reference application is the
+# all-features combination, so all three are listed; a materialized component
+# carries the subset it selected, and the *Minimal* preset carries none.
+selected_features = [
+  # feature:celery
+  "celery",
+  # /feature:celery
+  # feature:redis
+  "redis",
+  # /feature:redis
+  # feature:storage
+  "storage",
+  # /feature:storage
+]
+
+[component]
+# The component's own name, and nothing else `pyproject.toml` or `pixi.toml`
+# already owns -- no version, no description, no dependency, no Python pin.
+#
+# This is an AD-25 parameter site owned by Epic 7. The literal stands here on
+# purpose: a placeholder token would make the reference application's own
+# declaration unreadable by every mechanism that reads this file, which is the
+# opposite of a `core` path that always travels.
+name = "conda-package-supply-chain-monitor"
+
+# ---------------------------------------------------------------------------
+# Databases (AD-9). One entry per alias, carrying what the component knows about
+# it that the deployment repository would otherwise have to guess.
+# ---------------------------------------------------------------------------
+
+[[databases]]
+alias = "default"
+# Readiness (Story 5.3) treats a database as required unless this file declares
+# it optional, so `required = true` is both the value here and the default a
+# reader applies when the key is absent. A contributed database that a component
+# can serve without is where `false` belongs.
+required = true
+# The release-stage steps, one entry per invocation the deployment repository
+# runs *before* new pods serve. A list rather than a flag because AD-9 turns
+# release-stage migration into one step per database, and because a component
+# that needs a second invocation for an alias has nowhere else to say so.
+migrate = ["migrate --database default --noinput"]
+
+# ---------------------------------------------------------------------------
+# The process model (AD-14). Replica counts and replacement strategy live here
+# because the deployment repository cannot infer either one. Story 5.2 owns
+# these values and the two-way gate test that reconciles each entry against the
+# pixi task it names; this story owns the file, the schema and the loader.
+#
+# Every process below belongs to the process group, and the rule for the group
+# is that a member declares `COMPONENT_PROCESS` through the pixi task named in
+# its `task` field -- so the group is exactly the set of `pixi.toml` tasks whose
+# `env` carries that variable, and every entry here names one of them. Story 5.2
+# added those tasks and the two-way gate test in
+# tests/unit/test_process_model.py, which reconciles the two directions: no
+# entry here may name a task that does not exist, and no task in the process
+# group may go undeclared here. Admin processes are outside the group and never
+# set it -- see `[[admin_processes]]`.
+# ---------------------------------------------------------------------------
+
+[[processes]]
+name = "web"
+task = "web"
+# Rolling: any number of web processes may serve at once, so the platform may
+# start the new one before it stops the old.
+replacement = "rolling"
+
+# feature:celery
+[[processes]]
+name = "worker"
+task = "worker"
+# Rolling for the same reason `web` is: workers are interchangeable consumers
+# and two generations may drain the queue side by side.
+replacement = "rolling"
+
+[[processes]]
+name = "beat"
+task = "beat"
+# Exactly one, and never two at once. `beat` is the scheduler: a second replica
+# double-enqueues every periodic task, and a rolling replacement produces that
+# second replica for the length of the overlap. So the count is fixed at one and
+# the old process is stopped before the new one starts.
+replicas = 1
+replacement = "stop-before-start"
+# /feature:celery
+
+# ---------------------------------------------------------------------------
+# Administrative processes (AD-13). These are **not** in the process group and
+# must never set `COMPONENT_PROCESS`: a one-off run that declared itself a
+# serving process would fire the serving-process refusals and fail the very
+# maintenance it was invoked to do.
+#
+# `schedule = "deployment-repository"` says the cadence is the deployment
+# repository's to choose. The component declares that the process exists and
+# what it is called; it does not declare when somebody else's platform runs it.
+# ---------------------------------------------------------------------------
+
+[[admin_processes]]
+name = "prune"
+task = "prune"
+schedule = "deployment-repository"

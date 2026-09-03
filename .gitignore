@@ -122,7 +122,8 @@ ipython_config.py
 # pixi.lock
 #   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
 #   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi
+#   The .pixi/* + !.pixi/config.toml pair at the bottom of this file handles that, and keeps
+#   .pixi/config.toml tracked -- a bare `.pixi` here would ignore the directory and defeat it.
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
@@ -195,9 +196,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#   and can be added to the global gitignore or merged into this file. However, if you prefer,
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 # Temporary file for partial code execution
@@ -205,6 +206,7 @@ tempCodeRunnerFile.py
 
 # Ruff stuff:
 .ruff_cache/
+ruff-report.json
 
 # PyPI configuration file
 .pypirc
@@ -220,3 +222,25 @@ __marimo__/
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 _bmad/render/
+.envs/.local/.django
+.envs/.local/.postgres
+.envs/.production/.django
+.envs/.production/.postgres
+src/.DS_Store
+
+# Collected static files (STATIC_ROOT)
+staticfiles/
+
+# Development signing keypair (NFR-7, FR-20). Generated on demand by
+# `pixi run -e dev mint-token`, never committed. This tree is a template: a key
+# committed here would ship inside every component generated from it, so one
+# published private key would be shared by every service the accelerator ever
+# produces.
+.local-dev-keys/
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# macOS
+.DS_Store

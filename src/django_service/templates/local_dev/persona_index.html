@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}
+  Local persona sign-in
+{% endblock title %}
+
+{% block content %}
+  <h1>Local persona sign-in</h1>
+  {% if rejection %}
+    <div class="alert alert-danger" role="alert">{{ rejection }}</div>
+  {% endif %}
+  <ul class="list-unstyled">
+    {% for persona in personas %}
+      <li class="mb-3">
+        <form method="post" action="{{ persona.action }}">
+          {% csrf_token %}
+          <span class="me-2">{{ persona.key }}</span>
+          <span class="text-muted me-2">{{ persona.groups|join:", " }}</span>
+          <button type="submit" class="btn btn-primary">Sign in</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% endblock content %}

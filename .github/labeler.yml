@@ -1,0 +1,69 @@
+# Configuration for automatic labeling based on file changes
+# See https://github.com/actions/labeler
+
+# Django project configuration: settings, urls, wsgi/asgi, celery
+area/config-django:
+  - changed-files:
+      - any-glob-to-any-file: src/config/**
+
+# Application code
+area/core:
+  - changed-files:
+      - any-glob-to-any-file: src/django_service/**/*.py
+
+area/users:
+  - changed-files:
+      - any-glob-to-any-file: src/django_service/users/**
+
+# Templates and static assets
+area/frontend:
+  - changed-files:
+      - any-glob-to-any-file: src/django_service/templates/**
+      - any-glob-to-any-file: src/django_service/static/**
+
+# Database migrations warrant a closer look
+area/migrations:
+  - changed-files:
+      - any-glob-to-any-file: src/django_service/**/migrations/**
+
+# Test changes
+area/tests:
+  - changed-files:
+      - any-glob-to-any-file: tests/**
+
+# Documentation changes
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file: "*.md"
+      - any-glob-to-any-file: docs/**
+      - any-glob-to-any-file: mkdocs.yml
+      - any-glob-to-any-file: .github/ISSUE_TEMPLATE/**
+      - any-glob-to-any-file: .github/pull_request_template.md
+
+# Configuration changes
+area/config:
+  - changed-files:
+      - any-glob-to-any-file: pyproject.toml
+      - any-glob-to-any-file: pixi.toml
+      - any-glob-to-any-file: pixi.lock
+      - any-glob-to-any-file: .gitignore
+      - any-glob-to-any-file: .pre-commit-config.yaml
+
+# CI/CD changes
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/workflows/**
+      - any-glob-to-any-file: .github/dependabot.yml
+
+# Dependencies -- pixi owns them, so pixi.toml/pixi.lock are the signal
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: pixi.toml
+      - any-glob-to-any-file: pixi.lock
+
+# Security related
+security:
+  - changed-files:
+      - any-glob-to-any-file: SECURITY.md
+      - any-glob-to-any-file: sonar-project.properties
+      - any-glob-to-any-file: src/config/settings/production.py

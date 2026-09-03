@@ -1,0 +1,95 @@
+# Every hook is local: the tools come from the pixi `dev` feature (all of them
+# conda-forge packages), so pre-commit and `pixi run lint` / `check` can never
+# disagree on versions, and no hook environments are downloaded or built.
+#
+# Each entry is prefixed with `pixi run -e dev --` so the hooks work when git invokes
+# them outside an activated pixi environment.
+exclude: '^(\.agents/|\.claude/|\.bmad-loop/|\.pixi/|_bmad/|src/django_service/contrib/sites/migrations/)'
+
+default_install_hook_types: [pre-commit, commit-msg]
+
+# Hooks run at the pre-commit stage unless they declare otherwise. Without this,
+# every hook below with no `stages:` also ran at the commit-msg stage, where
+# pre-commit passes the commit-message file as the filename. Two consequences,
+# both fixed here:
+#
+#   1. Every hygiene hook ran twice per commit -- ruff, mypy and the file checks
+#      all executed a second time against COMMIT_EDITMSG, which is meaningless.
+#   2. It made commits impossible in a linked git worktree. A worktree's
+#      COMMIT_EDITMSG lives under the MAIN repo's .git/worktrees/<name>/, which is
+#      outside the worktree, and `git check-attr` refuses a path outside the
+#      repository with exit 128. check-added-large-files calls it with
+#      stderr=DEVNULL, so the failure surfaced only as an opaque traceback.
+#
+# The conventional-commit hook opts back in explicitly with `stages: [commit-msg]`.
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      # ---- file hygiene (pre-commit-hooks, conda-forge) ----
+      - id: check-added-large-files
+        name: check for added large files
+        entry: pixi run -e dev -- check-added-large-files
+        language: system
+
+      - id: check-merge-conflict
+        name: check for merge conflicts
+        entry: pixi run -e dev -- check-merge-conflict
+        language: system
+        types: [text]
+
+      - id: check-toml
+        name: check toml
+        entry: pixi run -e dev -- check-toml
+        language: system
+        types: [toml]
+
+      - id: check-yaml
+        name: check yaml
+        entry: pixi run -e dev -- check-yaml
+        language: system
+        types: [yaml]
+
+      - id: end-of-file-fixer
+        name: fix end of files
+        entry: pixi run -e dev -- end-of-file-fixer
+        language: system
+        types: [text]
+
+      - id: trailing-whitespace
+        name: trim trailing whitespace
+        entry: pixi run -e dev -- trailing-whitespace-fixer
+        language: system
+        types: [text]
+
+      # ---- lint / format / types ----
+      - id: ruff
+        name: ruff check
+        entry: pixi run -e dev -- ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: pixi run -e dev -- ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy
+        entry: pixi run -e dev -- mypy src/
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # ---- commit message ----
+      - id: conventional-commit-hook
+        name: conventional commit message
+        entry: pixi run -e dev -- conventional-commit-hook
+        language: system
+        stages: [commit-msg]
+        always_run: true
+        pass_filenames: true

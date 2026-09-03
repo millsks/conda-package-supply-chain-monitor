@@ -1,0 +1,39 @@
+site_name: Conda Package Supply Chain Monitor
+site_description: Evidence-based health, vulnerability, and currency monitoring for a Conda/Python package inventory.
+repo_url: https://github.com/millsks/conda-package-supply-chain-monitor
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Technology Stack: technology-stack.md
+  - Development: development.md
+  - Observability: observability.md
+  - Authentication: authentication.md
+  - Deployment: deployment.md
