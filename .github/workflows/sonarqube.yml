@@ -1,0 +1,133 @@
+name: SonarCloud Analysis
+
+# Runs after the gate, not alongside it. AD-18 puts every gate step inside the
+# single `pixi run ci` invocation, so this workflow must not measure the suite
+# itself -- it consumes the coverage.xml the gate produced. Cross-workflow
+# artifacts are only reachable through `workflow_run`, which is why the trigger
+# is shaped this way rather than mirroring ci.yml's push/pull_request triggers.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    # workflow_run always executes with base-repository permissions and secrets,
+    # regardless of what triggered the upstream run. Without this guard, a
+    # workflow_run fired by a fork PR's CI would check out and execute that
+    # fork's code (pixi install, ruff-report, the Sonar scan) with SONAR_TOKEN
+    # and a checks/pull-requests-write GITHUB_TOKEN available -- the "pwn
+    # request" pattern. Same-repo pushes and PRs are unaffected.
+    if: github.event.workflow_run.head_repository.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      actions: read # required to read job conclusions and download an artifact from another run
+
+    steps:
+      # github.event.workflow_run.conclusion is the conclusion of the WHOLE
+      # triggering run -- gate and compatibility together -- so a
+      # Windows/macOS-only flake in compatibility would report the run as
+      # failed even though gate passed. Check the Gate job's own conclusion
+      # instead, by name, via the Actions API.
+      - name: Check whether the Gate job succeeded
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          conclusion=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --jq '.jobs[] | select(.name == "Gate") | .conclusion')
+          echo "Gate job conclusion: ${conclusion:-<not found>}"
+          if [ "${conclusion}" = "success" ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # workflow_run carries PR context only for same-repo PRs, and only via
+      # this array -- GITHUB_EVENT_NAME is `workflow_run`, not `pull_request`,
+      # so the scan action cannot infer sonar.pullrequest.* on its own the way
+      # it would under a native pull_request trigger. Read from the event file
+      # rather than interpolating `${{ }}` values into the shell, since a PR's
+      # branch name is attacker-influenced input on a fork-adjacent trigger.
+      - name: Determine pull request context
+        id: pr
+        if: steps.gate.outputs.passed == 'true'
+        run: |
+          pr_number=$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")
+          if [ -n "${pr_number}" ]; then
+            pr_head=$(jq -r '.workflow_run.pull_requests[0].head.ref' "$GITHUB_EVENT_PATH")
+            pr_base=$(jq -r '.workflow_run.pull_requests[0].base.ref' "$GITHUB_EVENT_PATH")
+            {
+              echo "args<<SONAR_ARGS_EOF"
+              echo "-Dsonar.pullrequest.key=${pr_number}"
+              echo "-Dsonar.pullrequest.branch=${pr_head}"
+              echo "-Dsonar.pullrequest.base=${pr_base}"
+              echo "SONAR_ARGS_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.gate.outputs.passed == 'true'
+        with:
+          fetch-depth: 0 # Shallow clones should be disabled for better analysis
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Pixi
+        if: steps.gate.outputs.passed == 'true'
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.70.2
+          environments: dev
+          cache: true
+
+      - name: Install dependencies
+        if: steps.gate.outputs.passed == 'true'
+        run: pixi install -e dev
+
+      # sonar-project.properties points at coverage.xml via
+      # sonar.python.coverage.reportPaths, so the file must land at the
+      # repository root under that exact name. No `continue-on-error` here: a
+      # missing report means the scan would silently claim zero coverage, which
+      # is a worse signal than a failed workflow.
+      - name: Download coverage report from the gate
+        if: steps.gate.outputs.passed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ruff-report is not a gate step: `lint` gates on findings and runs inside
+      # the gate, while this writes the same findings as JSON for the scanner.
+      - name: Run ruff linting with JSON output
+        if: steps.gate.outputs.passed == 'true'
+        run: pixi run ruff-report
+
+      - name: SonarCloud Scan
+        if: steps.gate.outputs.passed == 'true'
+        uses: sonarsource/sonarqube-scan-action@v7.1.0
+        with:
+          args: ${{ steps.pr.outputs.args }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Note: For SonarCloud, do not set SONAR_HOST_URL (it defaults to sonarcloud.io)
+
+      - name: SonarCloud Quality Gate check
+        if: steps.gate.outputs.passed == 'true'
+        id: sonarcloud-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Note: For SonarCloud, do not set SONAR_HOST_URL
+
+      - name: "Show SonarCloud Quality Gate Status"
+        if: steps.gate.outputs.passed == 'true'
+        run: echo "The Quality Gate status is ${{ steps.sonarcloud-quality-gate-check.outputs.quality-gate-status }}"

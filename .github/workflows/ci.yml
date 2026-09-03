@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+# The gate is one task invoked in one place (AD-18). `pixi run ci` runs
+# precommit, build, typecheck, lint and test-cov in that order, and a developer
+# running it locally executes the identical sequence -- no step exists only here
+# or only there. No other workflow may run a gate step on its own.
+#
+# Why the split below is a split and not a narrowed gate: GitHub Actions
+# `services:` containers run only on Linux runners, so the PostgreSQL service
+# the gate needs (FR-32) cannot be attached to a three-OS matrix. The gate
+# therefore runs on ubuntu only, and a separate matrix job keeps the three-OS
+# claim by running the suite against the sqlite substitution. The two jobs
+# assert different things and neither replaces the other.
+#
+# Any future six-combination job is Linux-only for a second, independent reason:
+# `gunicorn` has no win-64 build, and pixi.toml scopes gunicorn/uvicorn-worker
+# to linux-64 and osx-arm64 only.
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+
+    # FR-32 requires the gate to run against the database the immovable core
+    # names, and no workflow declared one before Story 1.2 -- the suite had only
+    # ever run against the sqlite substitution, which accepts schemas PostgreSQL
+    # rejects.
+    #
+    # The tag is chosen to match the `libpq = ">=17,<18"` pin at pixi.toml:16,
+    # but note that pin does not enforce it: libpq is the *client* library and a
+    # 17 client talks to an older server without complaint. Nothing in the repo
+    # can fail on a server-version mismatch, so keep this tag and that pin moving
+    # together by hand.
+    #
+    # This block stays on the ubuntu-only gate job. GitHub Actions `services:`
+    # containers run on Linux runners only, so it cannot be attached to the
+    # three-OS compatibility matrix below, which continues on sqlite.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: gateuser
+          POSTGRES_PASSWORD: gatepass
+          POSTGRES_DB: gatedb
+        ports: ["5432:5432"]
+        # `-h localhost` is load-bearing, not decoration. The postgres image's
+        # entrypoint runs initdb against a temporary server started with
+        # `listen_addresses=''` (docker-entrypoint.sh), so a bare `pg_isready`
+        # -- which defaults to the local unix socket -- reports success during
+        # that window while TCP on 5432 is still closed. The runner connects
+        # over TCP, so the health gate has to test TCP or it can green-light a
+        # step that then fails connection-refused for reasons unrelated to it.
+        options: >-
+          --health-cmd "pg_isready -h localhost -U gateuser -d gatedb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Job level rather than step level: `pixi run ci` fans out into five steps
+    # and the database-touching ones must not depend on which step declares the
+    # variable. config/settings/base.py:57 reads DATABASE_URL first and hands it
+    # to env.db(), so this URL is the whole mechanism that selects PostgreSQL --
+    # no settings change is involved.
+    env:
+      DATABASE_URL: postgres://gateuser:gatepass@localhost:5432/gatedb
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        # Project-wide pixi version. Must read lock-file format v7 -- the
+        # upstream v0.67.2 pin caps out at v6 and cannot read this lock.
+        pixi-version: v0.70.2
+        environments: dev
+        cache: true
+
+    # Runs against the PostgreSQL service declared above, via the job-level
+    # DATABASE_URL. `pixi run ci` is otherwise identical to the local invocation.
+    - name: Run the gate
+      run: pixi run ci
+
+    # sonarqube.yml consumes this rather than running coverage itself, so the
+    # gate stays the only place the suite is measured.
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-xml
+        path: coverage.xml
+        if-no-files-found: warn
+        retention-days: 7
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Informational only: pixi pins the interpreter (python = "3.14.*") and
+        # setup-python is never invoked, so every leg runs Python 3.14.
+        python-version: ['3.14']
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        # Project-wide pixi version. Must read lock-file format v7 -- the
+        # upstream v0.67.2 pin caps out at v6 and cannot read this lock.
+        pixi-version: v0.70.2
+        environments: dev
+        cache: true
+
+    # This job claims "the reference application runs on all three platforms",
+    # not "the gate passed"; the gate job above is what makes that second claim.
+    - name: Run unit tests
+      run: pixi run test
+
+    # Deliberately NOT given a DATABASE_URL, so this is the sqlite substitution.
+    # Once the gate moved onto PostgreSQL, this became the only place in CI that
+    # opens a database connection on sqlite at all -- the unit tests never touch
+    # one. Without it, AC #4's "it still runs on sqlite" would be asserted as
+    # configuration only, and PostgreSQL-only ORM code would pass every CI job
+    # while breaking `pixi run ci` for every developer with nothing running.
+    - name: Run integration tests on the sqlite substitution
+      run: pixi run test-integration

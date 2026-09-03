@@ -1,0 +1,45 @@
+# CODEOWNERS file for conda-package-supply-chain-monitor
+# This file defines who is responsible for reviewing changes to specific files or directories.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global ownership - @millsks owns the entire repository by default
+* @millsks
+
+# Core source code - require review from maintainers
+/src/ @millsks
+/tests/ @millsks
+
+# Django settings and deployment entrypoints - security sensitive
+/src/config/settings/ @millsks
+/src/config/wsgi.py @millsks
+/src/config/asgi.py @millsks
+
+# Migrations - hard to reverse once applied
+/src/django_service/users/migrations/ @millsks
+/src/django_service/contrib/ @millsks
+
+# Configuration files - require careful review
+pyproject.toml @millsks
+pixi.toml @millsks
+pixi.lock @millsks
+.pre-commit-config.yaml @millsks
+
+# CI/CD workflows - critical infrastructure
+/.github/ @millsks
+/.github/workflows/ @millsks
+
+# Documentation - allow broader contribution but still require review
+README.md @millsks
+CHANGELOG.md @millsks
+mkdocs.yml @millsks
+/docs/ @millsks
+*.md @millsks
+
+# Security and compliance
+sonar-project.properties @millsks
+
+# Package configuration
+LICENSE @millsks
+
+# Development environment
+.gitignore @millsks

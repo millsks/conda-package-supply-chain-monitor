@@ -1,0 +1,317 @@
+name: Release
+
+on:
+  schedule:
+    - cron: "0 0 7,21 * *" # At midnight on the 7th and 21st day of every month
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 1.0.0)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+      force_recreate:
+        description: "Remove existing tag/release if it exists before creating new one"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read # required to verify the commit's Gate check-run before releasing
+
+    steps:
+      # Fail before touching any release mechanics if the commit being
+      # released never passed the gate. ci.yml's `Gate` job is what makes
+      # `pixi run ci` mean anything for a given commit; without this check
+      # nothing here ever verified that.
+      - name: Verify the gate passed for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          conclusion=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Gate")] | sort_by(.started_at) | last | .conclusion')
+          echo "Gate conclusion for ${SHA}: ${conclusion:-<no Gate check-run found>}"
+          if [ "${conclusion}" != "success" ]; then
+            echo "::error::Refusing to release ${SHA} -- its Gate check-run did not succeed (conclusion: ${conclusion:-none})."
+            exit 1
+          fi
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          git fetch --tags
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo no_tag_found)
+          echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          if [ "$latest_tag" != "no_tag_found" ]; then
+            echo "has_tags=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tags=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next tag
+        id: next_tag
+        run: |
+          if [ "${{ steps.get_tag.outputs.has_tags }}" = "true" ]; then
+            base_tag="${{ steps.get_tag.outputs.tag }}"
+            base_tag="${base_tag#v}"
+            IFS='.' read -r major minor patch << EOF
+          ${base_tag}
+          EOF
+            patch=$((patch + 1))
+            next_tag="${major}.${minor}.${patch}"
+          else
+            next_tag="0.1.0"
+          fi
+
+          echo "NEXT_TAG=${next_tag}" >> "$GITHUB_ENV"
+          echo "next_tag=${next_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for changes since last tag
+        id: check_changes
+        run: |
+          if [ "${{ steps.get_tag.outputs.has_tags }}" == "false" ]; then
+            echo "No previous tags found - proceeding with release"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet ${{ steps.get_tag.outputs.tag }} HEAD; then
+            echo "No changes since last tag ${{ steps.get_tag.outputs.tag }}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected since last tag ${{ steps.get_tag.outputs.tag }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip release (no changes)
+        id: should_skip
+        run: |
+          if [ "${{ steps.check_changes.outputs.changed }}" == "false" ]; then
+            echo "::notice::No changes detected since last release. Skipping automated release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pixi
+        if: steps.should_skip.outputs.skip != 'true'
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.70.2
+          environments: dev
+          cache: true
+
+      - name: Set release tag
+        id: set_release_tag
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            new_tag="${{ inputs.version }}"
+          else
+            new_tag="${{ steps.next_tag.outputs.next_tag }}"
+          fi
+
+          echo "NEW_TAG=${new_tag}" >> "$GITHUB_ENV"
+          echo "new_tag=${new_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version format
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          if ! echo "${{ env.NEW_TAG }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "❌ Invalid version format. Use semantic versioning (e.g., 1.0.0, 1.0.0-beta.1)"
+            exit 1
+          fi
+          echo "✅ Version format is valid"
+
+      - name: Check if version already exists
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          if git tag | grep -q "^v${{ env.NEW_TAG }}$"; then
+            if [ "${{ inputs.force_recreate }}" = "true" ]; then
+              echo "⚠️  Version v${{ env.NEW_TAG }} already exists but force_recreate is enabled"
+              echo "Will remove existing tag and release..."
+            else
+              echo "❌ Version v${{ env.NEW_TAG }} already exists"
+              echo "Use 'force_recreate' option to remove and recreate it"
+              exit 1
+            fi
+          else
+            echo "✅ Version is new"
+          fi
+
+      - name: Remove existing tag and release (if force_recreate enabled)
+        if: steps.should_skip.outputs.skip != 'true' && inputs.force_recreate == true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="v${{ env.NEW_TAG }}"
+
+          if git tag | grep -q "^${VERSION}$"; then
+            echo "🗑️ Removing existing tag: ${VERSION}"
+            git push origin --delete "${VERSION}" || echo "Remote tag doesn't exist or already deleted"
+            git tag -d "${VERSION}" || echo "Local tag doesn't exist or already deleted"
+            echo "✅ Tag ${VERSION} removed"
+          else
+            echo "ℹ️  Tag ${VERSION} doesn't exist, nothing to remove"
+          fi
+
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "🗑️ Removing existing GitHub release: ${VERSION}"
+            gh release delete "${VERSION}" --yes
+            echo "✅ Release ${VERSION} removed"
+          else
+            echo "ℹ️  Release ${VERSION} doesn't exist, nothing to remove"
+          fi
+
+      # Quality checks are not run here. AD-18 puts every gate step inside the
+      # single `pixi run ci` invocation in ci.yml, which runs on every push to
+      # main -- so the commit this release builds from has already passed lint,
+      # typecheck, build and the covered suite. Re-running them on the release
+      # cron would make a schedule the thing that first invokes a gate step,
+      # which is exactly what AD-18 forbids.
+
+      - name: Create temporary tag for changelog generation
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ env.NEW_TAG }}" -m "Release v${{ env.NEW_TAG }}"
+
+      - name: Update CHANGELOG.md with git-cliff
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          pixi run changelog
+          echo "✅ Updated CHANGELOG.md with version v${{ env.NEW_TAG }}"
+
+      - name: Commit changelog and recreate tag
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -d "v${{ env.NEW_TAG }}"
+          git add CHANGELOG.md
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changelog changes to commit"
+          else
+            git commit -m "chore(release): v${{ env.NEW_TAG }}"
+          fi
+          git tag -a "v${{ env.NEW_TAG }}" -m "Release v${{ env.NEW_TAG }}"
+          git push origin main --tags
+
+      # The packaging sanity check that stood here ran `pixi run build` after
+      # the tag was created, which confirmed hatch-vcs resolved the new tag.
+      # AD-18 moves `build` onto the gate and forbids a cron from invoking it,
+      # so it is gone from this workflow.
+      #
+      # Known consequence: the gate builds every commit on main, but always
+      # before the release tag exists, so it proves the package builds and does
+      # not prove the tag resolves to the intended version. Nothing here checks
+      # that any more. Restoring it needs a step that asserts the resolved
+      # version without invoking a gate step.
+
+      - name: Generate release notes
+        if: steps.should_skip.outputs.skip != 'true'
+        id: release_notes
+        run: |
+          VERSION="${{ env.NEW_TAG }}"
+
+          if [ -f "CHANGELOG.md" ]; then
+            CHANGELOG_SECTION=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+
+            if [ -n "$CHANGELOG_SECTION" ]; then
+              cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          ## [${VERSION}] - $(date +%Y-%m-%d)
+
+          ${CHANGELOG_SECTION}
+
+          ---
+
+          ## Using this template
+
+          \`\`\`bash
+          git clone https://github.com/millsks/conda-package-supply-chain-monitor.git
+          cd conda-package-supply-chain-monitor
+          pixi install
+          pixi run migrate
+          pixi run runserver
+          \`\`\`
+
+          📝 **Full changelog**: [CHANGELOG.md](https://github.com/millsks/conda-package-supply-chain-monitor/blob/main/CHANGELOG.md)
+          RELEASE_NOTES
+          EOF
+            else
+              echo "⚠️ No changelog entry found for version ${VERSION}, using fallback"
+              cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          Release v${{ env.NEW_TAG }}
+
+          ## Changes in this release
+
+          ⚠️ **No specific changelog entry found for this version.**
+
+          Please check the [full changelog](https://github.com/millsks/conda-package-supply-chain-monitor/blob/main/CHANGELOG.md) for details.
+
+          ### Release Information
+          - Version: ${{ env.NEW_TAG }}
+          - Build date: $(date)
+          - Commit: ${{ github.sha }}
+          RELEASE_NOTES
+          EOF
+            fi
+          else
+            echo "⚠️ CHANGELOG.md not found, using fallback"
+            cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          Release v${{ env.NEW_TAG }}
+
+          ### Release Information
+          - Version: ${{ env.NEW_TAG }}
+          - Build date: $(date)
+          - Commit: ${{ github.sha }}
+          RELEASE_NOTES
+          EOF
+          fi
+
+      - name: Create GitHub Release
+        if: steps.should_skip.outputs.skip != 'true'
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.NEW_TAG }}
+          name: Release v${{ env.NEW_TAG }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Summarize
+        if: steps.should_skip.outputs.skip != 'true'
+        run: |
+          echo "✅ Release created: ${{ steps.create_release.outputs.url }}"

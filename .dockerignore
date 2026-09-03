@@ -1,0 +1,101 @@
+# What must not reach the build context, and why each entry is here.
+#
+# This file is `machinery` under AD-2, exactly as the `Dockerfile` beside it is:
+# materialized components ship no Dockerfile (AD-15) and therefore ship no
+# ignore file either. It is listed explicitly as `machinery` when Epic 7 authors
+# `accelerator.toml`, because AD-2's input reconciliation fails a path claimed by
+# no disposition.
+#
+# Two failures are being prevented, and they are not the same failure. The first
+# is bloat: `dist/`, `site/` and the tool caches are build outputs of the *host*
+# and would be copied into the image to be used by nothing. The second is
+# smuggling: `.env`, `.envs/`, `db.sqlite3` and `.local-dev-keys/` are local
+# state, and an image carrying any of them is a payload configured by a file
+# rather than by the environment -- which is exactly what FR-38 forbids and what
+# `tests/unit/test_payload_properties.py` asserts against.
+#
+# What deliberately stays in the context: `pixi.toml`, `pixi.lock`,
+# `pyproject.toml`, `manage.py` and `src/`, which are what the image is; plus
+# `component.toml`, `README.md` and `LICENSE`, which the editable self-install
+# needs -- `pyproject.toml` names the README and the licence file, and
+# `component.toml` is source that travels rather than configuration.
+
+# Version control. Excluded deliberately, and it has a consequence the Dockerfile
+# handles rather than works around: hatch-vcs derives `dynamic = ["version"]`
+# from git tags, so the build supplies the version explicitly instead of
+# shipping the history.
+.git/
+.gitattributes
+.gitignore
+
+# The host's own pixi environment. Several hundred megabytes of osx-arm64
+# packages that the image would never load; `pixi install --locked` builds the
+# linux-64 environment inside the image from `pixi.lock`.
+.pixi/
+
+# Build and documentation outputs of the host.
+dist/
+site/
+staticfiles/
+
+# Local state. `db.sqlite3` is a real local database sitting at the repository
+# root; shipping it would put a writable credential store into the payload.
+db.sqlite3
+db.sqlite3-journal
+.coverage
+.coverage.*
+coverage.xml
+
+# Configuration, which a payload does not carry (FR-38). All are gitignored and
+# none may ever enter an image.
+#
+# **`**/` is load-bearing here, and this is the difference from `.gitignore`.**
+# A `.dockerignore` pattern is matched against the path *relative to the build
+# context root*, so a bare `.env` excludes exactly `./.env` and nothing else --
+# `src/config/.env` would sail past it and into the image through `COPY src
+# ./src`. `.gitignore` matches a bare pattern at every level and is the habit
+# this file has to be read against. Both spellings are kept: the root-anchored
+# one because it is the file that actually exists, and the `**/` one because it
+# is the one that makes the claim in this file's header true.
+.env
+**/.env
+.env.*
+**/.env.*
+.envs/
+**/.envs/
+
+# The generated local development signing keypair. Gitignored, never committed,
+# and a private key in an image is a private key in a registry.
+.local-dev-keys/
+**/.local-dev-keys/
+
+# Tool caches. `__pycache__/` and `*.py[cod]` are `**/`-prefixed for the reason
+# the configuration block above records, and it is not hypothetical here: ten
+# `__pycache__` directories exist under `src/` in a working tree that has run the
+# suite, and a root-anchored pattern excludes none of them -- they would ship
+# into the image through `COPY src ./src`, which is the "excludes tool caches"
+# claim in this file's header being false.
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+**/*.py[cod]
+
+# Planning artefacts and agent machinery. None of it is the application.
+_bmad/
+_bmad-output/
+.agents/
+.bmad-loop/
+.claude/
+.github/
+
+# The harness's own tests. They are `machinery` too -- see the module docstring
+# of `tests/unit/test_payload_properties.py` -- and the image is the subject of
+# those tests rather than their host.
+tests/
+
+# Host filesystem residue, at every level for the same reason as above.
+.DS_Store
+**/.DS_Store

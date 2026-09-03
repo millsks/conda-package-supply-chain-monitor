@@ -1,0 +1,115 @@
+name: 🐛 Bug Report
+description: Report a bug to help us improve conda-package-supply-chain-monitor
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please provide as much detail as possible to help us reproduce and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened!
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run 'pixi run ...'
+        2. Visit '...'
+        3. See error
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: Tell us what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: A clear and concise description of what actually happened.
+      placeholder: Tell us what actually happened
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Project version or commit
+      description: Output of `pixi run -- python -c "import django_service; print(django_service.__version__)"`, or the commit SHA.
+      placeholder: e.g. 0.1.0, or 0ce66e2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: settings-module
+    attributes:
+      label: Settings module
+      description: Which settings module were you running?
+      options:
+        - config.settings.local
+        - config.settings.test
+        - config.settings.production
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database backend
+      description: Which database was in use? sqlite is the local-development fallback.
+      options:
+        - sqlite (default local fallback)
+        - PostgreSQL via DATABASE_URL
+        - PostgreSQL via POSTGRES_* variables
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages and logs
+      description: Please copy and paste any relevant traceback or log output.
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here, such as environment variables, reverse-proxy setup, or Celery/Redis configuration.
+      placeholder: Any additional information that might help us understand the issue
