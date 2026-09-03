@@ -53,13 +53,17 @@
 # AD-8's composition step applies them. Order is load-bearing here -- unlike
 # `selected_features` below -- because contributions are appended in it.
 #
-# Empty is a valid, ordinary state and needs no special case: the reference
-# application adopts nothing. Adoption is explicit and is two lines, never one --
-# a `pixi.toml` dependency and an entry here. Nothing self-registers, and
-# entry-point discovery is forbidden (AD-8). Epic 9 is the consumer; no
-# discovery, scanning or `INSTALLED_APPS` inference is implemented against it
-# here.
-adopted_apps = []
+# Empty is a valid, ordinary state and needs no special case. Adoption is
+# explicit and is two lines, never one -- a `pixi.toml` dependency and an entry
+# here. For an in-repo application the dependency line is already made: the
+# editable self-install in `pixi.toml` [pypi-dependencies] installs a finder
+# that resolves `conda_package_supply_chain_monitor`, so
+# `conda_package_supply_chain_monitor.core` is satisfied by construction rather
+# than skipped. Nothing self-registers, and entry-point
+# discovery is forbidden (AD-8). Epic 9 is the consumer; no discovery, scanning
+# or `INSTALLED_APPS` inference is implemented against it here -- which is why
+# `src/config/settings/base.py` also lists the application in `LOCAL_APPS`.
+adopted_apps = [ "conda_package_supply_chain_monitor.core" ]
 
 # The features this combination selected (AD-28).
 #
