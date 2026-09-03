@@ -132,8 +132,11 @@ violation yet.
 - **PRD Appendix A.1 is an export contract, not a table definition.** `priority_bucket`,
   `rank`, `score`, `work_type`, `vulnerability_rollup`, `risk_level`, `latest_vuln_count`,
   `priority_description/source/reason` are projected from the rollup (`CPM-AD-11`);
-  `local_build_status` and `verified_at` are projected from evidence. `reporting` performs
-  the projection at read time. None of them is a field on `Package`.
+  `local_build_status` and `verified_at` are projected from evidence, as are `platforms`,
+  `apps`, `downloads`, `versions`, `internal_component_count` and `internal_lob_count`,
+  which are observed by the inventory collector and read from `inventory_snapshots`
+  (`CPM-AD-25`). `reporting` performs the projection at read time. None of them is a field
+  on `Package`.
 
 ### CPM-AD-2 — Evidence is append-only; run ledgers are not evidence  `[ADOPTED]`
 
@@ -354,6 +357,8 @@ violation yet.
   writes an `identity_overrides` row (actor, timestamp, prior value, new value, reason) in
   the same transaction (`CPM-AD-23`). An override is never downgraded by automated
   resolution. Workflow state is a separate class and never touches identity or evidence.
+  Creation is resolution: a package shell created during inventory ingestion is written by
+  `identity`'s resolution service, not by the collector that triggered it (`CPM-AD-25`).
 
 ### CPM-AD-15 — Every observation carries the platform's correlation identifiers
 
@@ -464,6 +469,28 @@ violation yet.
   exists today. Rate limiting, retry with backoff, timeouts and caching live in a shared
   collector base in `core`, not per collector.
 
+### CPM-AD-25 — The inventory arrives as evidence; resolution still owns the package row  *(net-new)*
+
+- **Binds:** `CPM-FR-42`, `CPM-EP-IDENTITY`, `CPM-EP-PRIORITY`
+- **Prevents:** the inventory becoming a second, unaudited write path onto the package row,
+  and the internal usage signals becoming mutable columns that silently change what a
+  replayed policy run concludes.
+- **Rule:** the internal inventory is observed by a collector like any other source. It runs
+  on the `collect` queue through the shared collector base, and writes `inventory_snapshots`
+  — append-only rows carrying the source's package key, the internal usage signals as
+  observed, `observed_at`, and the run's correlation identifiers.
+- **The collector never writes the package table.** For a source record naming a package that
+  does not exist yet, it calls `identity`'s resolution service, which creates the shell at
+  `unmapped` confidence; the shell and the snapshot commit in one per-package transaction
+  (`CPM-AD-23`). `CPM-AD-14` is unchanged: identity is still mutated by resolution or the
+  override path, and by nothing else.
+- **Absence is an observation.** A package present in an earlier run and absent from a later
+  one is recorded as absent with a timestamp. No package row is ever deleted, and the rollup
+  keeps its one row per package (`CPM-AD-11`).
+- **Every reader is cut-off bound.** A policy reading a usage signal reads the latest snapshot
+  at or before its run's cut-off, never the current value, so `CPM-FR-22` replay reproduces
+  identical results.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -569,6 +596,7 @@ graph TD
 ```mermaid
 erDiagram
   PACKAGE ||--o{ EVIDENCE : "observed by"
+  PACKAGE ||--o{ INVENTORY_SNAPSHOT : "observed in"
   PACKAGE ||--|| CURRENT_HEALTH : "exactly one"
   PACKAGE ||--o{ IDENTITY_OVERRIDE : "corrected by"
   PACKAGE ||--o{ WORKFLOW_ITEM : "queued as"
@@ -604,7 +632,7 @@ src/
 | Epic | Lives in | Governed by |
 |---|---|---|
 | `CPM-EP-PLATFORM` | `src/config/` (imported) | Inherited invariants |
-| `CPM-EP-IDENTITY` | `django_apps/identity` | `CPM-AD-1`, `CPM-AD-3`, `CPM-AD-4`, `CPM-AD-14` |
+| `CPM-EP-IDENTITY` | `django_apps/identity`, `collectors` | `CPM-AD-1`, `CPM-AD-3`, `CPM-AD-4`, `CPM-AD-14`, `CPM-AD-25` |
 | `CPM-EP-EVIDENCE` | `django_apps/evidence`, `core` | `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-15`, `CPM-AD-23` |
 | `CPM-EP-CURRENCY` | `django_apps/collectors`, `policies` | `CPM-AD-6`, `CPM-AD-7`, `CPM-AD-8`, `CPM-AD-20` |
 | `CPM-EP-SECURITY` | `django_apps/collectors`, `policies` | `CPM-AD-5`, `CPM-AD-7`, `CPM-AD-8`, `CPM-AD-20` |
@@ -633,5 +661,8 @@ src/
 - **The analytics fitness spike itself** (`CPM-AD-17`). LangChain's conda-forge
   availability and its transitive resolution against Python 3.14 are unestablished. This is
   the one deferred item that **blocks** its epic rather than deferring inside it.
+- **The inventory source and the internal usage-signal field set** (`CPM-FR-42`,
+  `CPM-FR-20`). `CPM-AD-25` fixes that they arrive as evidence and are read at a cut-off;
+  where they come from is PRD Open Question 3.
 - **Non-Python conda artifacts.** `CPM-AD-3` and `CPM-AD-5` make the later phase a data
   change, not a schema migration.

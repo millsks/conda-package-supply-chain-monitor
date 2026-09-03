@@ -45,6 +45,7 @@ A bare `FR-17` in this repository is the platform's authentication-surface allow
 - **CPM-FR-4** — Package-identity review queue. Unmapped and low-confidence packages surface as a worked queue, not a report.
 - **CPM-FR-5** — Confidence gates what automation may claim. Confidence constrains what the system asserts about a package.
 - **CPM-FR-6** — Not-applicable is a distinct outcome. A check that does not apply to a package is never folded into clean or unknown.
+- **CPM-FR-42** — Inventory ingestion. The system acquires the package inventory and its internal usage signals from the organization's internal source, as append-only evidence.
 - **CPM-FR-7** — Source release collector. Obtains latest release or tag, its date, and a repository activity signal from the package's source repository.
 - **CPM-FR-8** — PyPI collector. Obtains project existence, latest version and date, and `Requires-Python` metadata.
 - **CPM-FR-9** — Conda-forge feedstock collector. Obtains feedstock existence, recipe version, recipe metadata, and recent recipe activity.
@@ -145,6 +146,7 @@ the mechanism that reads them as versioned data, but must not fabricate their co
 |---|---|
 | OQ 1 | Advisory and KEV source selection |
 | OQ 2 | License allow/deny policy content |
+| OQ 3 | The inventory source and the internal usage-signal field set |
 | OQ 5 | The p95 latency budget and the sync export row cap |
 | OQ 7 | Per-collector freshness targets and observation windows |
 | OQ 8 | The priority rule set and the score function |
@@ -170,6 +172,7 @@ them; later epics inherit rather than re-implement.
 |---|---|---|
 | `CPM-FR-1` – `CPM-FR-6` | `CPM-EP-IDENTITY` | Package identity resolution, provenance, confidence gating, the review queue, five-state outcomes |
 | `CPM-FR-32` | `CPM-EP-IDENTITY` | Privileged writes are audited |
+| `CPM-FR-42` | `CPM-EP-IDENTITY` | Inventory ingestion as evidence |
 | `CPM-FR-36` – `CPM-FR-38` | `CPM-EP-EVIDENCE` | Append-only storage, derived-and-timestamped current values, visible staleness and failure |
 | `CPM-FR-7` – `CPM-FR-10` | `CPM-EP-CURRENCY` | Source, PyPI, feedstock and published-conda collectors |
 | `CPM-FR-15` | `CPM-EP-CURRENCY` | Collector independence and run records |
@@ -241,9 +244,9 @@ that constrains what automation may claim; the review queue; and the audited ove
 **User outcome:** a platform lead can carry an unmapped package to a resolved, attributed
 identity and correct a wrong one on the record — `CPM-UJ-3`.
 
-**FRs covered:** `CPM-FR-1` – `CPM-FR-6`, `CPM-FR-32`
+**FRs covered:** `CPM-FR-1` – `CPM-FR-6`, `CPM-FR-32`, `CPM-FR-42`
 **Depends on:** `CPM-EP-EVIDENCE`
-**Governed by:** `CPM-AD-1`, `CPM-AD-3`, `CPM-AD-4`, `CPM-AD-14`
+**Governed by:** `CPM-AD-1`, `CPM-AD-3`, `CPM-AD-4`, `CPM-AD-14`, `CPM-AD-25`
 
 ### `CPM-EP-CURRENCY`: Where a package sits across every surface
 
@@ -498,6 +501,11 @@ So that a run that died mid-call is visible rather than absent.
 **When** the coverage view is queried
 **Then** the row is still present showing `running`, and "started and never finished" is answerable
 
+**Given** a collector whose run is not scoped to a single package
+**When** its ledger row is written
+**Then** the package reference is absent rather than fabricated, and "started and never
+finished" stays answerable for that run
+
 **Satisfies:** `CPM-FR-39`, and the ledger half of `CPM-FR-38`
 **Governed by:** `CPM-AD-2`, `CPM-AD-15`
 
@@ -639,6 +647,7 @@ So that no observation or derived status can be written onto it later.
 **When** its fields are reviewed
 **Then** it holds only canonical name, cross-ecosystem mappings, provenance and confidence
 **And** it holds no derived status, no observation and no workflow state
+**And** it holds no internal usage signal; those are observed evidence (`CPM-AD-25`)
 
 **Given** the PRD's export column headings
 **When** an export is produced
@@ -722,6 +731,8 @@ So that the review surface has something correct to render before the surface ex
 **Satisfies:** the selection half of `CPM-FR-4`
 **Governed by:** `CPM-AD-4`, `CPM-AD-1`
 **Note:** the worked queue surface that completes `CPM-FR-4` is `CPM-APP-S05`. Split because `identity` sits below `policies` in the layer order and cannot host a workflow table.
+**Constrained:** internal usage breadth is read from inventory evidence at a cut-off
+(`CPM-AD-25`); its field set and source are PRD Open Question 3 and are not chosen here.
 
 ### CPM-IDENTITY-S05: The one audited human write
 
@@ -754,6 +765,54 @@ So that a collector's mistake can be fixed without anyone editing the database d
 
 **Satisfies:** `CPM-FR-3`, `CPM-FR-32`
 **Governed by:** `CPM-AD-14`, `CPM-AD-23`
+
+### CPM-IDENTITY-S06: The inventory arrives, and arrives as evidence
+
+As a platform lead,
+I want the package inventory and its usage signals observed like any other source,
+So that every later story has packages to work on and a replay reads the numbers that were
+true at its cut-off.
+
+**Sequenced first.** Numbered last because story keys are never reused, built before
+`CPM-IDENTITY-S02` because every story after it assumes packages exist.
+
+**Acceptance Criteria:**
+
+**Given** the inventory source configured as data
+**When** the ingestion collector runs
+**Then** it runs on the `collect` queue through the shared collector base, inheriting its
+timeout, retry, backoff and ledger row
+**And** the source location and its credentials come from the environment with no default
+
+**Given** a source record naming a package that does not exist yet
+**When** ingestion processes it
+**Then** `identity`'s resolution service creates the shell at `unmapped` confidence
+**And** the collector never writes the package table itself, and a test asserts it
+
+**Given** a source record
+**When** its snapshot is written
+**Then** the shell and the snapshot commit in one per-package transaction
+**And** the row is append-only, references the package by integer pk, and carries
+`observed_at`, the usage signals as observed, and the run's `trace_id`
+
+**Given** ingestion runs a second time over unchanged source data
+**When** the rows are written
+**Then** a new row is inserted rather than a prior one updated
+
+**Given** a package present in an earlier run and absent from this one
+**When** ingestion completes
+**Then** absence is recorded as an observation with a timestamp, and no package row is deleted
+
+**Given** a policy that reads a usage signal
+**When** it runs
+**Then** it reads the latest snapshot at or before its run's cut-off, and a replay at a stated
+cut-off reproduces identical results
+
+**Satisfies:** `CPM-FR-42`, and the inventory prerequisite for `CPM-FR-1` – `CPM-FR-6`
+**Governed by:** `CPM-AD-25`, `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-14`, `CPM-AD-23`
+**Constrained:** the inventory source and the usage-signal field set are PRD Open Question 3.
+This story builds the collector, the model and the cut-off-bound read; it does not choose the
+source or invent the fields.
 
 ## CPM-EP-CURRENCY: Where a package sits across every surface
 
@@ -1135,7 +1194,7 @@ So that nobody has to read the rule set to understand why a package is P1.
 
 **Satisfies:** `CPM-FR-20`
 **Governed by:** `CPM-AD-8`, `CPM-AD-21`
-**Constrained:** the rule content and the score function are PRD Open Question 8. This story ships the engine, the schema and the explainability fields — not a seeded rule set.
+**Constrained:** the rule content and the score function are PRD Open Question 8; the internal usage signals they score are PRD Open Question 3, read from inventory evidence at the run's cut-off (`CPM-AD-25`). This story ships the engine, the schema and the explainability fields — not a seeded rule set.
 
 ### CPM-PRIORITY-S02: Work type, derived independently of priority
 
@@ -1486,12 +1545,12 @@ them, and the stories that satisfy them are authored once the spike reports.
 | Epic | Stories | Acceptance criteria |
 |---|---|---|
 | `CPM-EP-PLATFORM` | 2 | 6 |
-| `CPM-EP-EVIDENCE` | 7 | 26 |
-| `CPM-EP-IDENTITY` | 5 | 18 |
+| `CPM-EP-EVIDENCE` | 7 | 27 |
+| `CPM-EP-IDENTITY` | 6 | 24 |
 | `CPM-EP-CURRENCY` | 7 | 18 |
 | `CPM-EP-SECURITY` | 6 | 13 |
 | `CPM-EP-PY314` | 3 | 7 |
 | `CPM-EP-PRIORITY` | 3 | 8 |
 | `CPM-EP-APP` | 8 | 30 |
 | `CPM-EP-NL` | 1 | 5 |
-| **Total** | **42** | **131** |
+| **Total** | **43** | **138** |
