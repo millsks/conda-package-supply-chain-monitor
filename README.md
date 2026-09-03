@@ -9,7 +9,7 @@
 
 An evidence-driven platform for monitoring the health, security, compliance, and maintenance status of packages distributed through the conda ecosystem.
 
-The project is designed for inventories that include Python packages as well as native libraries, compilers, system libraries, Rust packages, R packages, and other artifacts available through conda-forge.
+The architecture is designed for inventories that include Python packages as well as native libraries, compilers, system libraries, Rust packages, R packages, and other artifacts available through conda-forge. **v1 targets the Python subset of that inventory**; the wider ecosystem is a stated later phase, not an exclusion.
 
 ## Why This Project Exists
 
@@ -33,9 +33,18 @@ The Conda Package Supply Chain Monitor collects evidence from these sources, eva
 
 ## Project Scope
 
-The initial inventory may contain approximately 10,000 packages. The architecture is intentionally broader than Python so it can support the wider conda-forge ecosystem, including native and system-level dependencies.
+The initial inventory may contain approximately 10,000 packages.
 
-Version currency, Python compatibility, and some metadata checks are package-type dependent. The system must represent `not_applicable`, `unknown`, `not_found`, and `error` separately from a successful clean result.
+**v1 targets the Python subset**, where PyPI identity and Python version readiness both
+apply and every check in the policy set is meaningful. Non-Python conda artifacts --
+native libraries, compilers, system libraries, Rust packages, R packages -- are a stated
+later phase. The architecture is intentionally broader than Python throughout, so that
+phase is a data change rather than a schema migration.
+
+Version currency, Python compatibility, and some metadata checks are package-type
+dependent. The system must represent `not_applicable`, `unknown`, `not_found`, and
+`error` separately from a successful clean result -- five distinct states, modeled from
+v1 so the later phase exercises an existing path instead of introducing one.
 
 ## Requirements
 
@@ -86,7 +95,7 @@ The system is organized into five primary layers:
 2. **Evidence collection layer** — independently collects observations from external and internal sources.
 3. **Policy and scoring layer** — evaluates evidence using deterministic, versioned rules.
 4. **Reporting and query layer** — exposes current health views, reports, and controlled query tools.
-5. **AI orchestration layer** — uses LangChain, LangFlow, and DB-GPT to investigate and explain evidence without becoming the source of truth.
+5. **AI orchestration layer** — uses LangChain and LangFlow to investigate and explain evidence without becoming the source of truth.
 
 ```text
 Package inventory
@@ -112,7 +121,7 @@ Identity resolution
               +-------------+--------------+
               v                            v
         Operational reports          AI query layer
-                                     LangChain / LangFlow / DB-GPT
+                                     LangChain / LangFlow
 ```
 
 ## Core Design Principles
@@ -219,10 +228,18 @@ Example `Work` values include:
 
 AI may explain a policy outcome, summarize evidence, or draft a tracking issue. It must not replace the policy engine.
 
-## LangChain, LangFlow, and DB-GPT
+## LangChain and LangFlow
 
-> **Status:** design only. None of LangChain, LangFlow, or DB-GPT is a
-> dependency of this repository yet.
+> **Status:** design only. Neither LangChain nor LangFlow is a dependency of this
+> repository yet, and adoption is gated by a fitness spike (`CPM-AD-17`).
+>
+> **DB-GPT was evaluated and rejected.** It ships no Python 3.14 classifier and tests
+> only 3.10 and 3.11 in CI, while this repository is pinned to `python = "3.14.*"`; its
+> `sqlalchemy`/`fastapi` pins are mutually exclusive with LangFlow's; and its
+> conda-forge availability is unestablished against the conda-forge-only supply-chain
+> rule that `tests/unit/test_dependency_policy.py` enforces. Natural-language analytics
+> is served instead by LangChain tools over the governed views.
+
 ### LangChain
 
 LangChain provides the controlled application and tool layer for package investigations. Tools should invoke approved queries and return structured results rather than allowing an agent to invent facts.
@@ -252,11 +269,12 @@ LangFlow is used to compose repeatable workflows from collectors, policy outputs
 
 LangFlow flows should orchestrate existing deterministic services and LangChain tools. They should not embed undocumented business rules in prompts.
 
-### DB-GPT
+### Governed natural-language analytics
 
-DB-GPT provides a natural-language analytics interface over the evidence store. It should use a read-only database role and approved views designed for analytical queries.
+Natural-language querying runs as LangChain tools over the governed views, using a
+read-only database role on a separate connection. There is no separate analytics product.
 
-Recommended controls include:
+Required controls include:
 
 - Read-only credentials.
 - Approved reporting views instead of unrestricted raw-table access.
@@ -266,7 +284,7 @@ Recommended controls include:
 - Evidence citations in generated answers.
 - Explicit handling of missing, stale, failed, and not-applicable states.
 
-DB-GPT is an analytics and explanation interface. Deterministic policy results remain authoritative.
+This is an analytics and explanation interface. Deterministic policy results remain authoritative.
 
 ## Observability
 
@@ -319,8 +337,8 @@ Named in the design but not yet dependencies of this repository:
 
 - **htmx** and **Alpine.js** for dynamic HTML interactions and lightweight
   client-side reactivity.
-- **LangChain**, **LangFlow**, and **DB-GPT** for the AI orchestration layer
-  described below.
+- **LangChain** for the AI orchestration layer described below, and **LangFlow** as a
+  separate deployment unit rather than a dependency.
 
 The platform foundation was imported from
 [django-15-factor-base](https://github.com/millsks/django-15-factor-base), an
@@ -385,7 +403,7 @@ The evidence pipeline is not yet built. As it lands it will be added under
 - **evidence/** -- append-only evidence storage models, timestamped observations, and retrieval interfaces.
 - **policies/** -- deterministic policy evaluation, scoring, priority assignment, and work-type recommendation.
 - **reporting/** -- operational reports, views, dashboards, and export functionality.
-- **ai_integration/** -- LangChain tools, DB-GPT configuration, and governed AI query interfaces.
+- **ai_integration/** -- LangChain tools and governed AI query interfaces.
 - **core/** -- shared utilities, base models, common middleware, and cross-cutting concerns.
 
 Two further trees are planned alongside them:
@@ -394,6 +412,36 @@ Two further trees are planned alongside them:
 - **scripts/schedulers/** -- deployment scripts, scheduler integration configurations, and operational automation for Celery, cron, or other approved schedulers.
 
 None of these directories exists yet. They land when they are built, not before.
+
+## Identifiers: two vocabularies, one repository
+
+Requirement and decision identifiers in this repository come from **two unrelated
+sources**, and they collide across nearly their whole range. Read the prefix before you
+resolve a reference.
+
+| Form | Owner | Where it is defined |
+|---|---|---|
+| Bare `AD-1`–`AD-31`, `FR-4`–`FR-44`, `NFR-1`–`NFR-7`, `Epic 2`–`Epic 9`, `Story x.y`, `CG-3`, `R-2`/`R-3`/`R-5`, `SC-6` | The imported `django-15-factor-base` platform | Referenced in comments across 45 files under `src/` |
+| `CPM-` prefixed: `CPM-FR-n`, `CPM-NFR-n`, `CPM-AD-n`, `CPM-SM-n`, `CPM-UJ-n`, `CPM-EP-*` | This product | `_bmad-output/planning-artifacts/` |
+
+The two never overlap in meaning. A bare `FR-17` in `src/config/startup/allowlist.py` is
+the platform's **authentication-surface allowlist**; `CPM-FR-17` in the PRD is this
+product's **vulnerability rollup policy**. They share a number and nothing else.
+
+Rules: never renumber or reuse a platform identifier — they are inherited and read-only.
+Never write a product identifier without its `CPM-` prefix. When a planning document
+cites a platform rule, it cites it bare and by its original id.
+
+The planning artifacts themselves live in `_bmad-output/planning-artifacts/`:
+
+- `briefs/` — the product brief and its addendum (problem, roles, scope boundary, non-goals)
+- `prds/` — the PRD (`CPM-FR-*`, `CPM-NFR-*`, epics)
+- `architecture/` — `ARCHITECTURE-SPINE.md` (the 24 `CPM-AD-*` invariants a build must
+  obey), `solution-design.md` (the reasoning behind them, with C4 views), and
+  `evidence-spine.html` (an interactive walkthrough of both)
+
+Each workspace also carries a `.memlog.md` — the append-only decision trail, including
+which earlier decisions were overridden and why.
 
 ## Initial Delivery Plan
 
@@ -430,7 +478,7 @@ None of these directories exists yet. They land when they are built, not before.
 
 - Implement LangChain tools over governed views.
 - Compose LangFlow investigation and reporting workflows.
-- Configure DB-GPT for read-only natural-language analytics.
+- Serve read-only natural-language analytics through LangChain tools over governed views.
 - Require evidence references in generated explanations.
 
 ## Current Non-Goals
@@ -453,7 +501,7 @@ Before implementation is finalized, the project should confirm:
 - Where do internal platform, application, download, component, and LOB counts originate?
 - Which conda channels and platforms are in scope?
 - Which source ecosystems are authoritative for version currency on a package-by-package basis?
-- Is private or self-hosted model deployment required for DB-GPT and LangChain workflows?
+- Is private or self-hosted model deployment required for the natural-language layer?
 - Which scheduler, database, deployment target, and authentication standards are required?
 
 ## Contributing
