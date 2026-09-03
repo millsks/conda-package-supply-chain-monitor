@@ -35,7 +35,13 @@ generation was deliberately not run; the decision was to close the gaps first.
 F-1 and F-2 were resolved on 2026-09-02 by
 `sprint-change-proposal-2026-09-02.md` — `CPM-FR-42`, `CPM-AD-25` and `CPM-IDENTITY-S06`
 now cover inventory ingestion, and Open Question 3's blocking scope is recorded wherever it
-binds. F-3 and F-4 remain open.
+binds.
+
+F-3 was resolved on 2026-09-02. ASR-1, ASR-2 and ASR-4 became `CPM-AD-26`, `CPM-AD-27` and
+`CPM-AD-28`; ASR-3 amended `CPM-AD-21`; ASR-5 was already settled in `CPM-AD-16`. The TEA
+P0 scenarios are folded into their stories, and `epics.md` now records the handoff as an
+input document and carries a Test design integration section. F-4 remains open as an
+accepted risk.
 
 ## Findings
 

@@ -248,6 +248,10 @@ violation yet.
     evidence written by a run still `running`.
   - Each pass writes only its own per-domain derived table, keyed `(package, policy_run)`.
     **No pass writes the rollup.**
+  - Passes **register** with the run rather than being invoked directly, and each declares
+    the derived table it owns. The set of passes is therefore enumerable, and an audit
+    fails if any registered pass declares the rollup — so this rule is mechanically
+    enforced against passes not yet written, not checked by reading code (ASR-3).
   - The rollup is composed by **one writer**, once per run, as a full-row replace inside
     one transaction per package, stamped with `policy_run_id`. It carries the run's cut-off
     and a **per-domain version map**, not a scalar version.
@@ -399,6 +403,12 @@ violation yet.
   `allow_write`. Governed views are created and versioned by Django migrations in
   `reporting` using `RunSQL` with a reversible drop. Neither the alias nor the router
   exists today.
+- **The inherited assertion is amended, not bypassed (ASR-5).** `tests/unit/test_database_selection.py`
+  iterates every alias and asserts `ATOMIC_REQUESTS is True`. When the alias lands, that
+  assertion narrows to the aliases Django may write through — `ATOMIC_REQUESTS` governs
+  the request-transaction boundary and is meaningless on an alias nothing can write
+  through, so this corrects the assertion's semantics rather than weakening it. It is a
+  change to inherited platform code and is owned by the platform owner.
 
 ### CPM-AD-17 — Two analytics components, one in-process and one a deployment unit
 
@@ -490,6 +500,39 @@ violation yet.
 - **Every reader is cut-off bound.** A policy reading a usage signal reads the latest snapshot
   at or before its run's cut-off, never the current value, so `CPM-FR-22` replay reproduces
   identical results.
+
+### CPM-AD-26 — Time comes from an injected clock  *(net-new)*
+
+- **Binds:** `CPM-FR-22`, `CPM-FR-37`, `CPM-FR-38`, `CPM-EP-EVIDENCE`
+- **Resolves:** ASR-1.
+- **Prevents:** freshness targets, observation windows, policy cut-offs and `observed_at`
+  each reading a wall clock nothing controls, so staleness and window tests are either
+  impossible to write or flaky by construction — leaving R-03 without a credible mitigation.
+- **Rule:** one clock abstraction in `core`, injected into every collector, policy pass and
+  freshness computation. No module calls `timezone.now()` directly, and an audit enforces it
+  in the same shape as the existing import-root audit.
+
+### CPM-AD-27 — The collector base owns the transport seam  *(net-new)*
+
+- **Binds:** `CPM-NFR-3`, `CPM-EP-CURRENCY`, `CPM-EP-SECURITY`, `CPM-EP-PY314`
+- **Resolves:** ASR-2.
+- **Prevents:** eight collectors whose parse, `not_found`, `error` and `not_applicable`
+  handling — the majority of this product's behaviour — is reachable only through the
+  network, pushing it into the integration tier and out of the fast feedback loop.
+- **Rule:** the transport boundary sits in the collector base (`CPM-EVIDENCE-S05`), so a
+  collector is a pure translation from a recorded payload to evidence rows and is unit
+  testable without network access. The integration tier proves the transport itself, once.
+
+### CPM-AD-28 — A collector without a freshness target refuses to start  *(net-new)*
+
+- **Binds:** `CPM-FR-38`, `CPM-EP-EVIDENCE`
+- **Resolves:** ASR-4.
+- **Prevents:** an unset per-collector target behaving as "fresh forever", so six-month-old
+  evidence reads as current — the exact `CPM-SM-C1` failure the product is built to avoid.
+- **Rule:** every registered collector declares a freshness target. Startup raises
+  `ImproperlyConfigured` when one does not, per the inherited `CG-3` convention that a
+  refusal raises rather than warns. The target *values* remain PRD Open Question 7; their
+  presence is not optional.
 
 ## Consistency Conventions
 

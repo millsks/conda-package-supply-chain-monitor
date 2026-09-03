@@ -6,6 +6,7 @@ inputDocuments:
   - _bmad-output/planning-artifacts/architecture/architecture-conda-package-supply-chain-monitor-2026-09-02/solution-design.md
   - _bmad-output/planning-artifacts/briefs/brief-conda-package-supply-chain-monitor-2026-09-02/brief.md
   - _bmad-output/planning-artifacts/briefs/brief-conda-package-supply-chain-monitor-2026-09-02/addendum.md
+  - _bmad-output/test-artifacts/test-design/conda-package-supply-chain-monitor-handoff.md
 uxDesignContract: none
 ---
 
@@ -333,6 +334,10 @@ the evidence row behind it.
 **NFRs covered:** `CPM-NFR-8`, `CPM-NFR-9`
 **Depends on:** `CPM-EP-APP`
 **Governed by:** `CPM-AD-16`, `CPM-AD-17`, `CPM-AD-18`, `CPM-AD-24`
+**Carried test requirement:** `NL.01-INT-001` — the analytics role cannot write, asserted
+at the database permission level — is authored onto the `CPM-AD-16` story when the spike
+reports, not onto the spike itself: the alias does not exist yet, and `CPM-AD-16` is
+settled independently of the spike's outcome.
 **BLOCKED.** Not plannable until a fitness spike establishes LangChain's conda-forge
 availability and its transitive resolution against Python 3.14. Only the spike story is
 written; the rest waits on its outcome.
@@ -441,15 +446,21 @@ So that no two policies can invent incompatible vocabularies for the same idea.
 **Given** a derived status needs storing
 **When** the field is declared
 **Then** it is a `CharField` with `choices`, never a boolean and never a nullable boolean
-**And** a test enumerates every derived-status field in the project and asserts the four sentinels are present
+**And** a test enumerates every derived-status field from the model registry, never a
+hand-written list, and asserts the four sentinels are present (`EVIDENCE.01-AUDIT-001`)
 
 **Given** two statuses must be aggregated into one
 **When** the precedence order is applied
 **Then** it comes from the single total order defined in `core`
 **And** a test asserts no other module defines an ordering
 
+**Given** any module in the project
+**When** it needs the current time
+**Then** it takes it from the injected clock in `core`, and an audit fails on a direct
+`timezone.now()` call (`EVIDENCE.01-AUDIT-002`)
+
 **Satisfies:** `CPM-FR-6`
-**Governed by:** `CPM-AD-5`
+**Governed by:** `CPM-AD-5`, `CPM-AD-26`
 
 ### CPM-EVIDENCE-S02: Evidence that refuses to be updated
 
@@ -472,6 +483,11 @@ So that what the system knew at a point in time can always be reconstructed.
 **Given** any evidence model in the project
 **When** the test suite runs
 **Then** a test asserts it inherits the append-only base
+
+**Given** an evidence table
+**When** the audit runs
+**Then** it fails on any `queryset.update()`, `bulk_update()` or raw SQL write against
+that table — the bypass `save()` cannot catch (`EVIDENCE.02-AUDIT-002`)
 
 **Satisfies:** `CPM-FR-36`
 **Governed by:** `CPM-AD-2`, `CPM-AD-7`
@@ -496,6 +512,8 @@ So that a run that died mid-call is visible rather than absent.
 **Given** a run ends by any path including an exception
 **When** control leaves the run
 **Then** the row is finalized in a `finally` to `succeeded`, `partial`, `failed` or `skipped`
+**And** a collector raising mid-run still finalizes its row, which is never absent
+(`EVIDENCE.03-INT-002`)
 
 **Given** a worker is killed mid-run
 **When** the coverage view is queried
@@ -529,6 +547,11 @@ So that a compute-backed build cannot starve the daily security sweep.
 **Given** a task that would exceed the inherited 5-minute time limit
 **When** the work is designed
 **Then** it is chunked per package rather than the limit being raised
+
+**Given** every registered task
+**When** routing is audited
+**Then** each task's declared route resolves to one of the three queues, asserted as
+configuration because eager Celery hides routing (`EVIDENCE.04-AUDIT-001`)
 
 **Satisfies:** `CPM-NFR-2`
 **Governed by:** `CPM-AD-20`, `CPM-AD-9`
@@ -584,8 +607,13 @@ So that the coverage view tells me what the monitor cannot see.
 **When** any model holding it is defined
 **Then** no current-status field is directly writable from outside a policy run
 
+**Given** a registered collector that declares no freshness target
+**When** the application starts
+**Then** startup raises `ImproperlyConfigured` rather than defaulting to fresh-forever
+(`EVIDENCE.06-AUDIT-001`)
+
 **Satisfies:** `CPM-FR-37`, `CPM-FR-38`
-**Governed by:** `CPM-AD-5`, `CPM-AD-11`
+**Governed by:** `CPM-AD-5`, `CPM-AD-11`, `CPM-AD-28`
 
 ### CPM-EVIDENCE-S07: The policy run, and the one writer of the rollup
 
@@ -622,6 +650,15 @@ So that every later policy has something correct to plug into rather than invent
 **Given** a pass that needs another pass's output
 **When** it runs
 **Then** it reads a pass declared earlier in the same run, and never re-derives a status another pass owns
+
+**Given** the registered passes
+**When** the ownership audit runs
+**Then** every pass declares the derived table it owns, and none declares the rollup
+(`EVIDENCE.07-AUDIT-002`)
+
+**Given** two passes writing different domains in one run
+**When** the run completes
+**Then** both results survive, and neither is reset to defaults (`EVIDENCE.07-INT-001`)
 
 **Satisfies:** `CPM-FR-37`, and the orchestration half of `CPM-FR-22`
 **Governed by:** `CPM-AD-8`, `CPM-AD-11`, `CPM-AD-21`, `CPM-AD-23`, `CPM-AD-4`
@@ -745,7 +782,8 @@ So that a collector's mistake can be fixed without anyone editing the database d
 **Given** a user holding the override permission
 **When** they submit a package-identity correction with a reason
 **Then** the identity is updated and an override row records actor, timestamp, prior value, new value and reason
-**And** both writes happen in one transaction
+**And** both writes happen in one transaction, so neither survives alone
+(`IDENTITY.05-INT-001`)
 
 **Given** a user not holding the override permission
 **When** they attempt the same write
@@ -1375,11 +1413,17 @@ So that I work the highest-impact item first without seeing another role's work.
 
 **Given** a role
 **When** it opens a queue that is not its own
-**Then** access is refused
+**Then** access is refused, and the refusal is logged with the acting user identity
+(`APP.05-API-004`)
 
 **Given** an item advanced by a reviewer
 **When** the action completes
 **Then** who acted, when, and the resulting state are recorded
+
+**Given** the feedstock-gap surface
+**When** it is produced
+**Then** it excludes `unmapped` packages, which report `unknown` rather than absent
+(`APP.05-API-002`)
 
 **Satisfies:** the surface half of `CPM-FR-25`, and the surface half of `CPM-FR-4` (whose selection logic is `CPM-IDENTITY-S04`)
 **Governed by:** `CPM-AD-13`, `CPM-AD-22`
@@ -1434,8 +1478,13 @@ So that automation uses the product's own contract rather than the database.
 **When** authorization is evaluated
 **Then** the same role scoping as the application applies
 
+**Given** a derived status on any API response
+**When** it is serialized
+**Then** it is emitted verbatim as its `OutcomeState` value, and never maps to `null`,
+`""` or a boolean (`APP.07-API-001`)
+
 **Satisfies:** `CPM-FR-27`
-**Governed by:** `CPM-AD-9`, `CPM-AD-10`, `CPM-AD-12`, `CPM-AD-13`
+**Governed by:** `CPM-AD-9`, `CPM-AD-10`, `CPM-AD-12`, `CPM-AD-13`, `CPM-AD-24`
 
 ### CPM-APP-S08: Long work leaves the request
 
@@ -1501,6 +1550,42 @@ So that we discover an incompatibility in a spike rather than in an epic.
 
 ---
 
+## Test design integration
+
+The TEA system-level test design ran *after* this document rather than before it, so its
+P0 scenarios were retrofitted onto the stories above rather than written into them. This
+section records what that retrofit did, so a coverage check can tell *folded in* from
+*already covered* from *deliberately placed elsewhere*.
+
+**Folded in as new acceptance criteria** — `EVIDENCE.01-AUDIT-002`, `EVIDENCE.02-AUDIT-002`,
+`EVIDENCE.04-AUDIT-001`, `EVIDENCE.06-AUDIT-001`, `EVIDENCE.07-AUDIT-002`,
+`EVIDENCE.07-INT-001`, `APP.05-API-002`, `APP.07-API-001`.
+
+**Folded in by strengthening an existing criterion** — `EVIDENCE.01-AUDIT-001` (enumerate
+from the model registry, not a hand-written list), `EVIDENCE.03-INT-002` (the row is never
+absent), `IDENTITY.05-INT-001` (neither write survives alone), `APP.05-API-004` (the refusal
+is logged).
+
+**Already covered before the retrofit; no edit made** — `IDENTITY.03-AUDIT-001`, the gate
+implemented once, was already `CPM-IDENTITY-S03`'s third criterion. `CURRENCY.05-INT-001`,
+partial-success under injected failure, was already two of `CPM-CURRENCY-S05`'s criteria.
+`APP.04-INT-001`, an accepted finding surviving re-observation, was already
+`CPM-APP-S04`'s second criterion. `APP.06-INT-001`, verbatim states in an export, was already
+`CPM-APP-S06`'s third criterion.
+
+**Placed elsewhere by judgment** — `NL.01-INT-001` is recorded on `CPM-EP-NL` rather than on
+`CPM-NL-S01`. The spike proves LangChain's conda-forge availability and its resolution
+against Python 3.14; it cannot assert a database permission on an alias that does not exist,
+and `CPM-AD-16` is settled independently of its outcome.
+
+**ASR decisions.** ASR-1, ASR-2 and ASR-4 became `CPM-AD-26`, `CPM-AD-27` and `CPM-AD-28`.
+ASR-3 amended `CPM-AD-21` — passes register and declare the table they own, so the
+single-writer rule is enforced against passes not yet written. ASR-5 was already resolved in
+`CPM-AD-16`; what remains is the amendment to the inherited
+`tests/unit/test_database_selection.py`, owned by the platform owner and due when the alias
+lands. ASR-6 and ASR-7 were FYI only, already covered by `CPM-PRIORITY-S03` and
+`CPM-EVIDENCE-S03`.
+
 ## Coverage completeness
 
 Every functional and non-functional requirement is accounted for. Most are claimed by a
@@ -1545,12 +1630,12 @@ them, and the stories that satisfy them are authored once the spike reports.
 | Epic | Stories | Acceptance criteria |
 |---|---|---|
 | `CPM-EP-PLATFORM` | 2 | 6 |
-| `CPM-EP-EVIDENCE` | 7 | 27 |
+| `CPM-EP-EVIDENCE` | 7 | 33 |
 | `CPM-EP-IDENTITY` | 6 | 24 |
 | `CPM-EP-CURRENCY` | 7 | 18 |
 | `CPM-EP-SECURITY` | 6 | 13 |
 | `CPM-EP-PY314` | 3 | 7 |
 | `CPM-EP-PRIORITY` | 3 | 8 |
-| `CPM-EP-APP` | 8 | 30 |
+| `CPM-EP-APP` | 8 | 32 |
 | `CPM-EP-NL` | 1 | 5 |
-| **Total** | **43** | **138** |
+| **Total** | **43** | **146** |
