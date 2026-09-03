@@ -1,5 +1,12 @@
 # Conda Package Supply Chain Monitor
 
+[![CI](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-package-supply-chain-monitor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=millsks_conda-package-supply-chain-monitor)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-package-supply-chain-monitor&metric=coverage)](https://sonarcloud.io/summary/new_code?id=millsks_conda-package-supply-chain-monitor)
+[![Python](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
+[![Django](https://img.shields.io/badge/django-5.2%20LTS-092E20.svg)](https://www.djangoproject.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An evidence-driven platform for monitoring the health, security, compliance, and maintenance status of packages distributed through the conda ecosystem.
 
 The project is designed for inventories that include Python packages as well as native libraries, compilers, system libraries, Rust packages, R packages, and other artifacts available through conda-forge.
@@ -29,6 +36,47 @@ The Conda Package Supply Chain Monitor collects evidence from these sources, eva
 The initial inventory may contain approximately 10,000 packages. The architecture is intentionally broader than Python so it can support the wider conda-forge ecosystem, including native and system-level dependencies.
 
 Version currency, Python compatibility, and some metadata checks are package-type dependent. The system must represent `not_applicable`, `unknown`, `not_found`, and `error` separately from a successful clean result.
+
+## Requirements
+
+[pixi](https://pixi.sh) is the only prerequisite. It provisions Python 3.14 and
+every dependency from conda-forge; nothing is installed with `pip`.
+
+PostgreSQL is the target database. The suite falls back to a sqlite substitution
+when `DATABASE_URL` is unset, which is enough for unit tests but does not
+exercise everything the PostgreSQL gate does.
+
+## Quick start
+
+```sh
+pixi install         # runtime environment
+pixi install -e dev  # development toolchain
+pixi run bootstrap   # install the git hooks
+pixi run migrate     # apply migrations (sqlite by default)
+pixi run runserver   # http://127.0.0.1:8000/
+```
+
+## Development
+
+```sh
+pixi run test              # unit tests (fast, no database or network)
+pixi run test-integration  # integration tests
+pixi run test-cov          # full suite, 90% coverage floor
+pixi run ci                # the full gate -- must pass before any change is done
+pixi run docs-serve        # documentation with live reload
+```
+
+`pixi run ci` is the gate, and it is the same sequence locally and in CI:
+`precommit` -> `build` -> `typecheck` -> `lint` -> `test-cov`, fast-fail-first.
+`.github/workflows/ci.yml` invokes exactly that one task and nothing else, so a
+green local run and a green pipeline mean the same thing.
+
+Dependencies live in `pixi.toml` and come from conda-forge; `pyproject.toml`
+holds build metadata and tool configuration only. The `default` environment
+carries runtime dependencies only; `dev` layers the toolchain on top. Tasks
+resolve to whichever environment defines them, so `-e` is rarely needed.
+
+See `docs/development.md` for database configuration and the full task list.
 
 ## Architecture Overview
 
@@ -173,6 +221,8 @@ AI may explain a policy outcome, summarize evidence, or draft a tracking issue. 
 
 ## LangChain, LangFlow, and DB-GPT
 
+> **Status:** design only. None of LangChain, LangFlow, or DB-GPT is a
+> dependency of this repository yet.
 ### LangChain
 
 LangChain provides the controlled application and tool layer for package investigations. Tools should invoke approved queries and return structured results rather than allowing an agent to invent facts.
@@ -218,6 +268,19 @@ Recommended controls include:
 
 DB-GPT is an analytics and explanation interface. Deterministic policy results remain authoritative.
 
+## Observability
+
+Structured logging (structlog) and distributed tracing (OpenTelemetry) are built
+in, not optional. Every log line carries `request_id`, `user_id` and `trace_id`,
+and requests, Celery tasks, queries and cache calls are traced. Spans export over
+OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and are dropped when it is not --
+so nothing retries against a collector that isn't there.
+
+This matters for the evidence model: a collection run that fails partway is
+traceable to the request and task that performed it, which is what makes an
+`error` or `unknown` state auditable rather than merely recorded.
+See `docs/observability.md`.
+
 ## Data and Security Considerations
 
 - Do not send sensitive internal usage data to an external model unless explicitly approved.
@@ -230,81 +293,107 @@ DB-GPT is an analytics and explanation interface. Deterministic policy results r
 
 ## Technology Stack
 
-The project uses a Django-based web application architecture with the following components:
+### In place today
 
-- **Django** as the web application framework for managing the application structure, routing, ORM, and administrative interfaces.
-- **Django Forms** for data entry, validation, and handling user inputs across the identity, evidence, and policy layers.
-- **htmx** for dynamic HTML interactions, enabling partial page updates and interactive workflows without complex JavaScript.
-- **Alpine.js** for lightweight client-side interactivity where reactive UI components are needed.
-- **PostgreSQL** for inventory and evidence storage, providing robust relational data management with JSON support for flexible evidence structures.
-- **pixi** for Python package and environment management, replacing traditional requirements.txt files with reproducible, cross-platform dependency management.
-- **LangChain** for controlled tools and investigation services, providing a governed interface to AI capabilities.
-- **LangFlow** for composing operational and reporting workflows, orchestrating collectors, policy evaluations, and report generation.
-- **DB-GPT** for governed natural-language database analytics over read-only views.
-- **Django-Q or Celery** as task queue and scheduler options for background evidence collection, policy evaluation, and periodic report generation, alongside other organization-approved schedulers such as cron, Airflow, or Prefect.
+Pinned in `pixi.toml` and exercised by the gate:
 
-The project structure follows the **cookiecutter-django** conventions based on [django-15-factor-base](https://github.com/millsks/django-15-factor-base), providing a production-ready foundation with environment-based configuration, secure defaults, and separation of settings for local development, testing, and production deployment.
+- **Python 3.14** and **Django 5.2 LTS** (supported to April 2028; the pin is
+  `>=5.2,<5.3` so a feature release cannot drift in).
+- **PostgreSQL** via `psycopg` 3, with `libpq` held at 17 to match the server the
+  gate runs against. A sqlite substitution covers the non-Linux test legs.
+- **pixi** for environment and dependency management -- conda-forge is the single
+  source for third-party packages, and `[pypi-dependencies]` holds only this
+  project's own editable install.
+- **Celery** with **django-celery-beat** for background collection and scheduled
+  policy evaluation, and **Redis** as broker and cache.
+- **Django REST Framework** with **drf-spectacular** for the API surface.
+- **django-allauth** for authentication, including OIDC.
+- **structlog** / **django-structlog** and **OpenTelemetry** for correlated logs
+  and traces.
+- **uvicorn** (ASGI) and **whitenoise** for serving.
+- **django-crispy-forms** with **crispy-bootstrap5** for form rendering.
+
+### Planned, not yet present
+
+Named in the design but not yet dependencies of this repository:
+
+- **htmx** and **Alpine.js** for dynamic HTML interactions and lightweight
+  client-side reactivity.
+- **LangChain**, **LangFlow**, and **DB-GPT** for the AI orchestration layer
+  described below.
+
+The platform foundation was imported from
+[django-15-factor-base](https://github.com/millsks/django-15-factor-base), an
+accelerator built on 15-factor application principles -- environment-based
+configuration, secure defaults, split settings for local/test/production, a
+two-stage startup check, and health and drain endpoints.
 
 ## Repository Structure
 
 ```text
 .
-├── README.md
-├── docs/
-│   ├── brief.md
-│   ├── prd.md
-│   └── architecture.md
-├── django_service/
-│   ├── manage.py
-│   ├── config/
-│   │   ├── settings/
-│   │   │   ├── base.py
-│   │   │   ├── local.py
-│   │   │   ├── test.py
-│   │   │   └── production.py
-│   │   ├── urls.py
-│   │   └── wsgi.py
-│   ├── django_apps/
-│   │   ├── identity/
-│   │   ├── collectors/
-│   │   ├── evidence/
-│   │   ├── policies/
-│   │   ├── reporting/
-│   │   ├── ai_integration/
-│   │   └── core/
-│   ├── static/
-│   ├── templates/
-│   └── media/
-├── flows/
-│   └── langflow/
-├── scripts/
-│   └── schedulers/
-└── tests/
+|-- manage.py                  # Django management entry point
+|-- pixi.toml                  # environments, dependencies, tasks (the gate)
+|-- pyproject.toml             # build metadata and tool configuration only
+|-- component.toml             # deployment contract (databases, release steps)
+|-- Dockerfile                 # container image
+|-- mkdocs.yml                 # documentation site
+|-- src/                       # import root -- deliberately NOT a package
+|   |-- config/                # settings, urls, asgi/wsgi, celery, startup
+|   |   |-- settings/          # base / local / test / production
+|   |   |-- authorization/     # OIDC: JWKS, claims, mapper, adapters
+|   |   |-- health/            # health and drain endpoints
+|   |   |-- observability/     # structlog and OpenTelemetry wiring
+|   |   |-- startup/           # two-stage boot checks
+|   |   `-- local_dev/         # personas and token minting for local work
+|   |-- django_service/        # the application package
+|   |   |-- users/             # users app, provisioning, API, commands
+|   |   |-- templates/
+|   |   `-- static/
+|   `-- django_apps/           # domain applications (planned -- see below)
+|       |-- identity/
+|       |-- collectors/
+|       |-- evidence/
+|       |-- policies/
+|       |-- reporting/
+|       |-- ai_integration/
+|       `-- core/
+|-- tests/
+|   |-- unit/                  # no database, network, or filesystem
+|   |-- integration/           # marked `integration`
+|   `-- spikes/                # dependency fitness spikes
+|-- docs/                      # mkdocs sources
+`-- _bmad-output/
+    `-- planning-artifacts/    # brief, PRD, architecture
 ```
 
-### Directory Responsibilities
+`src/` is the import root and is deliberately *not* a package, so `config`,
+`django_service` and `django_apps` import as top-level packages. It is declared
+in exactly one place -- `[tool.hatch.build.targets.wheel]` in `pyproject.toml`,
+which remaps
+`src/` onto the wheel root. The editable install is what puts it on `sys.path` at
+runtime; no entrypoint, pixi task or test setting declares it a second time.
 
-- **django_service/** — The main Django application container, following cookiecutter-django conventions.
-  - **manage.py** — Django management command entry point.
-  - **config/** — Project configuration, settings, URL routing, and WSGI application.
-    - **settings/** — Environment-specific settings modules inheriting from base configuration.
-  - **django_apps/** — Pluggable Django applications implementing business domains:
-    - **identity/** — Package identity resolution, canonical inventory management, and mapping overrides.
-    - **collectors/** — Evidence collection from source repositories, PyPI, conda-forge, vulnerability sources, and other external systems.
-    - **evidence/** — Append-only evidence storage models, timestamped observations, and retrieval interfaces.
-    - **policies/** — Deterministic policy evaluation, scoring, priority assignment, and work-type recommendation.
-    - **reporting/** — Operational reports, views, dashboards, and export functionality.
-    - **ai_integration/** — LangChain tools, DB-GPT configuration, and governed AI query interfaces.
-    - **core/** — Shared utilities, base models, common middleware, and cross-cutting concerns.
-  - **static/** — CSS, JavaScript, images, and other static assets served by Django.
-  - **templates/** — Django templates for HTML rendering, including htmx-enhanced views.
-  - **media/** — User-uploaded files and dynamically generated content.
+### Planned domain applications
 
-- **flows/langflow/** — LangFlow workflow definitions for orchestrating investigation, reporting, and operational workflows.
+The evidence pipeline is not yet built. As it lands it will be added under
+`src/django_apps/` -- a third top-level package beside `config` and
+`django_service` -- with one pluggable Django application per business domain:
 
-- **scripts/schedulers/** — Deployment scripts, scheduler integration configurations, and operational automation for Django-Q, Celery, cron, or other approved schedulers.
+- **identity/** -- package identity resolution, canonical inventory management, and mapping overrides.
+- **collectors/** -- evidence collection from source repositories, PyPI, conda-forge, vulnerability sources, and other external systems.
+- **evidence/** -- append-only evidence storage models, timestamped observations, and retrieval interfaces.
+- **policies/** -- deterministic policy evaluation, scoring, priority assignment, and work-type recommendation.
+- **reporting/** -- operational reports, views, dashboards, and export functionality.
+- **ai_integration/** -- LangChain tools, DB-GPT configuration, and governed AI query interfaces.
+- **core/** -- shared utilities, base models, common middleware, and cross-cutting concerns.
 
-- **tests/** — Test suite covering models, views, collectors, policies, evidence handling, and AI integrations.
+Two further trees are planned alongside them:
+
+- **flows/langflow/** -- LangFlow workflow definitions for orchestrating investigation, reporting, and operational workflows.
+- **scripts/schedulers/** -- deployment scripts, scheduler integration configurations, and operational automation for Celery, cron, or other approved schedulers.
+
+None of these directories exists yet. They land when they are built, not before.
 
 ## Initial Delivery Plan
 
@@ -377,6 +466,13 @@ Contributions should preserve the project's core principles:
 4. Include provenance for external observations.
 5. Prevent LLM-facing components from writing directly to operational data.
 6. Add tests for collector behavior, policy rules, identity resolution, and evidence rollups.
+
+Mechanically:
+
+- Branch from `main` as `feature/`, `bugfix/`, or `hotfix/`; open a pull request rather than pushing to `main`.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) -- the changelog is generated from them.
+- `pixi run ci` must exit 0 before a change is done. Never use `--no-verify`.
+- If a pre-commit hook auto-fixes a file, re-stage it before re-running; the fix is left unstaged.
 
 ## License
 
