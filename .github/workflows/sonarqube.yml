@@ -119,3 +119,15 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           # Note: For SonarCloud, do not set SONAR_HOST_URL (it defaults to sonarcloud.io)
 
+      - name: SonarCloud Quality Gate check
+        if: steps.gate.outputs.passed == 'true'
+        id: sonarcloud-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Note: For SonarCloud, do not set SONAR_HOST_URL
+
+      - name: "Show SonarCloud Quality Gate Status"
+        if: steps.gate.outputs.passed == 'true'
+        run: echo "The Quality Gate status is ${{ steps.sonarcloud-quality-gate-check.outputs.quality-gate-status }}"
