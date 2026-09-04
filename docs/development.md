@@ -739,9 +739,24 @@ model, the view, the form, or a new migration — never by narrowing the gate.
 Skipping such a test, marking it `xfail`, or branching on the engine inside it
 would convert a refusal into a warning, which the project forbids.
 
-To reproduce a CI-only failure, run the suite against a real PostgreSQL. The
-host port is deliberately not 5432 — that one is often already taken by a local
-PostgreSQL — and `--rm` means the container disposes of itself on stop:
+To reproduce a CI-only failure, run the suite against a real PostgreSQL:
+
+```sh
+pixi run gate-postgres
+```
+
+That task is `scripts/gate-postgres.sh`, and it is the recipe below made
+runnable — it starts the container, waits for it, runs `test-cov` against it and
+stops it again, reporting the suite's own exit status. Reach for it before
+pushing anything that touches a model, a migration, a query or the
+instrumentation around one. It needs Docker running and it runs `test-cov`
+rather than the whole gate, because `precommit`, `build`, `typecheck` and `lint`
+never open a connection.
+
+The recipe it automates is kept here because a task you cannot read is a task you
+cannot debug. The host port is deliberately not 5432 — that one is often already
+taken by a local PostgreSQL — and `--rm` means the container disposes of itself
+on stop:
 
 ```sh
 docker rm -f pg-local >/dev/null 2>&1 || true
