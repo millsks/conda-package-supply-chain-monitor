@@ -118,11 +118,7 @@ def test_an_unset_contract_defaults_no_name(empty_env: environ.Env) -> None:
 #: Every proper non-empty subset of the three variables: the one- and two-name
 #: partial configurations. Derived rather than written out so that a fourth role
 #: slot arriving later cannot leave a partial shape untested.
-PARTIAL_CONFIGURATIONS = [
-    subset
-    for size in (1, 2)
-    for subset in combinations(ROLE_ENVIRONMENT_VARIABLES, size)
-]
+PARTIAL_CONFIGURATIONS = [subset for size in (1, 2) for subset in combinations(ROLE_ENVIRONMENT_VARIABLES, size)]
 
 
 @pytest.mark.parametrize(
