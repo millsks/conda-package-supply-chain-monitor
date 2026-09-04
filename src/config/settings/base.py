@@ -9,6 +9,7 @@ from typing import Any
 import environ
 from django.urls import reverse_lazy
 
+from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core.roles import load_role_contract
 from config.authorization.claims import load_claims_contract
 from config.observability.logging import build_logging_config
@@ -496,7 +497,30 @@ CELERY_TASK_TIME_LIMIT = 5 * 60
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-soft-time-limit
 # TODO: set to whatever value is adequate in your circumstances
 CELERY_TASK_SOFT_TIME_LIMIT = 60
+# https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-routes
+# CPM-AD-20's three workload queues, routed by task-name namespace. The table is
+# `conda_package_supply_chain_monitor.core.queues`' -- the three queue names are
+# declared there once and every reader resolves them from it, because a second
+# literal spelling of "collect" is exactly what this repository's audits exist to
+# catch.
+#
+# `CELERY_TASK_ROUTES` is one of the keys `config/startup/allowlist.py`'s
+# `CONTRIBUTABLE_KEYS` permits a domain application to contribute to. The
+# composition step that would apply such a contribution is the platform's Epic 9
+# and is not built -- `config/component/loader.py` parses `component.toml` and
+# stops there -- so the contribution is written here by hand, on exactly the
+# terms the `LOCAL_APPS` entry above records for the same app's adoption. When
+# Epic 9 lands, this line is what it replaces.
+#
+# No catch-all pattern and no `CELERY_TASK_DEFAULT_QUEUE`: a task declaring no
+# `cpm.` name keeps landing on the inherited default queue, which is where the
+# platform's own `get_users_count` and the correlation probe in
+# `tests/integration/test_celery_log_correlation.py` both belong.
+CELERY_TASK_ROUTES = queues.CELERY_TASK_ROUTES
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#beat-scheduler
+# Cadence is data in this scheduler's tables and never a decorator on a task
+# (CPM-AD-20, CPM-NFR-2): a hard-coded schedule cannot be changed without a
+# deploy. `tests/unit/django_apps/test_task_declaration_audit.py` is the gate.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
 CELERY_WORKER_SEND_TASK_EVENTS = True
