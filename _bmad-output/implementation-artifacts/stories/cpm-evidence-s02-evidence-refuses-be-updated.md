@@ -2,16 +2,37 @@
 title: 'CPM-EVIDENCE-S02: Evidence that refuses to be updated'
 type: 'feature'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_revision: '0a6097cb2bbc20eab20973955c01e7eee729c36f'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - _bmad-output/planning-artifacts/epics.md
   - _bmad-output/planning-artifacts/architecture/architecture-conda-package-supply-chain-monitor-2026-09-02/ARCHITECTURE-SPINE.md
   - _bmad-output/test-artifacts/test-design/conda-package-supply-chain-monitor-handoff.md
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      A unique index added by a migration's `RunSQL` or `AddConstraint` is invisible to the
+      Meta-level constraint audit.
+    evidence: |-
+      `EVIDENCE.02-AUDIT-003` reads `Meta.constraints`, `unique_together` and field flags from
+      the model registry, so a constraint created in SQL by a migration never appears. Closing
+      it needs an integration sweep reading `connection.introspection.get_constraints` for
+      every evidence model's real table, and no evidence table exists yet.
+    location: >-
+      tests/unit/django_apps/test_evidence_constraint_audit.py
+    severity: medium
+  - summary: >-
+      The append-only base declares no index on `observed_at` and no `get_latest_by`.
+    evidence: |-
+      Several docstrings argue an index on `observed_at` is what makes a freshness query
+      answerable at all, and every collector will otherwise have to remember it independently.
+      Declaring it on the abstract base is a schema contract binding every future evidence
+      table, which belongs with the first collector rather than with the base.
+    location: >-
+      src/django_apps/conda_package_supply_chain_monitor/core/models.py
+    severity: low
 ---
 
 <intent-contract>
@@ -107,6 +128,53 @@ and unique constraints that would silently make re-observation impossible.
 
 ## Review Triage Log
 
+### 2026-09-04 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 36: (high 5, medium 21, low 10)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` `Model._base_manager` bypassed the guard entirely — Django builds it itself
+    when `Meta.base_manager_name` is unset, so it was a plain `Manager` returning a plain `QuerySet`,
+    and `_base_manager.get_queryset().update(...)` compiled and executed an `UPDATE`. It is the
+    spelling a developer reaches for *because* `objects.update()` refuses. Closed by
+    `base_manager_name = "objects"`, with the spelling added to the refusal parametrize.
+  - `[high]` `[patch]` Cascade deletion removed evidence past both refusals: Django's `Collector`
+    issues `DELETE` through `sql.DeleteQuery.delete_batch()`, consulting neither `Model.delete()`
+    nor `QuerySet.delete()`. The registry sweep now requires every evidence foreign key to use
+    `PROTECT`, `RESTRICT` or `DO_NOTHING`, with fixtures both ways.
+  - `[high]` `[patch]` `bulk_create(update_conflicts=True)` compiles to `ON CONFLICT DO UPDATE` — an
+    overwrite through the insert path the spec deliberately left open, because "an insert is not a
+    mutation" holds only for the plain form. `ignore_conflicts=True` silently dropped an observation
+    instead. Both flags now refuse; the plain path still delegates to Django.
+  - `[high]` `[patch]` Raw SQL reached the same upsert: `INSERT` was allow-listed, so
+    `INSERT ... ON CONFLICT DO UPDATE` passed. `UPSERT`, `MERGE` and `REPLACE` are now writing verbs,
+    `WITH`/`BEGIN`/`START` bodies are searched for an embedded write, and comments are stripped
+    before the verb is read. `ON CONFLICT DO NOTHING` and plain `INSERT` stay permitted.
+  - `[high]` `[patch]` A concrete evidence model re-declaring `objects = models.Manager()`, or setting
+    `Meta.default_manager_name`/`base_manager_name`, reopened every path while passing both audits —
+    the failure the diff's own docstring called "the half a subclass can silently lose". The
+    inheritance sweep now asserts both the default and base managers are append-only.
+  - `[medium]` `[patch]` Twenty-one further fixes, the substantive ones being: `leading_keyword` took
+    the first constant anywhere in an f-string rather than the leading segment, so
+    `f"{verb} FROM evidence"` resolved to `"FROM"` and escaped both branches; `BEGIN; DELETE ...`
+    resolved to `"BEGIN;"` because punctuation walked the write past the check; every previously dead
+    ban-table entry (`_base_manager`, `TRUNCATE`, `adelete`, `abulk_update`, the `ast.Import`
+    connection source, `unique_for_month`/`unique_for_year`) gained a fixture and is now load-bearing;
+    `string_constants` walks the whole tree rather than `tree.body`; `executescript` and `callproc`
+    are handled, the latter separately because its argument is a procedure name; the async refusals
+    are driven rather than asserted in prose; the inheritance union gained an `observed_at` third mark
+    so a collector's own-app model that forgot the base is no longer invisible; a model-level
+    `not_evidence` escape was added so `CPM-EVIDENCE-S03`'s mutable run ledgers do not need file-level
+    exemptions for correct code; `get_queryset` passes `using`/`hints`; the integration fixture's table
+    was renamed so its stale-table drop can never land on a migrated `core_observation`; and
+    `django_db_blocker` is correctly typed, removing two `type: ignore` under strict mypy.
+  - `[low]` `[patch]` Ten cleanups, including the scan's asymmetric and false-positive limits being
+    documented and pinned, `RECORDED_EXEMPTIONS` annotated `Final` in both audits, and the fixture
+    constants single-sourced across four modules.
+
 ## Design Notes
 
 **`observed_at` has no default, and that is forced rather than chosen.** The obvious Django
@@ -146,3 +214,80 @@ offence belongs in the parametrized set, as `auto-now-off` does in the clock aud
 
 **Manual checks:**
 - Confirm each new audit fails when its guard is removed, and fails *only* its own audit: add a concrete model in an `evidence` app label that does not inherit the base; add a `UniqueConstraint` to a fixture evidence model; add a `Thing.objects.update(...)` and a `cursor.execute("UPDATE ...")` to a `django_apps` module; and confirm a plain `dict.update()` added alongside them does not fire.
+
+## Auto Run Result
+
+Status: done
+
+### Implemented change
+
+An observation can no longer be overwritten. `core` gains an abstract append-only base whose
+`save()` refuses once the row exists and whose manager offers no mutating path, so
+re-observing an unchanged fact inserts a new row with its own `observed_at` rather than
+destroying what the system knew at a point in time. Because a `save()` guard alone is not
+enough — `queryset.update()`, `bulk_update()` and raw SQL all go around it — three
+registry- and source-level audits close the bypasses it cannot see. This is `R-06`'s
+mitigation, landed before any evidence table exists, so no collector can inherit the mistake.
+
+### Files changed
+
+- `src/django_apps/conda_package_supply_chain_monitor/core/models.py` — new. `AppendOnlyModel`,
+  `AppendOnlyManager`, `AppendOnlyQuerySet`, `AppendOnlyError`. Abstract, so no table and no migration.
+- `tests/model_registry.py`, `tests/unit/test_model_registry.py` — new shared registry-scope helper
+  and its guards.
+- `tests/unit/django_apps/test_append_only_model.py` — the runtime guarantees, DB-free.
+- `tests/unit/django_apps/test_evidence_inheritance_audit.py` — `EVIDENCE.02-AUDIT-001`.
+- `tests/unit/django_apps/test_evidence_constraint_audit.py` — `EVIDENCE.02-AUDIT-003`.
+- `tests/unit/django_apps/test_mutation_path_audit.py` — `EVIDENCE.02-AUDIT-002`.
+- `tests/integration/django_apps/test_append_only_evidence.py` — `EVIDENCE.02-INT-001`.
+- `tests/clocks.py`, `tests/unit/django_apps/test_clock.py`, `test_clock_audit.py`,
+  `test_outcome_field_audit.py` — shared instants, and the scope predicate single-sourced.
+
+### Review findings breakdown
+
+- Patches applied: 36 (high 5, medium 21, low 10).
+- Items deferred: 2 (the migration-level unique-index sweep; `Meta.indexes`/`get_latest_by` on the base).
+- Items rejected: 0.
+
+### Follow-up review recommendation
+
+`true`. Patched findings by severity: high 5, medium 21, low 10. Five high-severity patches trip the
+rule on their own; the weighted score is `3 × 21 + 1 × 10 = 73`.
+
+### Verification performed
+
+- `pixi run ci` — exit 0 at the merged tree. 2340 tests, coverage 97.27%; `core/models.py` at 100%.
+- `pixi run python manage.py makemigrations --check --dry-run` — "No changes detected". The base is
+  abstract, so a migration appearing would mean a concrete model crept in.
+- Audits probed independently of the implementing agent, each introduced then reverted with
+  `git diff --stat src/` empty afterwards: a suppressing `unique_together` fails only the constraint
+  audit; an `objects.update(...)` plus a raw `cursor.execute("UPDATE ...")` fails only the mutation
+  audit; and a bare `dict.update()` alongside them does not fire.
+- The clean-merge claim was checked three ways before the branch landed: zero file overlap with main's
+  intervening commits, a conflict-free `git merge-tree`, and GitHub reporting `MERGEABLE`.
+
+### Process note
+
+This story did not run start-to-finish in one session. The implementation agent was stopped mid-way
+through its review-patch pass and left no completion record, so the tree was inspected directly and a
+second agent finished the remainder against a verified done/not-done split. Separately, a peer Claude
+session was working in the same working directory and on the same branch; it committed the work as
+`adc9616`, opened PR #15 and merged it as `4febd58`. Nothing was lost and the merge was clean, but
+the collision is the reason this bookkeeping landed as a follow-up rather than with the code.
+
+### Residual risks
+
+- **Nothing inherits the base yet.** Both registry sweeps pass over an empty set, so the detectors are
+  measured against fixture models rather than the repository. The first real evidence table is where
+  these contracts meet reality.
+- **The mutation audit bans forms, not tables.** "Against an evidence table" is not statically
+  resolvable, so the scan bans the bypass shapes across the product's source and licenses exceptions by
+  count. It cannot see a queryset bound to a local — `prune_expired_state.py` does exactly that — and
+  `objects` matches any attribute so named, so an S3 `bucket.objects.delete()` would be reported. Both
+  limits are documented and pinned. The guarantee is "no new bypass-shaped write", not "no bypass".
+- **`CPM-EVIDENCE-S03` must use the `not_evidence` escape.** `CPM-AD-2` makes run ledgers mutable, and
+  the audit bans mutation on every model; the model-level declaration exists so that correct code does
+  not accumulate file-level exemptions.
+- **Raw SQL coverage is verb-based.** `ON CONFLICT DO UPDATE`, `MERGE`, `REPLACE` and CTE bodies are
+  closed; anything assembled dynamically past the leading segment is reported as unresolved rather
+  than parsed.
