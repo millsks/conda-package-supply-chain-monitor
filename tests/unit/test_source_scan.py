@@ -112,10 +112,48 @@ def test_no_scanned_file_sits_under_any_excluded_name(name: str) -> None:
     `*.egg-info/` exist by the time any scan runs -- and because a developer's
     stray virtualenv would otherwise put thousands of third-party modules through
     every parametrized audit.
+
+    **Matched against the repository-relative path, never the absolute one.** The
+    exclusion table is a statement about directories *inside* this repository, and
+    an absolute path carries whatever the checkout happens to live under. A
+    checkout under `~/.claude/worktrees/` -- which is where a worktree-isolated
+    agent session runs -- puts `.claude` in `parts` for every file in the tree, so
+    an absolute match failed this case while the walk it checks was behaving
+    correctly. The bug was here, in the guard, not in `project_files`: the walk
+    excludes by directory name as it descends and never enters `.claude` under
+    the repository root at all.
     """
-    offenders = [str(path) for path in project_files(REPO_ROOT) if name in path.parts]
+    offenders = [str(path) for path in project_files(REPO_ROOT) if name in path.relative_to(REPO_ROOT).parts]
 
     assert offenders == []
+
+
+def test_the_guard_above_judges_the_repository_and_not_the_path_it_is_checked_out_at() -> None:
+    """A checkout below an excluded name must not make the guard fail.
+
+    Anchoring the regression rather than the symptom: the guard is parametrized
+    over every excluded name, so the case that broke depended entirely on where
+    the repository sat on disk -- green in GitHub CI, red in a worktree under
+    `~/.claude/worktrees/`, with nothing in the repository different between them.
+
+    Asserted on the shape of what the guard compares rather than by relocating a
+    checkout, which no unit test can do: every scanned path is under `REPO_ROOT`,
+    so `relative_to` is total, and none of the relative paths carries a name the
+    table excludes even when the absolute ones do.
+    """
+    scanned = project_files(REPO_ROOT)
+
+    assert scanned, f"expected files under {REPO_ROOT}"
+    assert all(path.is_relative_to(REPO_ROOT) for path in scanned)
+
+    excluded_anywhere = {
+        name
+        for path in scanned
+        for name in path.relative_to(REPO_ROOT).parts
+        if source_scan._excluded(name)  # noqa: SLF001 - the predicate this module exists to guard
+    }
+
+    assert excluded_anywhere == set()
 
 
 def test_a_directory_name_suffix_is_excluded_as_well_as_an_exact_name() -> None:
