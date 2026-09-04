@@ -123,6 +123,23 @@ deletes.
 **`collectors` — the filters.** One per source. Each writes its own evidence table and
 its own run-ledger row, reads only `identity`, and computes no status.
 
+The **inventory collector** is the one exception to "reads only `identity`", and it is a
+narrow one (`CPM-AD-25`). The internal inventory is observed like any other source: it runs
+on the `collect` queue through the same base and writes `inventory_snapshots`, append-only,
+carrying the source's package key, the internal usage signals as observed, and `observed_at`.
+For a record naming a package that does not exist yet it *calls `identity`'s resolution
+service*, which creates the shell at `unmapped` confidence, and the shell and the snapshot
+commit in one per-package transaction. It never writes the package row itself, so `CPM-AD-14`
+still holds: identity is mutated by resolution or the override path and by nothing else.
+Absence is an observation too — a package present in an earlier run and missing from a later
+one is recorded as absent with a timestamp, and no package row is ever deleted.
+
+Which source that collector reads is a **declared adapter**, not a discovered one
+(`CPM-AD-29`). Ingestion sits behind one contract — yield records, or fail — as a transport
+substitution at the collector base's seam (`CPM-AD-27`), so adding a source never adds a
+second ingestion path. The v1 adapter is a versioned watchlist file changed by review, which
+is what makes the package set governed reference data rather than an unaudited write path.
+
 **`policies` — the deterministic passes.** Everything derived is computed here: currency,
 vulnerability and KEV rollups, license, Python 3.14 readiness, feedstock presence,
 remediation readiness, priority, score, work type. Rule content is versioned *data*, so a
@@ -257,6 +274,18 @@ The transaction boundary is **one package** (`CPM-AD-23`). A failure at package 
 never rolls back the first 8,999, the run reports `partial`, and no transaction is held
 open for the length of a rate-limited sweep.
 
+**Inventory ingestion is this same flow**, with one deliberate asymmetry. Its adapter is
+selected by locality and fails closed *toward production* (`CPM-AD-29`): `is_local()` picks
+the development subset, and an absent or unrecognized `COMPONENT_RUNTIME` reads deployed and
+takes the production watchlist. Do not tidy that asymmetry away. A local machine reading the
+production list ingests more package names and nothing else; a deployed component reading the
+development subset would record every package outside it as absent with a timestamp — and
+because absence is an observation written to a log nothing may update or delete, that false
+absence is permanent and replayable. The failure mode is not under-monitoring, it is a
+corrupted evidence record. Ingestion also refuses rather than repairs: an unreadable file, a
+missing column, a non-numeric count or a repeated source key raises `ImproperlyConfigured`
+before any row is written, so no run partially ingests a source.
+
 ### Then the policy run
 
 Beat separately fires a **policy run** with one cut-off — the `finished_at` of a
@@ -320,6 +349,13 @@ shape consumers read today. Every one of them is *derived*. If they become colum
 trail with it — or they sit permanently null. They are projected at read time by
 `reporting`. The export keeps its historical headings; the models do not
 (`CPM-AD-1`, `CPM-AD-3`).
+
+`inventory_snapshots` (`CPM-AD-25`) is not a counter-example and must not become one. It
+holds the usage signals **as observed at a point in time**, not the current value of
+anything, and every policy that reads one reads the latest snapshot at or before its run's
+cut-off — which is what makes a `CPM-FR-22` replay reproduce identical results. A reader
+that takes the newest snapshot regardless of cut-off has reintroduced a mutable column with
+extra steps.
 
 **A finding is not an evidence row.** Evidence is append-only, so today's row for
 CVE-2026-1234 is superseded tomorrow by a *new row with a new id*. A workflow item keyed
