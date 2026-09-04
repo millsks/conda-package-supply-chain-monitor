@@ -34,7 +34,7 @@ development_status:
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie
   epic-evidence: backlog
-  cpm-evidence-s01-five-outcome-states-precedence-order: ready-for-dev
+  cpm-evidence-s01-five-outcome-states-precedence-order: done
   cpm-evidence-s02-evidence-refuses-be-updated: ready-for-dev
   cpm-evidence-s03-run-ledger-survives-killed-worker: ready-for-dev
   cpm-evidence-s04-three-queues-cadence-as-data: ready-for-dev

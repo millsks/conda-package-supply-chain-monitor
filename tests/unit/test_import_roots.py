@@ -24,14 +24,15 @@ from __future__ import annotations
 
 import ast
 import tomllib
-from functools import cache
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.source_scan import REPO_ROOT
+from tests.source_scan import project_files
+
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PIXI_MANIFEST = REPO_ROOT / "pixi.toml"
 
@@ -44,31 +45,12 @@ NAMED_ENTRYPOINTS = (
     REPO_ROOT / "src" / "config" / "wsgi.py",
 )
 
-# Directories the scan does not enter. `.pixi/` is the installed environment and
-# `.git/` is not source; `dist/`, `build/`, `staticfiles/` and `*.egg-info/` are
-# generated. `.agents/`, `.claude/`, `_bmad/` and `.bmad-loop/` are vendored
-# agent tooling, which this repository already declares is not its own source --
-# they are `extend-exclude`d in [tool.ruff] for the same reason. A vendored
-# script's `sys.path` handling is that tool's business; it declares nothing
-# about where `config` and `django_service` come from.
-EXCLUDED_DIRECTORIES = frozenset(
-    {
-        ".agents",
-        ".bmad-loop",
-        ".claude",
-        ".git",
-        ".mypy_cache",
-        ".pixi",
-        ".pytest_cache",
-        ".ruff_cache",
-        "__pycache__",
-        "_bmad",
-        "build",
-        "dist",
-        "node_modules",
-        "staticfiles",
-    },
-)
+# The directories the scan does not enter now live in `tests/source_scan.py`,
+# alongside the walk itself. They were declared here as well, and the two lists
+# had already drifted apart -- this one lacked `_bmad-output/`, `site/`, and every
+# virtualenv and build-output name -- which is precisely the "two scans that
+# disagree about what they cover" failure that module exists to close. Adding a
+# directory to a scan is one edit, in one place, for all three audits.
 
 # Attribute calls on `sys.path` that change what is on it. `pop`, `remove` and
 # `clear` are here because "this file curates sys.path" is the shape being
@@ -140,7 +122,6 @@ def pixi_manifest() -> dict[str, Any]:
     return _toml(PIXI_MANIFEST)
 
 
-@cache
 def _project_files(suffix: str) -> tuple[Path, ...]:
     """Return every file with `suffix` in this repository that counts as project source.
 
@@ -149,10 +130,11 @@ def _project_files(suffix: str) -> tuple[Path, ...]:
     `src/config/celery_app.py` or to a `conftest.py` would be exactly the same
     second declaration site and is exactly as easy to write.
 
-    Excluded directories are pruned rather than filtered out afterwards, which
-    is what keeps this a unit test: `.pixi/` alone holds tens of thousands of
-    files, and walking into it would cost more than every other assertion in the
-    suite put together.
+    Delegates to `tests/source_scan.py`, which is where the walk and its
+    exclusion table now live. That module prunes excluded directories during the
+    walk rather than filtering afterwards -- `.pixi/` alone holds tens of
+    thousands of files -- and refuses to follow directory symlinks, which is what
+    keeps this a unit test.
 
     Args:
         suffix: The file extension to collect, leading dot included.
@@ -161,16 +143,7 @@ def _project_files(suffix: str) -> tuple[Path, ...]:
         Every matching file outside the excluded directories, sorted.
 
     """
-    found: list[Path] = []
-    pending = [REPO_ROOT]
-    while pending:
-        for entry in pending.pop().iterdir():
-            if entry.is_dir():
-                if entry.name not in EXCLUDED_DIRECTORIES:
-                    pending.append(entry)
-            elif entry.suffix == suffix:
-                found.append(entry)
-    return tuple(sorted(found))
+    return project_files(REPO_ROOT, suffix)
 
 
 def _dotted_name(node: ast.expr) -> str:
