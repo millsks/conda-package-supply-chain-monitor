@@ -8,7 +8,10 @@
 #
 # Epic order is the build-order graph in epics.md, not the document's listing order.
 # Within CPM-EP-IDENTITY, S06 leads: it is numbered last because story keys are never
-# reused, and built first because every later story assumes packages exist.
+# reused, and built first because every later story assumes packages exist. S07 follows
+# it immediately and completes the pair -- S06 owns the ingestion collector and the
+# snapshot model, S07 the adapter contract and the watchlist files -- and neither is
+# exercisable alone.
 #
 # Status vocabulary: epics backlog|in-progress|done; stories backlog|ready-for-dev|
 # in-progress|review|done; retrospectives optional|done.
@@ -19,7 +22,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-03-2026 09:00
+last_updated: 09-04-2026 00:00
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -46,6 +49,7 @@ development_status:
   # CPM-EP-IDENTITY: Every package resolved, or visibly not
   epic-identity: backlog
   cpm-identity-s06-inventory-arrives-arrives-as-evidence: ready-for-dev
+  cpm-identity-s07-watchlist-inventory-source: ready-for-dev
   cpm-identity-s01-package-identity-model: ready-for-dev
   cpm-identity-s02-resolution-records-where-came-from: ready-for-dev
   cpm-identity-s03-confidence-gates-what-system-will: ready-for-dev

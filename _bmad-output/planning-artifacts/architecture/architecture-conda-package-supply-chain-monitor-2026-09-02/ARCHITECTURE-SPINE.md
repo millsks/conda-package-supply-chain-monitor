@@ -534,6 +534,34 @@ violation yet.
   refusal raises rather than warns. The target *values* remain PRD Open Question 7; their
   presence is not optional.
 
+### CPM-AD-29 — The inventory source is a declared adapter; locality selects its file  *(net-new)*
+
+- **Binds:** `CPM-FR-42`, `CPM-EP-IDENTITY`, `CPM-IDENTITY-S06`, `CPM-IDENTITY-S07`
+- **Prevents:** a deployed component ingesting a development subset and recording every
+  package outside it as absent, and the inventory acquiring a second ingestion path each
+  time a new source is added.
+- **Rule:** ingestion reads exactly one **inventory source adapter** behind a single
+  contract — yield records, or fail. An adapter is a transport substitution at the
+  collector base's seam (`CPM-AD-27`), so the ingestion collector is unchanged whichever
+  source is active, and adapters are **declared, never discovered** (inherited `AD-8`).
+- **The v1 adapter is the versioned watchlist:** a delimited file held in the repository
+  and changed by review. Reviewability is what makes it governed reference data under
+  `CPM-AD-14` — a file changed without review would be an unaudited write path onto the
+  package set, which is the thing `CPM-AD-14` exists to forbid.
+- **Locality selects the file, and fails closed toward production.**
+  `config.locality.is_local()` (inherited `AD-13`) selects the development subset; absent or
+  unrecognized `COMPONENT_RUNTIME` reads deployed and takes the production watchlist. The
+  asymmetry is deliberate and must not be tidied away. A local machine that reads the
+  production watchlist ingests a longer list of package names and nothing else. A deployed
+  component that reads the development subset would record every package outside that
+  subset as **absent with a timestamp** — and because absence is an observation
+  (`CPM-AD-25`) written to an append-only log that nothing may update or delete, the false
+  absence is permanent and replayable. A misconfiguration would not merely under-monitor;
+  it would corrupt the evidence record.
+- **Refuse, never repair.** An unreadable file, a missing required column, a non-numeric
+  count, or a repeated source package key raises `ImproperlyConfigured` and fails the run
+  before any row is written (inherited `CG-3`). No run partially ingests a source.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -704,8 +732,11 @@ src/
 - **The analytics fitness spike itself** (`CPM-AD-17`). LangChain's conda-forge
   availability and its transitive resolution against Python 3.14 are unestablished. This is
   the one deferred item that **blocks** its epic rather than deferring inside it.
-- **The inventory source and the internal usage-signal field set** (`CPM-FR-42`,
-  `CPM-FR-20`). `CPM-AD-25` fixes that they arrive as evidence and are read at a cut-off;
-  where they come from is PRD Open Question 3.
+- ~~**The inventory source and the internal usage-signal field set**~~ — **no longer
+  deferred.** PRD Open Question 3 was resolved on 2026-09-04: the source is the versioned
+  watchlist read through the adapter contract (`CPM-AD-29`), and the field set is
+  `internal_component_count` and `internal_lob_count` required, with `apps`, `platforms`,
+  `downloads` and `versions` nullable. What remains deferred is the watchlist *content*,
+  which is an organizational decision rather than an architectural one.
 - **Non-Python conda artifacts.** `CPM-AD-3` and `CPM-AD-5` make the later phase a data
   change, not a schema migration.
