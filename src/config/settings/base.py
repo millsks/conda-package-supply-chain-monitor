@@ -9,6 +9,7 @@ from typing import Any
 import environ
 from django.urls import reverse_lazy
 
+from conda_package_supply_chain_monitor.core.roles import load_role_contract
 from config.authorization.claims import load_claims_contract
 from config.observability.logging import build_logging_config
 from config.observability.logging import configure_structlog
@@ -251,6 +252,26 @@ LOGIN_URL = reverse_lazy("openid_connect_login", kwargs={"provider_id": OIDC_PRO
 # field means unconfigured, which is what Epic 4's startup check refuses on.
 # See config/authorization/claims.py and docs/authentication.md.
 CLAIMS_CONTRACT = load_claims_contract(env)
+# The product's role contract (CPM-FR-30): the names of the three groups that
+# confer the security-and-compliance-reviewer, packaging-engineer and leadership
+# roles, each read from a CPM_-prefixed variable with no default. Unset stays
+# unset, exactly as above.
+#
+# Read *here* rather than inside the application it belongs to, for the reason
+# FR-38 gives: `.env` is read once, by this module, and `env` is the only handle
+# on it. An app reading its own configuration would be a second read of a file
+# this module has already consumed and a second place a deployment's
+# configuration lives. The application owns the contract's *shape* --
+# `conda_package_supply_chain_monitor.core.roles` declares the slots, the
+# variable names and the loader -- and the settings module owns the read, which
+# is the same division `config/authorization/claims.py` is on the other side of.
+#
+# The import is legal in the direction it runs: `config` may import a domain
+# application, and `roles.py` imports nothing from `django.apps` or
+# `django.contrib.auth`, so it loads before the app registry exists.
+# See src/django_apps/conda_package_supply_chain_monitor/core/roles.py and
+# docs/authentication.md.
+ROLE_CONTRACT = load_role_contract(env)
 
 # PASSWORDS
 # ------------------------------------------------------------------------------

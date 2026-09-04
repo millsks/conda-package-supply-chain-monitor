@@ -29,7 +29,7 @@ development_status:
   # CPM-EP-PLATFORM: The service platform
   epic-platform: in-progress
   cpm-platform-s01-second-import-root-domain-applications: done
-  cpm-platform-s02-group-claims-resolve-three-product: ready-for-dev
+  cpm-platform-s02-group-claims-resolve-three-product: done
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie

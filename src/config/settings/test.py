@@ -4,6 +4,7 @@ With these settings, tests run faster.
 
 import sys
 
+from conda_package_supply_chain_monitor.core.roles import RoleContract
 from config.authorization.claims import ClaimsContract
 from config.observability.logging import build_logging_config
 from config.startup import run_stage_one
@@ -106,6 +107,25 @@ CLAIMS_CONTRACT = ClaimsContract(
     group_claim="groups",
     staff_group="platform-staff",
     superuser_group="platform-superuser",
+)
+# The product's role contract, on the same terms and for the same reason: a
+# fixture, not a default. It is what makes `core/0001_provision_role_groups`
+# actually provision during test-database creation, so the suite asserts the
+# state a migration left rather than the state a test set up for itself -- and
+# what lets `tests/unit/django_apps/test_roles.py` check that none of these three
+# names appears in `roles.py`, the module that declares the contract, or in the
+# migration that provisions from it. base.py defaults none of them; see
+# conda_package_supply_chain_monitor/core/roles.py.
+#
+# Deliberately disjoint from CLAIMS_CONTRACT's two group names above. The
+# collision case -- one directory group named by both contracts -- is a
+# configuration an operator may legitimately have, and it is exercised where it
+# belongs, in tests/integration/django_apps/test_role_groups.py, rather than made
+# the suite-wide default.
+ROLE_CONTRACT = RoleContract(
+    security_reviewer="cpm-security-reviewer",
+    packaging_engineer="cpm-packaging-engineer",
+    leadership="cpm-leadership",
 )
 
 # DEBUGGING FOR TEMPLATES

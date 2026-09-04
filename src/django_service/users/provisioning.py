@@ -11,9 +11,18 @@ The other half of AD-27 is that there is exactly *one* mechanism. A migration
 that creates groups inline leaves the local persona seeding task (Epic 3, Story
 3.3) nothing to call, so it reimplements the same thing slightly differently,
 and the two drift -- which is how the deadlock becomes invisible to the harness
-again. Hence `provision_designated_groups`: a single callable that takes an
-optional historical model registry, so the migration and every live caller share
-one body. Its `apps` parameter is that seam and nothing more.
+again. Hence `provision_groups`: a single callable that takes an optional
+historical model registry, so every migration and every live caller share one
+body. Its `apps` parameter is that seam and nothing more.
+
+`provision_groups` takes group *names*, and `provision_designated_groups` is the
+claims contract's reader in front of it. The split is what lets a second
+contract -- the product's three role groups, in
+`conda_package_supply_chain_monitor.core.roles` -- be provisioned through the one
+writer without this platform module learning a single product concept, and
+without changing what any existing caller of `provision_designated_groups` gets.
+Deciding which groups a contract asks for belongs to whoever owns that contract;
+creating them belongs here.
 
 AD-12 leans on this module. "A claim asserting a group with no matching Django
 `Group` is ignored and logged, never created" is only a defensible rule because
@@ -45,6 +54,9 @@ from django.apps import apps as global_apps
 from django.conf import settings
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from collections.abc import Sequence
+
     from django.apps.registry import Apps
     from django.db.migrations.state import StateApps
 
@@ -54,6 +66,7 @@ __all__ = [
     "SUPERUSER_ROLE",
     "ProvisionResult",
     "provision_designated_groups",
+    "provision_groups",
 ]
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -99,9 +112,11 @@ class ProvisionResult:
     Attributes:
         created: Names of the groups this pass inserted.
         existing: Names of the groups that were already present.
-        permissions_attached: How many `Permission` rows were attached across
-            every designated group. Counted after resolution, so a codename that
-            resolved to nothing is not counted as attached.
+        permissions_attached: How many `Permission` rows this pass attached
+            across every group it provisioned. Counted after resolution, so a
+            codename that resolved to nothing is not counted as attached, and it
+            counts what *this* declaration asked for rather than what the rows
+            hold -- a group named by two declarations is counted by each.
 
     """
 
@@ -110,32 +125,122 @@ class ProvisionResult:
     permissions_attached: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class _DesignatedGroup:
-    """One group name and the permissions the contract's roles ask of it."""
+def provision_groups(
+    groups: Mapping[str, Sequence[str]],
+    apps: StateApps | Apps | None = None,
+    *,
+    declared_by: str = "",
+    preserve_existing: bool = False,
+) -> ProvisionResult:
+    """Create the named groups and attach the permissions asked of each.
 
-    name: str
-    roles: tuple[str, ...] = ()
-    codenames: tuple[str, ...] = ()
+    The one and only place in this repository that creates a `Group` row. Every
+    other path that needs a group to exist -- this module's own
+    `provision_designated_groups`, the product's role-group migration, Epic 3's
+    persona seeding, Epic 8's smoke check -- calls this rather than creating
+    groups of its own (AC #3, AD-27).
+
+    It takes names rather than reading a contract, which is what lets a second
+    contract be provisioned through it without teaching this platform module
+    anything about the product's concepts. Deciding *which* groups a contract
+    asks for belongs to whoever owns that contract; creating them belongs here.
+
+    Idempotence is structural rather than a re-run guard: `get_or_create` on the
+    name and `permissions.set`/`add` on the resolved rows all converge, so the
+    second call and the hundredth leave the database in the state the first did.
+
+    **More than one contract may name the same group, and `preserve_existing` is
+    what stops the second one silently disarming the first.** Nothing prevents an
+    operator pointing `CPM_LEADERSHIP_GROUP` at the directory group
+    `COMPONENT_STAFF_GROUP` already names -- "platform and engineering
+    leadership" and the staff group are frequently one group -- and this module
+    already treats the analogous collision *within* the claims contract as a
+    configuration rather than a mistake. A pass that then called `set` with its
+    own (empty) declaration would clear `users.view_user` and `users.change_user`
+    from that row, and the only symptom would be staff members landing on an
+    empty admin index: no refusal fires, because `stage_two`'s condition asks
+    whether the row *exists*, not what it holds.
+
+    Args:
+        groups: Group name to the `app_label.codename` permission strings that
+            group should hold, keyed by name so that two role slots pointing at
+            one group have already been unioned by the caller. An empty mapping
+            creates nothing and issues no query.
+        apps: A historical model registry, as a data migration receives. None
+            means the live registry, which is what every runtime caller wants.
+            This parameter is the entire reason one implementation can serve
+            both, and it must stay optional for that reason.
+        declared_by: The declaration this pass provisions, carried into the
+            event so a log reader can tell a missing role pass from a missing
+            designated pass. Both emit `authorization.groups_provisioned` and
+            they would otherwise be indistinguishable.
+        preserve_existing: False -- the default, and what the claims contract
+            uses -- makes the row equal the declaration, so a codename dropped
+            from `DESIGNATED_GROUP_PERMISSIONS` is revoked on the next pass.
+            True adds this declaration's permissions and removes none, which is
+            what a *secondary* declaration owes a row it shares: it speaks for
+            what it asks for and never for what another contract asked. The
+            trade is that a secondary declaration cannot revoke by omission;
+            whoever removes one of its codenames has to say so.
+
+    Returns:
+        What the pass did.
+
+    """
+    registry: Apps = global_apps if apps is None else apps
+    # A historical model is a class generated from migration state at runtime,
+    # so no static type describes it, and the live `auth.Group` and its
+    # historical counterpart are different classes with the same shape. `Any` is
+    # the honest annotation for the pair; narrowing it would mean either lying
+    # about the migration path or splitting this into two bodies, which is the
+    # duplication AD-27 forbids.
+    group_model: Any = registry.get_model("auth", "Group")
+    permission_model: Any = registry.get_model("auth", "Permission")
+
+    created: list[str] = []
+    existing: list[str] = []
+    attached = 0
+
+    for name, codenames in groups.items():
+        group, was_created = group_model.objects.get_or_create(name=name)
+        (created if was_created else existing).append(name)
+
+        permissions = _resolve_permissions(permission_model, name, codenames)
+        if preserve_existing:
+            group.permissions.add(*permissions)
+        else:
+            group.permissions.set(permissions)
+        attached += len(permissions)
+
+    result = ProvisionResult(
+        created=tuple(created),
+        existing=tuple(existing),
+        permissions_attached=attached,
+    )
+    # The spine makes every authorization change an event. Provisioning is one:
+    # this is the record that the groups an operator configured are the groups
+    # that exist, emitted whether or not anything was inserted.
+    logger.info(
+        "authorization.groups_provisioned",
+        declared_by=declared_by,
+        created=result.created,
+        existing=result.existing,
+        permissions_attached=result.permissions_attached,
+    )
+    return result
 
 
 def provision_designated_groups(apps: StateApps | Apps | None = None) -> ProvisionResult:
     """Create the groups the claims contract names and attach their permissions.
 
-    The one and only place in this repository that creates a `Group` row. Every
-    other path that needs the designated groups -- the data migration, Epic 3's
-    persona seeding, Epic 8's smoke check -- calls this rather than creating
-    groups of its own (AC #3).
-
-    Idempotence is structural rather than a re-run guard: `get_or_create` on the
-    name and `permissions.set` on the resolved rows both converge, so the second
-    call and the hundredth leave the database in the state the first one did.
+    The claims contract's half of provisioning: it reads the contract, decides
+    which names it asks for, and hands them to `provision_groups`. What it
+    provisions is unchanged by that delegation -- the two designated groups, with
+    the permissions their slots declare, and nothing else.
 
     Args:
         apps: A historical model registry, as a data migration receives. None
-            means the live registry, which is what every runtime caller wants.
-            This parameter is the entire reason one implementation can serve
-            both, and it must stay optional for that reason.
+            means the live registry. Passed straight through.
 
     Returns:
         What the pass did. An unconfigured contract returns an empty result and
@@ -154,46 +259,14 @@ def provision_designated_groups(apps: StateApps | Apps | None = None) -> Provisi
         )
         return ProvisionResult()
 
-    registry: Apps = global_apps if apps is None else apps
-    # A historical model is a class generated from migration state at runtime,
-    # so no static type describes it, and the live `auth.Group` and its
-    # historical counterpart are different classes with the same shape. `Any` is
-    # the honest annotation for the pair; narrowing it would mean either lying
-    # about the migration path or splitting this into two bodies, which is the
-    # duplication AD-27 forbids.
-    group_model: Any = registry.get_model("auth", "Group")
-    permission_model: Any = registry.get_model("auth", "Permission")
-
-    created: list[str] = []
-    existing: list[str] = []
-    attached = 0
-
-    for designated in _designated_groups(contract.staff_group, contract.superuser_group):
-        group, was_created = group_model.objects.get_or_create(name=designated.name)
-        (created if was_created else existing).append(designated.name)
-
-        permissions = _resolve_permissions(permission_model, designated)
-        group.permissions.set(permissions)
-        attached += len(permissions)
-
-    result = ProvisionResult(
-        created=tuple(created),
-        existing=tuple(existing),
-        permissions_attached=attached,
+    return provision_groups(
+        _designated_groups(contract.staff_group, contract.superuser_group),
+        apps,
+        declared_by="claims_contract",
     )
-    # The spine makes every authorization change an event. Provisioning is one:
-    # this is the record that the groups an operator configured are the groups
-    # that exist, emitted whether or not anything was inserted.
-    logger.info(
-        "authorization.groups_provisioned",
-        created=result.created,
-        existing=result.existing,
-        permissions_attached=result.permissions_attached,
-    )
-    return result
 
 
-def _designated_groups(staff_group: str, superuser_group: str) -> tuple[_DesignatedGroup, ...]:
+def _designated_groups(staff_group: str, superuser_group: str) -> dict[str, tuple[str, ...]]:
     """Collapse the two role slots onto the group names the contract gives them.
 
     Keyed by name rather than by role because nothing stops an operator pointing
@@ -211,39 +284,43 @@ def _designated_groups(staff_group: str, superuser_group: str) -> tuple[_Designa
 
     Returns:
         One entry per distinct group name, in the order the roles declare them,
-        each carrying the union of the permissions its roles ask for.
+        each carrying the union of the permissions its roles ask for. This is the
+        mapping `provision_groups` takes.
 
     """
-    by_name: dict[str, _DesignatedGroup] = {}
+    by_name: dict[str, tuple[str, ...]] = {}
     for role, name in ((STAFF_ROLE, staff_group), (SUPERUSER_ROLE, superuser_group)):
-        entry = by_name.get(name, _DesignatedGroup(name=name))
-        added = tuple(code for code in DESIGNATED_GROUP_PERMISSIONS[role] if code not in entry.codenames)
-        by_name[name] = _DesignatedGroup(
-            name=name,
-            roles=(*entry.roles, role),
-            codenames=(*entry.codenames, *added),
-        )
-    return tuple(by_name.values())
+        held = by_name.get(name, ())
+        by_name[name] = (*held, *(code for code in DESIGNATED_GROUP_PERMISSIONS[role] if code not in held))
+    return by_name
 
 
-def _resolve_permissions(permission_model: Any, designated: _DesignatedGroup) -> list[Any]:
+def _resolve_permissions(permission_model: Any, name: str, codenames: Sequence[str]) -> list[Any]:
     """Resolve `app_label.codename` strings to the `Permission` rows they name.
 
     Args:
         permission_model: The `auth.Permission` model, live or historical.
-        designated: The group being provisioned, carrying the codenames its
-            roles ask for.
+        name: The group being provisioned, carried so an unresolved codename can
+            be reported against the group that asked for it.
+        codenames: The `app_label.codename` strings that group asks for.
 
     Returns:
         The rows that resolved, in declaration order. A codename matching no row
         is logged at warning and left out -- handled, not swallowed. It is never
-        created: an unrecognised codename is a mistake in this file or an app
-        whose permissions have not been created yet, and inventing the row would
-        turn either one into a grant nobody wrote down.
+        created: an unrecognised codename is a mistake in a permission
+        declaration or an app whose permissions have not been created yet, and
+        inventing the row would turn either one into a grant nobody wrote down.
+
+    Note:
+        The warning carried a `roles` field until `provision_groups` was
+        extracted. It was dropped deliberately rather than lost: the writer now
+        takes a name-to-codenames mapping, so which *slot* asked for a codename
+        has already been unioned away by the time this runs, and the group name
+        plus the codename are what an operator needs to find the declaration.
 
     """
     resolved: list[Any] = []
-    for label in designated.codenames:
+    for label in codenames:
         app_label, _, codename = label.partition(".")
         permission = permission_model.objects.filter(
             content_type__app_label=app_label,
@@ -253,8 +330,7 @@ def _resolve_permissions(permission_model: Any, designated: _DesignatedGroup) ->
             logger.warning(
                 "authorization.permission_unresolved",
                 permission=label,
-                group=designated.name,
-                roles=designated.roles,
+                group=name,
             )
             continue
         resolved.append(permission)
