@@ -17,7 +17,6 @@ permissions actually attached -- is in `tests/integration/users/test_provisionin
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +29,8 @@ from django_service.users.provisioning import STAFF_ROLE
 from django_service.users.provisioning import SUPERUSER_ROLE
 from django_service.users.provisioning import ProvisionResult
 from django_service.users.provisioning import provision_designated_groups
+from django_service.users.provisioning import provision_groups
+from tests.group_writers import group_creation_verbs
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import SettingsWrapper
@@ -41,94 +42,6 @@ PROVISIONING_MODULE = SRC_ROOT / "django_service" / "users" / "provisioning.py"
 # from the module under test, which would make the assertion agree with whatever
 # it found.
 ROLE_SLOTS = frozenset({"staff", "superuser"})
-
-# Manager methods that bring a row into existence. `get_or_create` is here as
-# well as `create` because the question this file asks is who *writes* groups,
-# not which spelling they used.
-CREATION_VERBS = frozenset({"create", "get_or_create", "update_or_create", "bulk_create", "acreate"})
-
-# The model a claim maps onto, as it is named in the registry.
-GROUP_MODEL_NAME = "Group"
-
-
-def _group_model_names(tree: ast.Module) -> set[str]:
-    """Return the local names one module has bound to the `auth.Group` model.
-
-    Both routes are covered: an import of the concrete model, and a lookup
-    through a model registry -- `apps.get_model("auth", "Group")` -- which is
-    how a data migration and this project's own provisioning reach it.
-
-    Args:
-        tree: The parsed module.
-
-    Returns:
-        Every local name that refers to the Group model in that module.
-
-    """
-    bound: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "django.contrib.auth.models":
-            bound |= {alias.asname or alias.name for alias in node.names if alias.name == GROUP_MODEL_NAME}
-        elif isinstance(node, ast.Assign) and _is_group_model_lookup(node.value):
-            bound |= {target.id for target in node.targets if isinstance(target, ast.Name)}
-        # Annotated, because the live and historical models are different
-        # classes with the same shape and `Any` is the only honest annotation
-        # for the pair. A scan that read only bare assignments would miss the
-        # one writer it exists to find, which is what the idempotence test
-        # below is positioned to catch.
-        elif isinstance(node, ast.AnnAssign) and node.value is not None and _is_group_model_lookup(node.value):
-            if isinstance(node.target, ast.Name):
-                bound.add(node.target.id)
-    return bound
-
-
-def _is_group_model_lookup(value: ast.expr) -> bool:
-    """Report whether an expression is a registry lookup of the Group model."""
-    if not isinstance(value, ast.Call):
-        return False
-    func = value.func
-    name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
-    if name != "get_model":
-        return False
-    return any(isinstance(argument, ast.Constant) and argument.value == GROUP_MODEL_NAME for argument in value.args)
-
-
-def _group_creation_verbs(path: Path) -> set[str]:
-    """Return the manager methods one module uses to create `Group` rows.
-
-    Matched on the parsed tree rather than on the text. The spelling a text
-    search would look for -- `Group.objects.get_or_create` -- appears nowhere in
-    this repository, because the model is taken from a registry so that one
-    implementation serves both the live and the historical path; a grep for it
-    would therefore pass while proving nothing at all. What is matched instead is
-    a creation call on a manager belonging to a name that module bound to the
-    Group model, whatever it chose to call it.
-
-    Args:
-        path: The module to scan.
-
-    Returns:
-        The creation verbs applied to a Group manager, empty when the module
-        creates no groups.
-
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    bound = _group_model_names(tree)
-    verbs: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        if node.func.attr not in CREATION_VERBS:
-            continue
-        manager = node.func.value
-        if (
-            isinstance(manager, ast.Attribute)
-            and manager.attr == "objects"
-            and isinstance(manager.value, ast.Name)
-            and manager.value.id in bound
-        ):
-            verbs.add(node.func.attr)
-    return verbs
 
 
 def _source_modules() -> list[Path]:
@@ -230,6 +143,26 @@ def test_an_unconfigured_contract_provisions_nothing_and_raises_nothing(settings
     assert result.permissions_attached == 0
 
 
+def test_provisioning_no_groups_creates_nothing_and_raises_nothing() -> None:
+    """The seam's empty case, which is what makes the unconfigured path safe.
+
+    `provision_designated_groups` and the product's role-group migration both
+    return an empty mapping when their contract is unconfigured, and both hand it
+    straight here rather than branching around the call. Reaching no database is
+    the assertion: the loop never runs, so `get_or_create` is never reached, and
+    a mapping that names nothing cannot create a `Group` with an empty name.
+
+    This is a unit test for exactly that reason -- it issues no query, which a
+    non-empty mapping would.
+    """
+    result = provision_groups({})
+
+    assert result == ProvisionResult()
+    assert result.created == ()
+    assert result.existing == ()
+    assert result.permissions_attached == 0
+
+
 def test_the_scan_finds_source_modules_to_check() -> None:
     """The two scans below mean nothing if the glob resolves to nothing."""
     modules = _source_modules()
@@ -247,7 +180,7 @@ def test_the_provisioning_module_is_the_only_writer_of_groups() -> None:
     slightly differently is how the bootstrap deadlock becomes invisible to the
     harness again.
     """
-    writers = {path: verbs for path in _source_modules() if (verbs := _group_creation_verbs(path))}
+    writers = {path: verbs for path in _source_modules() if (verbs := group_creation_verbs(path))}
 
     assert set(writers) == {PROVISIONING_MODULE}, (
         f"groups are created outside the one provisioning mechanism: {sorted(str(path) for path in writers)}"
@@ -265,4 +198,4 @@ def test_the_one_writer_creates_groups_idempotently() -> None:
     It doubles as the non-vacuity check for the scan above: a detector that
     matched nothing anywhere would report a single writer just as happily.
     """
-    assert _group_creation_verbs(PROVISIONING_MODULE) == {"get_or_create"}
+    assert group_creation_verbs(PROVISIONING_MODULE) == {"get_or_create"}

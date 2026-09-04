@@ -62,12 +62,15 @@ provisions the rows itself:
   only drift.
 - It is idempotent. Rows are created only if absent and permissions are set
   rather than added, so running `pixi run migrate` again changes nothing.
-- Every other path that needs those groups calls the same mechanism,
-  `django_service.users.provisioning.provision_designated_groups`. Nothing else
-  in the source creates a group, which is what keeps local seeding and the
-  deployed path from drifting apart.
-- Provisioning emits `authorization.groups_provisioned` with the names created,
-  the names already present, and the permission count.
+- Every path that creates a group calls the same mechanism,
+  `django_service.users.provisioning.provision_groups`.
+  `provision_designated_groups` is one of its callers — the one that reads the
+  claims contract and decides which names it asks for — and the product's role
+  groups (below) are another. Nothing else in the source creates a group, which
+  is what keeps local seeding and the deployed path from drifting apart.
+- Provisioning emits `authorization.groups_provisioned` with the declaration it
+  provisioned (`declared_by`), the names created, the names already present, and
+  the permission count.
 
 If the contract is unconfigured, provisioning is skipped with a
 `authorization.provisioning_skipped` warning and nothing is created. It does not
@@ -118,6 +121,79 @@ they belong in a task's own `env` table in `pixi.toml` — never in
 
 The contract is read once, in `config/settings/base.py`, into the
 `CLAIMS_CONTRACT` setting; `config/authorization/claims.py` holds the reader.
+
+## The product's three role groups
+
+The claims contract above is the platform's, inherited by every component built
+from the accelerator. This product adds one of its own: the three
+account-holding roles — a security and compliance reviewer, a packaging
+engineer, and platform and engineering leadership — are Django groups, and which
+group confers which role is configuration on the same terms.
+
+| Variable | What it names |
+| --- | --- |
+| `CPM_SECURITY_REVIEWER_GROUP` | The group that confers the security and compliance reviewer role |
+| `CPM_PACKAGING_ENGINEER_GROUP` | The group that confers the packaging engineer role |
+| `CPM_LEADERSHIP_GROUP` | The group that confers the platform and engineering leadership role |
+
+Each holds a **group name**, never a membership and never a claim name. The
+groups are asserted through the *same* group claim the contract above configures
+— `COMPONENT_GROUP_CLAIM` — so there is one claim to read and one taxonomy to
+map, and nothing about role resolution is separate from group resolution. A
+person whose claims assert one of these three names holds that role at their
+next authentication, and a group revoked at the provider removes the role at the
+next resolution, exactly as any other group does.
+
+Nothing is defaulted, and a value that is blank after stripping reads as unset.
+All three must be set for the contract to count as configured: two roles
+provisioned and one silently absent is a misconfiguration that surfaces later as
+a permissions bug.
+
+**Nothing refuses to start on an unconfigured role contract.** Unlike the claims
+contract above, which a deployed component will refuse to start without once the
+startup checks land, an unset or partly set role contract is not a startup
+condition. Provisioning is skipped with an
+`authorization.provisioning_skipped` warning carrying
+`reason="role_contract_unconfigured"`, no role group is created, and the
+component serves normally — everyone authenticates and nobody holds a role. That
+warning is the only signal, so it is the line to look for.
+
+As with the `COMPONENT_*` variables, these belong in a deployment's environment
+or in a pixi task's own `env` table — **never in `[activation.env]`**, where a
+local convenience would leak into every environment on the machine.
+
+The rows are provisioned by a data migration,
+`src/django_apps/conda_package_supply_chain_monitor/core/migrations/0001_provision_role_groups.py`,
+which creates nothing itself — it calls
+`django_service.users.provisioning.provision_groups`, the same single mechanism
+that creates the designated groups above, and depends on
+`users/0003_provision_designated_groups` so that mechanism has already run. It
+is idempotent, and an unconfigured role contract provisions nothing and raises
+nothing, so `pixi run migrate` stays usable on a fresh checkout.
+
+One directory group may legitimately be named by both contracts — "platform and
+engineering leadership" and the staff group are often the same group. The role
+pass therefore *adds* permissions and never replaces them, and rolling the role
+migration back deletes no group the claims contract names.
+
+The three role groups carry **no permissions yet**, so a person who holds only a
+role group has no access beyond what any authenticated caller has: the role is
+recorded and nothing yet reads it. Role membership is what this establishes; the
+permission classes that consume it arrive with the role-scoped surfaces they
+guard.
+
+**Renaming one of these variables after a deployment has migrated does nothing
+on its own.** `ROLE_CONTRACT` is read at start-up, but the only thing that acts
+on it is a migration that has already been applied — Django will not run it
+again. The group under the new name is never created, the row under the old name
+is never removed, and claims asserting the new name resolve to nothing and are
+ignored. Rolling the migration back and forward again, or creating the group in
+the admin, is what actually moves it.
+
+The contract is read once, in `config/settings/base.py`, into the `ROLE_CONTRACT`
+setting; `conda_package_supply_chain_monitor/core/roles.py` holds the reader.
+`config/settings/local.py` fills only the fields the environment left unset, with
+local development values, so a fresh clone has role groups to develop against.
 
 ## `createsuperuser` and where it is still available
 

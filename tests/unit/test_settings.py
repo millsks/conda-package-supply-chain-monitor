@@ -14,6 +14,7 @@ import importlib
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.core import roles
 from config.authorization import claims
 from config.local_dev import keys
 from config.locality import LOCAL as LOCAL_RUNTIME
@@ -40,6 +41,13 @@ FLOOR_JWKS_MIN_REFETCH_SECONDS = 1.0
 # moved. Anything above zero accepts a token past its own `exp` by that much.
 DEFAULT_OIDC_LEEWAY_SECONDS = 0.0
 OVERRIDDEN_OIDC_LEEWAY_SECONDS = 5.0
+
+# The local development values `config/settings/local.py` fills unset role names
+# with. Named here so the fill is asserted against a stated value rather than
+# against "not empty", which a leaked ambient variable would also satisfy.
+LOCAL_SECURITY_REVIEWER_GROUP = "cpm-security-reviewer"
+LOCAL_PACKAGING_ENGINEER_GROUP = "cpm-packaging-engineer"
+LOCAL_LEADERSHIP_GROUP = "cpm-leadership"
 
 BASE = "config.settings.base"
 LOCAL = "config.settings.local"
@@ -85,6 +93,18 @@ def no_claims_contract_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "COMPONENT_STAFF_GROUP",
         "COMPONENT_SUPERUSER_GROUP",
     ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def no_role_contract_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the three role variables so the developer's shell cannot leak in.
+
+    Read off `ROLE_ENVIRONMENT_VARIABLES` rather than respelled, so a rename in
+    the role module cannot leave this fixture clearing names nothing reads while
+    the real ones survive from the ambient environment.
+    """
+    for name in roles.ROLE_ENVIRONMENT_VARIABLES:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -184,6 +204,57 @@ def test_local_does_not_override_a_declared_claims_contract(monkeypatch: pytest.
     assert local.CLAIMS_CONTRACT.identity_key_claim == "oid"
     assert local.CLAIMS_CONTRACT.group_claim == "realm_access.roles"
     assert local.CLAIMS_CONTRACT.staff_group == "platform-staff"
+
+
+@pytest.mark.usefixtures("no_role_contract_env")
+def test_local_supplies_a_configured_role_contract():
+    """A fresh clone still gets three role groups to develop against.
+
+    `base.py` defaults none of the three names, so without this the local role
+    contract is empty, `core/0001_provision_role_groups` provisions nothing, and
+    a developer has no role group to assert in a synthetic token.
+    """
+    local = importlib.import_module(LOCAL)
+
+    assert local.ROLE_CONTRACT.is_configured
+    assert local.ROLE_CONTRACT.security_reviewer == LOCAL_SECURITY_REVIEWER_GROUP
+    assert local.ROLE_CONTRACT.packaging_engineer == LOCAL_PACKAGING_ENGINEER_GROUP
+    assert local.ROLE_CONTRACT.leadership == LOCAL_LEADERSHIP_GROUP
+
+
+@pytest.mark.usefixtures("no_role_contract_env")
+def test_local_does_not_override_a_declared_role_contract(monkeypatch: pytest.MonkeyPatch):
+    """Only unset fields are filled; the environment still wins.
+
+    The fallback must not re-spell the `CPM_*` variable names or shadow a local
+    run pointed at a real identity realm's role groups. The other two fields are
+    pinned to the local values rather than merely asserted non-empty: with the
+    environment cleared first, "not empty" is only satisfiable by the fallback
+    having actually run, and pinning it is what catches a fill that silently
+    stopped filling.
+    """
+    monkeypatch.setenv("CPM_SECURITY_REVIEWER_GROUP", "ops-reviewers")
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.ROLE_CONTRACT.security_reviewer == "ops-reviewers"
+    assert local.ROLE_CONTRACT.packaging_engineer == LOCAL_PACKAGING_ENGINEER_GROUP
+    assert local.ROLE_CONTRACT.leadership == LOCAL_LEADERSHIP_GROUP
+
+
+@pytest.mark.usefixtures("no_role_contract_env")
+def test_local_fills_a_role_name_the_environment_left_blank(monkeypatch: pytest.MonkeyPatch):
+    """A whitespace-only variable is unset, so it is filled rather than honoured.
+
+    Honouring it would create a `Group` whose name is whitespace: a row no claim
+    can match, that nothing deletes, and that reports the contract as configured.
+    """
+    monkeypatch.setenv("CPM_LEADERSHIP_GROUP", "   ")
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.ROLE_CONTRACT.leadership == LOCAL_LEADERSHIP_GROUP
+    assert local.ROLE_CONTRACT.is_configured
 
 
 def test_local_points_the_jwks_location_at_the_generated_keypair(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -356,6 +427,47 @@ def test_base_reads_a_configured_contract_from_the_environment(monkeypatch: pyte
     assert contract.group_claim == "realm_access.roles"
     assert contract.staff_group == "ops-staff"
     assert contract.superuser_group == "ops-admin"
+    assert contract.is_configured is True
+
+
+@pytest.mark.usefixtures("no_database_env", "no_role_contract_env")
+def test_base_defaults_no_role_group_name():
+    """AC #2: the role group names have no default baked into the settings module.
+
+    Asserted on `base.ROLE_CONTRACT` rather than on the loader, because the
+    defaulting this forbids would most naturally be written here -- an `or` on
+    the settings line, or a `default=` handed to `load_role_contract`. Three
+    groups provisioned under names nobody declared is worse than none: the
+    operator's real groups still resolve to nothing, and the rows that do exist
+    look like a working configuration.
+    """
+    base = importlib.import_module(BASE)
+    contract = base.ROLE_CONTRACT
+
+    assert contract.is_configured is False
+    assert contract.security_reviewer == ""
+    assert contract.packaging_engineer == ""
+    assert contract.leadership == ""
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_base_reads_all_three_role_group_names_from_the_environment(monkeypatch: pytest.MonkeyPatch):
+    """AC #2: the three variables reach `settings.ROLE_CONTRACT`, not just the loader.
+
+    Without this the settings line could be replaced by a hardcoded empty
+    contract and nothing would fail: every deployment silently provisioning no
+    role group at all.
+    """
+    monkeypatch.setenv("CPM_SECURITY_REVIEWER_GROUP", "ops-reviewers")
+    monkeypatch.setenv("CPM_PACKAGING_ENGINEER_GROUP", "ops-packagers")
+    monkeypatch.setenv("CPM_LEADERSHIP_GROUP", "ops-leads")
+
+    base = importlib.import_module(BASE)
+    contract = base.ROLE_CONTRACT
+
+    assert contract.security_reviewer == "ops-reviewers"
+    assert contract.packaging_engineer == "ops-packagers"
+    assert contract.leadership == "ops-leads"
     assert contract.is_configured is True
 
 

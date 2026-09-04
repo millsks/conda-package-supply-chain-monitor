@@ -16,9 +16,9 @@ would never be read.
 *The environment has to be the caller's and nobody else's.* A developer with
 `DJANGO_DEBUG=True` exported gets a different `DEBUG`, a different composed
 `LOGGING` renderer and a different answer from an assertion that never mentioned
-either. `import_settings` clears the whole `DJANGO_*` and `COMPONENT_*` surface
-before it sets what the caller asked for, so the import reads a stated
-environment rather than an inherited one.
+either. `import_settings` clears the whole configured-prefix surface -- `DJANGO_*`,
+`COMPONENT_*` and `CPM_*` -- before it sets what the caller asked for, so the
+import reads a stated environment rather than an inherited one.
 
 *structlog has to be put back.* `src/config/settings/base.py` calls
 `configure_structlog()` at module scope, so **importing a settings module
@@ -64,9 +64,13 @@ PRODUCTION_SETTINGS: Final[str] = "config.settings.production"
 TEST_SETTINGS: Final[str] = "config.settings.test"
 SETTINGS_MODULES: Final[tuple[str, ...]] = (BASE_SETTINGS, LOCAL_SETTINGS, PRODUCTION_SETTINGS, TEST_SETTINGS)
 
-#: The two prefixes a fresh import is allowed to read, and therefore the two a
-#: caller has to state rather than inherit.
-CONFIGURATION_PREFIXES: Final[tuple[str, ...]] = ("DJANGO_", "COMPONENT_")
+#: The prefixes a fresh import is allowed to read, and therefore the ones a
+#: caller has to state rather than inherit. `CPM_` is the product's own -- the
+#: three role-group names `config/settings/base.py` reads through
+#: `conda_package_supply_chain_monitor.core.roles`. A prefix missing from this
+#: tuple is a prefix a developer's shell still reaches, which is how an assertion
+#: about a fresh import passes on a value the caller never stated.
+CONFIGURATION_PREFIXES: Final[tuple[str, ...]] = ("DJANGO_", "COMPONENT_", "CPM_")
 
 #: The one variable in those namespaces that is the *session's* rather than the
 #: caller's -- see the module docstring.
@@ -115,7 +119,7 @@ def import_settings(
     alone (FR-38), and an override asserts the opposite -- that a value can be
     replaced from outside.
 
-    Every `DJANGO_*` and `COMPONENT_*` variable is cleared first, so a developer
+    Every variable in `CONFIGURATION_PREFIXES` is cleared first, so a developer
     who has one exported gets the same answer the gate does. `environment` is
     then applied, and the runtime is either declared or deleted: absent is how a
     deployment spells itself and locality fails closed (AD-13), so a module that

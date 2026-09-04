@@ -1,5 +1,6 @@
 import sys
 
+from conda_package_supply_chain_monitor.core.roles import RoleContract
 from config.authorization.claims import ClaimsContract
 from config.local_dev.keys import DEV_KEY_DIR
 from config.local_dev.keys import JWKS_FILENAME
@@ -13,6 +14,7 @@ from .base import MIDDLEWARE
 from .base import OIDC_AUDIENCE
 from .base import OIDC_ISSUER
 from .base import OIDC_JWKS_URL
+from .base import ROLE_CONTRACT
 from .base import env
 
 # GENERAL
@@ -163,6 +165,29 @@ CLAIMS_CONTRACT = ClaimsContract(
     group_claim=CLAIMS_CONTRACT.group_claim or "groups",
     staff_group=CLAIMS_CONTRACT.staff_group or "platform-staff",
     superuser_group=CLAIMS_CONTRACT.superuser_group or "platform-superuser",
+)
+
+# The product's three role groups, filled on exactly the same terms and for the
+# same reason as the four claim names above: local development values, not
+# defaults. `base.py` defaults none of them, so on a fresh clone the role
+# contract is empty and `core/0001_provision_role_groups` provisions nothing --
+# which leaves a developer with no role group to assert in a synthetic token and
+# nothing to exercise a role-scoped surface against.
+#
+# Only *unset* fields are filled, and a variable holding only whitespace counts
+# as unset: `load_role_contract` strips what it reads, so `base.py` has already
+# turned a blank value into the empty string by the time this runs. Written the
+# same way as the claims block above rather than re-stripping here, so the shape
+# that gets copied next is the right one.
+#
+# Pointing a local run at a real identity realm's role groups is still done with
+# the three `CPM_*` variables that `conda_package_supply_chain_monitor.core.roles`
+# declares; this block does not re-spell their names, and anything the
+# environment supplied survives untouched.
+ROLE_CONTRACT = RoleContract(
+    security_reviewer=ROLE_CONTRACT.security_reviewer or "cpm-security-reviewer",
+    packaging_engineer=ROLE_CONTRACT.packaging_engineer or "cpm-packaging-engineer",
+    leadership=ROLE_CONTRACT.leadership or "cpm-leadership",
 )
 
 # Your stuff...
