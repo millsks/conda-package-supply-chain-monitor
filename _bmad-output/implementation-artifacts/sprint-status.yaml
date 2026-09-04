@@ -6,6 +6,16 @@
 # below are the canonical CPM identifiers, lowercased -- they match epics.md and the TEA
 # handoff's story bindings exactly.
 #
+# **Do not run `sprint_plan.py generate` or `fix` against this file.** They do not merely
+# fail on the naming above -- they rewrite. `generate` parses epics.md with `^#{1,3}\s*Epic
+# \s+(\d+)` and `^#{1,4}\s*Story\s+(\d+)\.(\d+)`, which match none of that file's 81
+# headings, so it would resolve zero epics and zero stories and leave `development_status`
+# empty. `fix` rebuilds into the positional scheme and would take the CPM keys with it.
+# `validate` is safe but always negative: it reports every key here as unrecognized.
+# The skill's customize.toml exposes only activation steps, persistent facts and
+# on_complete, so none of this is configurable -- the four patterns are hardcoded regexes
+# in the script, and editing it there would be overwritten by the next BMad update.
+#
 # Epic order is the build-order graph in epics.md, not the document's listing order.
 # Within CPM-EP-IDENTITY, S06 leads: it is numbered last because story keys are never
 # reused, and built first because every later story assumes packages exist. S07 follows
