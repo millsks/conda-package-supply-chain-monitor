@@ -22,7 +22,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-04-2026 00:00
+last_updated: 09-04-2026 17:30
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -30,13 +30,13 @@ story_location: "_bmad-output/implementation-artifacts/stories"
 
 development_status:
   # CPM-EP-PLATFORM: The service platform
-  epic-platform: in-progress
+  epic-platform: done
   cpm-platform-s01-second-import-root-domain-applications: done
   cpm-platform-s02-group-claims-resolve-three-product: done
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie
-  epic-evidence: backlog
+  epic-evidence: in-progress
   cpm-evidence-s01-five-outcome-states-precedence-order: done
   cpm-evidence-s02-evidence-refuses-be-updated: done
   cpm-evidence-s03-run-ledger-survives-killed-worker: ready-for-dev
