@@ -26,6 +26,8 @@ from conda_package_supply_chain_monitor.core.clock import Clock
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.clock import SystemClock
 from tests.clocks import FIXED_INSTANT
+from tests.clocks import LATER_INSTANT
+from tests.clocks import OBSERVATION_GAP
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -194,3 +196,23 @@ def test_both_implementations_satisfy_the_protocol(build: Callable[[], Clock]) -
     assert isinstance(clock, Clock)
     assert isinstance(observed_at(clock), datetime)
     assert observed_at(clock).utcoffset() == timedelta(0)
+
+
+def test_the_shared_instants_are_ordered_by_the_gap_between_them() -> None:
+    """`tests/clocks.py` holds three constants, and two of them are a relationship.
+
+    `LATER_INSTANT` is derived from `FIXED_INSTANT` rather than written out, so
+    that the two cannot drift into an ordering nobody intended -- and a
+    derivation nothing asserts is a derivation somebody replaces with a literal
+    the first time it is inconvenient. `EVIDENCE.02-INT-001` reads the
+    relationship directly (`rows[1].observed_at - rows[0].observed_at ==
+    OBSERVATION_GAP`), which only means what it is meant to mean while the second
+    instant really is the first plus the gap and really is later.
+
+    The gap is asserted non-zero for the same reason: two clocks stopped at the
+    same instant would make that integration assertion pass over two rows that
+    are indistinguishable in time, which is the one thing it exists to rule out.
+    """
+    assert LATER_INSTANT > FIXED_INSTANT
+    assert LATER_INSTANT - FIXED_INSTANT == OBSERVATION_GAP
+    assert timedelta(0) < OBSERVATION_GAP
