@@ -66,6 +66,7 @@ from tests.model_registry import EVIDENCE_APP_LABEL
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 from tests.model_registry import NOT_EVIDENCE_ATTRIBUTE
+from tests.model_registry import RUN_LEDGER_MODEL_LABELS
 from tests.model_registry import evidence_marks
 from tests.model_registry import evidence_models
 from tests.model_registry import exempt_models
@@ -80,15 +81,22 @@ PERMITTED_ON_DELETE: Final[frozenset[str]] = frozenset({"DO_NOTHING", "PROTECT",
 
 # Every first-party model declaring `not_evidence = True`, by label.
 #
-# The declared way out of the evidence rules, recorded here so that taking it is
-# a visible act rather than a quiet one -- the same shape `RECORDED_EXEMPTIONS`
-# has in the source scans, and for the same reason. `CPM-AD-2` exempts the run
-# ledger, and `CPM-EVIDENCE-S03` is the story that will add
-# `collection_runs` and `policy_runs` to this table along with the models
-# themselves. Empty until then, and the case below fails from both sides: a model
-# that takes the escape without being recorded, and a record naming a model that
-# no longer takes it.
-RECORDED_NOT_EVIDENCE: Final[frozenset[str]] = frozenset()
+# The declared way out of the evidence rules, recorded so that taking it is a
+# visible act rather than a quiet one -- the same shape `RECORDED_EXEMPTIONS` has
+# in the source scans, and for the same reason. `CPM-AD-2` exempts the run ledger
+# in so many words, and `CPM-EVIDENCE-S03` added it: `core.CollectionRun` is
+# `collection_runs` and `core.PolicyRun` is `policy_runs`, both mutable by
+# construction because a run row is created before the first outbound call and
+# finalized afterwards. Both declare the exemption on `RunLedgerModel`, the
+# abstract base they share, and the reason is in that class's docstring.
+#
+# The labels come from `tests/model_registry.py` rather than being written out
+# again here: three modules need this pair, and three hand-written copies that
+# can disagree look exactly like three passing tests.
+#
+# The case below fails from both sides: a model that takes the escape without
+# being recorded, and a record naming a model that no longer takes it.
+RECORDED_NOT_EVIDENCE: Final[frozenset[str]] = RUN_LEDGER_MODEL_LABELS
 
 
 def guard_failures(model: type[models.Model]) -> list[str]:

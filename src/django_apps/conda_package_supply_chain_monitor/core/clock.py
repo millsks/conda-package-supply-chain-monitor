@@ -47,7 +47,35 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from datetime import datetime
 
-__all__ = ["Clock", "FixedClock", "SystemClock"]
+__all__ = ["Clock", "FixedClock", "SystemClock", "is_aware"]
+
+
+def is_aware(instant: datetime) -> bool:
+    """Report whether a datetime carries a usable offset.
+
+    One declaration of a two-part test that was written out three times before
+    this: here, in `AppendOnlyModel.save()`'s refusal of a naive `observed_at`,
+    and in `FixedClock.__post_init__`. Two of them checking `tzinfo is not None`
+    and one checking the offset as well is a difference nobody would notice until
+    a `tzinfo` that answers `None` to `utcoffset` walked past one guard and not
+    the others.
+
+    It lives in this module because that is where the rule comes from: the
+    protocol below promises an aware UTC instant, and every caller asking this
+    question is asking whether a value it was handed could have come from a
+    `Clock`.
+
+    Args:
+        instant: The value to check.
+
+    Returns:
+        True when the instant can be compared against a stored one without
+        guessing an offset. A `tzinfo` whose `utcoffset` answers `None` is as
+        naive as no `tzinfo` at all, which is why checking `tzinfo is not None`
+        alone is not enough.
+
+    """
+    return instant.tzinfo is not None and instant.tzinfo.utcoffset(instant) is not None
 
 
 @runtime_checkable
@@ -152,7 +180,7 @@ class FixedClock:
                 how a test comes to pass in one timezone and fail in another.
 
         """
-        if self.instant.tzinfo is None or self.instant.tzinfo.utcoffset(self.instant) is None:
+        if not is_aware(self.instant):
             message = f"a fixed clock needs an aware instant; {self.instant!r} is naive"
             raise ValueError(message)
         if self.instant.utcoffset() != timedelta(0):

@@ -17,6 +17,17 @@ table, and the first of them arrives with `CPM-EP-CURRENCY`. The run ledger --
 first outbound call and finalized afterwards, so it is mutable by construction
 and is not evidence.
 
+**The run ledger is in this module, below, and the exemption is declared at its
+definition.** `CPM-EVIDENCE-S03`'s first acceptance criterion asks for exactly
+that, and `tests/model_registry.py` gives the declaration a machine-readable
+form: `not_evidence = True` on the model. It is not a quiet door --
+`tests/unit/django_apps/test_evidence_inheritance_audit.py` reconciles every
+model taking it against a recorded table in both directions, so a third user of
+the escape fails the gate until somebody records the decision. `RunLedgerModel`
+inherits nothing from `AppendOnlyModel`, declares no `observed_at`, and takes no
+`Meta.base_manager_name`: a run row is not an observation, and every refusal
+above would be wrong on it.
+
 **`observed_at` carries no default, and that is forced rather than chosen.** The
 two idiomatic Django spellings -- `default=timezone.now` and `auto_now_add=True`
 -- are both failures of `EVIDENCE.01-AUDIT-002`, because both read the process
@@ -78,16 +89,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 from typing import TypeVar
 from typing import override
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from conda_package_supply_chain_monitor.core.clock import is_aware
+from conda_package_supply_chain_monitor.core.runs import RunState
+
 if TYPE_CHECKING:
     from collections.abc import Collection
     from collections.abc import Iterable
-    from datetime import datetime
 
     from django.db.models.base import ModelBase
 
@@ -96,6 +110,10 @@ __all__ = [
     "AppendOnlyManager",
     "AppendOnlyModel",
     "AppendOnlyQuerySet",
+    "CollectionRun",
+    "PolicyRun",
+    "RunLedgerModel",
+    "RunLedgerQuerySet",
 ]
 
 #: The model an append-only queryset or manager is bound to. Bound to
@@ -103,6 +121,22 @@ __all__ = [
 #: constructed against a subclass without the manager's type collapsing to the
 #: abstract base.
 _EvidenceModel = TypeVar("_EvidenceModel", bound=models.Model)
+
+#: The model a run-ledger queryset is bound to. Bound to `models.Model` for the
+#: same reason `_EvidenceModel` is: the queryset is constructed against a
+#: concrete subclass, and binding it to the abstract base would collapse the
+#: manager's type back to that base.
+_RunModel = TypeVar("_RunModel", bound=models.Model)
+
+#: How wide the ledger's short string columns are. `status` holds one member of
+#: `RunState`, whose longest value is nine characters; `trace_id` holds exactly
+#: 32 hexadecimal digits, because `CPM-AD-15` takes it from the active span
+#: formatted `032x` and the product adds no correlation scheme of its own. The
+#: name and version columns are wider because they hold identifiers a person
+#: chose.
+_STATUS_LENGTH: Final[int] = 16
+_TRACE_ID_LENGTH: Final[int] = 32
+_NAME_LENGTH: Final[int] = 128
 
 
 class AppendOnlyError(Exception):
@@ -155,24 +189,6 @@ def _label(model: type[models.Model]) -> str:
 
     """
     return str(model._meta.label)  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
-
-
-def _is_aware(instant: datetime) -> bool:
-    """Report whether a datetime carries a usable offset.
-
-    The same two-part test `FixedClock.__post_init__` makes, and deliberately the
-    same shape: a `tzinfo` that answers `None` to `utcoffset` is as naive as no
-    `tzinfo` at all, and only checking `tzinfo is not None` misses it.
-
-    Args:
-        instant: The value to check.
-
-    Returns:
-        True when the instant can be compared against a stored one without
-        guessing an offset.
-
-    """
-    return instant.tzinfo is not None and instant.tzinfo.utcoffset(instant) is not None
 
 
 class AppendOnlyQuerySet(models.QuerySet[_EvidenceModel]):
@@ -502,7 +518,7 @@ class AppendOnlyModel(models.Model):
                 f"Clock (CPM-AD-26); this field has no default, deliberately."
             )
             raise AppendOnlyError(message, model_label=label)
-        if not _is_aware(self.observed_at):
+        if not is_aware(self.observed_at):
             # `FixedClock` refuses a naive instant and `SystemClock` cannot
             # produce one, so a naive `observed_at` means the writer went around
             # the clock -- and the consequence lands far from here: `USE_TZ` is
@@ -544,3 +560,221 @@ class AppendOnlyModel(models.Model):
             f"An observation is removed by a declared retention process, never by product code (CPM-AD-2)."
         )
         raise AppendOnlyError(message, model_label=label, pk=self.pk)
+
+
+class RunLedgerQuerySet(models.QuerySet[_RunModel]):
+    """The run ledger's queryset, and the one place "started and never finished" is spelled.
+
+    One method. `unfinished()` is the whole reason the ledger exists in a
+    database rather than in a log line: a worker killed between the outbound call
+    and the insert leaves a row that is `running` with no `finished_at`, and the
+    question "which runs started and never finished" has to be *askable* rather
+    than reconstructable by a person reading two log streams side by side.
+
+    Declared as a queryset method and installed as the default manager, so the
+    filter is written once and every caller -- a coverage view, an operational
+    report, a test -- asks the same question. A caller writing
+    `CollectionRun.objects.filter(finished_at__isnull=True)` by hand is one
+    keystroke from `status=RunState.RUNNING`, which is a *different* set: a row
+    finalized to `failed` never leaves `finished_at` null, but a row whose status
+    was never advanced and whose `finished_at` was somehow written would be
+    counted by one query and not the other. `finished_at` is the authority
+    because it is what the recorder's `finally` writes.
+
+    Nothing is refused here. The ledger is mutable by construction (`CPM-AD-2`),
+    so `update()` and `delete()` stay exactly as Django wrote them -- the
+    finalization path deliberately does not use them, and
+    `EVIDENCE.02-AUDIT-002` is what keeps it that way, but that is a rule about
+    the product's own source rather than a refusal this class makes.
+    """
+
+    def unfinished(self) -> RunLedgerQuerySet[_RunModel]:
+        """Return the runs that started and have not been finalized.
+
+        Returns:
+            Every row whose `finished_at` is NULL, package-scoped or not. A run
+            with no package reference is returned alongside one that has it: the
+            column being NULL says the run was not scoped to a single package,
+            and says nothing at all about whether it finished.
+
+        """
+        return self.filter(finished_at__isnull=True)
+
+
+class RunLedgerModel(models.Model):
+    """The abstract base both run-ledger tables inherit. Mutable, and not evidence.
+
+    **The exemption, declared here at the definition.** `CPM-AD-2` says
+    `collection_runs` and `policy_runs` are run-ledger models owned by `core`,
+    are not evidence, and are mutable -- a row is created *before* the first
+    outbound call with status `running` and finalized in a `finally`. That is the
+    only way a process killed mid-run stays visible, which `CPM-FR-38` and
+    `CPM-UJ-3` both require. `not_evidence = True` below is that exemption in the
+    form the audits read; `tests/model_registry.py` explains why the escape
+    exists and `tests/unit/django_apps/test_evidence_inheritance_audit.py`
+    records every model that takes it.
+
+    **What it deliberately does not inherit.** Not `AppendOnlyModel`: every
+    refusal there is wrong on a row whose whole purpose is to be written twice.
+    Not `observed_at`: a run row is not an observation, and `CPM-AD-7` fixes that
+    column's meaning as "the moment of *this* observation", which a run's
+    lifecycle does not have. Not `Meta.base_manager_name`: the ledger's managers
+    guard nothing, so there is nothing for a base manager to bypass.
+
+    **`started_at` carries no default, exactly as `observed_at` does not.** Both
+    idiomatic spellings read the process wall clock where the row is written,
+    which `EVIDENCE.01-AUDIT-002` fails; the recorder in `core/ledger.py` takes
+    the instant from an injected `Clock` (`CPM-AD-26`) and passes it in.
+
+    Attributes:
+        not_evidence: The declared exemption, read by `tests/model_registry.py`.
+            Exactly `True`; any other value is not a declaration.
+
+    """
+
+    #: `CPM-AD-2`'s run-ledger exemption, machine-readable. Read by
+    #: `tests/model_registry.py`'s `declares_not_evidence`, which accepts only
+    #: `True` -- an exemption this consequential should not be reachable by a
+    #: truthy accident.
+    not_evidence = True
+
+    #: When the run began, supplied by the recorder from an injected `Clock`.
+    #: Written before the first outbound call, which is what makes a killed
+    #: worker's row exist at all.
+    started_at = models.DateTimeField(_("started at"))
+
+    #: When the run was finalized, or NULL while it is still running. This is the
+    #: column `unfinished()` reads, and the one a killed worker leaves behind.
+    finished_at = models.DateTimeField(_("finished at"), null=True, blank=True, default=None)
+
+    #: What happened to the run, over `RunState` -- *not* `OutcomeState`.
+    #: `core/runs.py` says at length why the two vocabularies are separate and
+    #: why this column keeps the name `status` rather than dodging the
+    #: derived-status audit by being called something else.
+    status = models.CharField(
+        _("status"),
+        max_length=_STATUS_LENGTH,
+        choices=RunState.choices,
+        default=RunState.RUNNING,
+    )
+
+    #: The `trace_id` of the request or task that performed the run, formatted
+    #: `032x` exactly as `config/observability/logging.py` formats it for every
+    #: log line (`CPM-AD-15`). Empty when no span was active, which never blocks
+    #: the run: a run recorded outside a span is still a run that happened.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    #: Why the run ended the way it did -- the exception's type and message for a
+    #: failure, the caller's own words for a partial or a skip. Empty for a plain
+    #: success, which needs no explanation.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    objects = RunLedgerQuerySet.as_manager()
+
+    class Meta:
+        """Abstract, so this declaration creates no table and no migration."""
+
+        abstract = True
+
+
+class CollectionRun(RunLedgerModel):
+    """One collector's run against zero or one package. Table `collection_runs`.
+
+    Named by `CPM-AD-2` in so many words, and written by
+    `core/ledger.py`'s `collection_run` recorder.
+
+    **The package reference is an integer, and that is forced rather than
+    chosen.** `CPM-AD-3` says every row references the package by its integer
+    primary key -- but `identity.Package` does not exist yet (`CPM-EP-IDENTITY`
+    is two epics away), and a `ForeignKey` to a model in an uninstalled
+    application cannot be migrated. `package_id` therefore carries exactly the
+    value `CPM-AD-3` specifies, as the integer it specifies, and
+    `CPM-EP-IDENTITY` converts it to a `ForeignKey(..., on_delete=PROTECT)` when
+    the model lands.
+
+    NULL means "this run was not scoped to one package" and nothing else. A
+    sweep across the whole inventory writes no package reference rather than a
+    placeholder, and it stays answerable by `unfinished()` exactly as a
+    package-scoped run does.
+    """
+
+    #: Which collector ran. A name rather than a relation: collectors are code,
+    #: declared and never discovered (inherited `AD-8`), so there is no table for
+    #: this to point at.
+    collector = models.CharField(_("collector"), max_length=_NAME_LENGTH)
+
+    #: The package this run was scoped to, by the integer primary key `CPM-AD-3`
+    #: fixes, or NULL for a run that was not scoped to one. Indexed because "what
+    #: has been collected for this package" is the question the coverage view
+    #: asks. See the class docstring for why this is not a `ForeignKey` yet.
+    package_id = models.PositiveBigIntegerField(_("package id"), null=True, blank=True, default=None, db_index=True)
+
+    class Meta:
+        """The table `CPM-AD-2` names, rather than the `core_collectionrun` Django would derive."""
+
+        db_table = "collection_runs"
+        verbose_name = _("collection run")
+        verbose_name_plural = _("collection runs")
+
+    def __str__(self) -> str:
+        """Return the collector, its scope and its state.
+
+        Returns:
+            A one-line summary naming the collector, the package the run was
+            scoped to (or that it was not), and the state the row currently
+            holds.
+
+        """
+        scope = "all packages" if self.package_id is None else f"package {self.package_id}"
+        return f"{self.collector} over {scope}: {self.status}"
+
+
+class PolicyRun(RunLedgerModel):
+    """One policy run, at one stated evidence cut-off. Table `policy_runs`.
+
+    Named by `CPM-AD-2`, and written by `core/ledger.py`'s `policy_run`
+    recorder. The *orchestration* -- the ordered list of passes, the registry
+    that makes the single-writer rule auditable -- is `CPM-EVIDENCE-S07`'s and is
+    deliberately not here; this is the ledger row that records that a run
+    happened and how it ended.
+
+    **The cut-off is required, not nullable.** `CPM-AD-8` says a pass reads
+    evidence "at a stated cut-off", and `CPM-FR-22`'s replay guarantee is that
+    re-running a version against a cut-off reproduces identical output. A run
+    with no cut-off is a run whose output cannot be reproduced, so the column
+    refuses one rather than recording a run that is unreplayable by construction.
+    """
+
+    #: The policy version this run applied. `CPM-AD-8` makes rule sets and
+    #: scoring functions versioned *data*, so this is the identifier of that
+    #: data, recorded on the run that used it.
+    policy_version = models.CharField(_("policy version"), max_length=_NAME_LENGTH)
+
+    #: The instant this run read evidence as of. `CPM-AD-21` makes it the
+    #: `finished_at` of a completed collection run, so a pass never reads
+    #: evidence written by a run that is still `running`.
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"))
+
+    class Meta:
+        """The table `CPM-AD-2` names, rather than the `core_policyrun` Django would derive."""
+
+        db_table = "policy_runs"
+        verbose_name = _("policy run")
+        verbose_name_plural = _("policy runs")
+
+    def __str__(self) -> str:
+        """Return the policy version, its cut-off and its state.
+
+        The cut-off is guarded the same way `CollectionRun` guards its package
+        reference, and for a plainer reason: the column is non-null, but an
+        *unsaved* instance holds `None`, and a `__str__` that raised
+        `AttributeError` there would break the two places a half-built object is
+        most likely to be rendered -- a debugger and a traceback.
+
+        Returns:
+            A one-line summary naming the version that ran, the cut-off it read
+            evidence at, and the state the row currently holds.
+
+        """
+        cutoff = "no cut-off" if self.evidence_cutoff is None else self.evidence_cutoff.isoformat()
+        return f"{self.policy_version} at {cutoff}: {self.status}"
