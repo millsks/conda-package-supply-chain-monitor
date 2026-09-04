@@ -1,0 +1,1142 @@
+<title>Accept Risk — Justification Form</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   mock-accept-risk-form.html
+
+   Governed by:
+     EXPERIENCE.md  § Open Gaps → G-3 ("Accept risk" justification form)
+                    § Queues and Transitions (the modal, the transition table,
+                      the one-transaction audit guarantee, item persistence)
+                    § Interaction Primitives (server-side validation, no
+                      optimistic UI, CSRF in hx-headers)
+                    § Accessibility Floor (dialog semantics, aria-invalid,
+                      aria-describedby, focus)
+     DESIGN.md      § Components → .modal · Form controls · .btn · .tbl
+
+   G-3's recommendation, drawn: it is a transition like any other. The route
+   modal's shape, with the note field promoted to REQUIRED, and the same
+   one-transaction audit guarantee.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ── tokens — reproduced verbatim from DESIGN.md § Colors ────────────────── */
+/* Dual-gated dark: system preference unless explicitly light, or explicitly  */
+/* dark regardless of the system. Both blocks carry identical declarations —  */
+/* the duplication is correct; there is no build step.                        */
+/* No hex value appears anywhere outside these three :root blocks.            */
+:root{
+  --paper:#e9edef;      --surface:#ffffff;   --surface-2:#f4f7f8;  --surface-3:#eaeff1;
+  --ink:#0e1719;        --ink-2:#33454c;     --muted:#556670;
+  --line:#ccd7db;       --line-2:#e0e8ea;
+  --accent:#0d5c73;     --accent-2:#0a4557;  --accent-wash:#dfedf1;  --on-accent:#ffffff;
+  --ok:#22643f;         --ok-wash:#e0efe6;
+  --warn:#855505;       --warn-wash:#f7ecd8;
+  --crit:#9d1729;       --crit-wash:#f7e2e4;
+  --unk:#5a6d75;        --unk-wash:#e6ecee;
+  --nf:#3c5a80;         --nf-wash:#e3eaf3;
+  --na:#655684;         --na-wash:#eae6f2;
+  --err:#8a3115;        --err-wash:#f6e5dd;
+  --shadow-sm:0 1px 2px rgba(14,23,25,.07);
+  --shadow-md:0 1px 2px rgba(14,23,25,.06),0 10px 26px -16px rgba(14,23,25,.35);
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+    --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+    --line:#2b3d43;       --line-2:#223136;
+    --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+    --ok:#6cc191;         --ok-wash:#14301f;
+    --warn:#e0ab55;       --warn-wash:#33260d;
+    --crit:#f08a95;       --crit-wash:#3a161c;
+    --unk:#9fb2b9;        --unk-wash:#1f2c30;
+    --nf:#93b3dd;         --nf-wash:#182533;
+    --na:#b7a6dd;         --na-wash:#241f33;
+    --err:#e3946f;        --err-wash:#331a10;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+  --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+  --line:#2b3d43;       --line-2:#223136;
+  --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+  --ok:#6cc191;         --ok-wash:#14301f;
+  --warn:#e0ab55;       --warn-wash:#33260d;
+  --crit:#f08a95;       --crit-wash:#3a161c;
+  --unk:#9fb2b9;        --unk-wash:#1f2c30;
+  --nf:#93b3dd;         --nf-wash:#182533;
+  --na:#b7a6dd;         --na-wash:#241f33;
+  --err:#e3946f;        --err-wash:#331a10;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+  --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+}
+
+/* ── documentation shell ─────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;margin:0}
+a{color:var(--accent);text-underline-offset:3px}
+h1,h2,h3,h4,h5{text-wrap:balance;margin:0;line-height:1.2}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+.vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.doc{display:flex;flex-direction:column;gap:0}
+
+.masthead{background:var(--surface);border-bottom:1px solid var(--line);padding:44px 0 34px}
+.mast-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:56px;align-items:end}
+@media (max-width:900px){.mast-grid{grid-template-columns:1fr;gap:28px}}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);font-weight:600}
+h1{font-size:clamp(30px,4.4vw,45px);font-weight:600;letter-spacing:-.022em;margin:14px 0 0}
+.standfirst{font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2);
+  max-width:60ch;margin-top:14px}
+.mast-meta{display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:11.5px;
+  color:var(--muted);border-left:2px solid var(--line);padding-left:16px}
+.mast-meta b{color:var(--ink-2);font-weight:500}
+.sample-note{margin-top:22px;display:flex;gap:10px;align-items:flex-start;background:var(--warn-wash);
+  border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);border-radius:2px;
+  padding:11px 14px;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.sample-note strong{color:var(--warn)}
+
+section.band{padding:56px 0;border-bottom:1px solid var(--line-2)}
+section.band.alt{background:var(--surface)}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:8px}
+.sec-num{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;
+  letter-spacing:.08em;padding-top:4px}
+h2{font-size:27px;font-weight:600;letter-spacing:-.015em}
+.sec-sub{font-family:var(--serif);color:var(--ink-2);font-size:16.5px;max-width:70ch;margin-top:10px}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
+
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:26px}
+.toc a{background:var(--surface);padding:13px 15px;text-decoration:none;color:var(--ink);
+  display:flex;flex-direction:column;gap:3px;transition:background .12s}
+.toc a:hover{background:var(--accent-wash)}
+.toc a span{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.09em;
+  text-transform:uppercase}
+.toc a b{font-weight:500;font-size:14px}
+
+/* the screen frame — a browser window holding a mock */
+.screen{margin-top:22px;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  background:var(--surface);box-shadow:var(--shadow-md)}
+.chrome{display:flex;align-items:center;gap:12px;padding:9px 13px;background:var(--surface-3);
+  border-bottom:1px solid var(--line)}
+.dots{display:flex;gap:6px;flex:none}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.urlbar{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:4px 11px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.urlbar b{color:var(--ink-2);font-weight:500}
+.chrome-role{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-wash);padding:3px 8px;border-radius:2px;flex:none}
+.chrome-code{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;
+  color:var(--muted);background:var(--surface);border:1px solid var(--line);
+  padding:2px 8px;border-radius:2px;flex:none}
+.viewport{overflow-x:auto}
+.viewport > .app{min-width:960px}
+
+/* annotation rail under each screen */
+.annos{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);border-top:0}
+.anno{background:var(--surface-2);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.anno h4{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.anno h4::before{content:"";width:5px;height:5px;background:var(--accent);flex:none;
+  transform:rotate(45deg)}
+.anno p{font-size:13px;color:var(--ink-2);line-height:1.48}
+.anno code,code.ref{font-family:var(--mono);font-size:11.5px;background:var(--surface-3);
+  padding:1px 4px;border-radius:2px;color:var(--accent-2);white-space:nowrap}
+.reftags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.reftag{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;color:var(--muted);
+  border:1px solid var(--line);border-radius:2px;padding:1px 6px;background:var(--surface)}
+.reftag.ad{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ── the mock application ────────────────────────────────────────────────── */
+.app{font-size:13px;color:var(--ink);background:var(--surface)}
+.app-top{display:flex;align-items:center;gap:22px;padding:0 16px;height:50px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;flex:none}
+.brand .glyph{width:20px;height:20px;border-radius:3px;background:var(--accent);
+  display:grid;place-items:center;color:var(--on-accent);font-family:var(--mono);
+  font-size:10px;font-weight:600}
+.app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
+.app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
+  color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
+.app-nav a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.who{display:flex;align-items:center;gap:9px;flex:none;font-size:12px;color:var(--muted)}
+.who .av{width:24px;height:24px;border-radius:50%;background:var(--accent-wash);color:var(--accent);
+  display:grid;place-items:center;font-size:10.5px;font-weight:600;font-family:var(--mono)}
+.who .role{font-family:var(--mono);font-size:10.5px;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.06em}
+
+.app-body{padding:16px}
+.app-h{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.app-h h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.app-h .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:4px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:default;
+  display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,transparent);color:var(--crit)}
+.btn.sm{font-size:11.5px;padding:4px 9px}
+
+/* the freshness bar — mandatory chrome, CPM-AD-11 */
+.freshbar{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin-top:14px;
+  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface-2);
+  font-family:var(--mono);font-size:11px}
+.freshbar div{padding:7px 13px;border-right:1px solid var(--line-2);display:flex;gap:7px;
+  align-items:baseline;color:var(--muted)}
+.freshbar div:last-child{border-right:0}
+.freshbar b{color:var(--ink-2);font-weight:500}
+.freshbar .lbl{text-transform:uppercase;letter-spacing:.07em;font-size:9.5px}
+.freshbar.unk{border-left-color:var(--unk)}
+.freshbar.warn{border-left-color:var(--warn)}
+
+/* status chips — hue AND marker shape AND the word AND the footline */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  padding:2px 8px 2px 7px;border-radius:2px;border:1px solid;white-space:nowrap;line-height:1.5}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.chip.ok{color:var(--ok);background:var(--ok-wash);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.chip.warn{color:var(--warn);background:var(--warn-wash);border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+.chip.crit{color:var(--crit);background:var(--crit-wash);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+.chip.unknown{color:var(--unk);background:var(--unk-wash);border-color:color-mix(in srgb,var(--unk) 32%,transparent)}
+.chip.unknown::before{background:transparent;border:1.5px solid currentColor}
+.chip.notfound{color:var(--nf);background:var(--nf-wash);border-color:color-mix(in srgb,var(--nf) 32%,transparent)}
+.chip.notfound::before{background:transparent;border:1.5px dashed currentColor}
+.chip.na{color:var(--na);background:var(--na-wash);border-color:color-mix(in srgb,var(--na) 32%,transparent)}
+.chip.na::before{background:linear-gradient(to bottom right,transparent 44%,currentColor 44%,currentColor 56%,transparent 56%);
+  border:1.5px solid currentColor}
+.chip.error{color:var(--err);background:var(--err-wash);border-color:color-mix(in srgb,var(--err) 32%,transparent)}
+.chip.error::before{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);height:9px}
+.chip.plain{color:var(--ink-2);background:var(--surface-2);border-color:var(--line)}
+.chip.plain::before{display:none}
+.chip.sm{font-size:10px;padding:1px 6px 1px 6px}
+
+/* the stale overlay — DESIGN.md § Components → the stale overlay           */
+/* ::before belongs permanently to the state's own marker, so stale takes   */
+/* ::after: two 2px amber bars, 2px apart, 8px tall, on the trailing side.  */
+.chip.is-stale::after{content:"";flex:none;width:6px;height:8px;margin-left:1px;
+  background:linear-gradient(to right,
+    var(--warn) 0 2px, transparent 2px 4px, var(--warn) 4px 6px)}
+
+/* the evidence footline that sits under every claimed value */
+.ev{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px;
+  display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ev::before{content:"";width:9px;height:1px;background:var(--line);flex:none}
+.ev.stale{color:var(--warn)}
+.panel .body .ev,.anno .ev,.toast .ev,.panel .tbl .ev,.emptyblock .ev{white-space:normal}
+.panel .body .ev::before{margin-top:7px;align-self:flex-start}
+
+/* tables */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.tbl th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:9px 11px;
+  background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  white-space:nowrap;position:relative}
+.tbl th.sorted{color:var(--accent)}
+.tbl td{padding:9px 11px;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr:hover td{background:var(--surface-2)}
+.tbl .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.tbl caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:9px 11px}
+.pkg{font-weight:600;font-size:13px}
+.panel .tbl td,.panel .tbl th{white-space:normal}
+.pkg a{text-decoration:none;color:var(--ink)}
+.pkg a:hover{color:var(--accent);text-decoration:underline}
+.pbucket{font-family:var(--mono);font-weight:600;font-size:12px;padding:2px 7px;border-radius:2px;
+  display:inline-block;letter-spacing:.02em}
+.p1,.p2{background:var(--crit-wash);color:var(--crit)}
+.p3,.p4{background:var(--warn-wash);color:var(--warn)}
+.p5,.p6,.p7{background:var(--accent-wash);color:var(--accent)}
+.p8,.p9,.p10{background:var(--surface-3);color:var(--muted)}
+.conf{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted)}
+.conf.verified{color:var(--ok)}
+.conf.derived{color:var(--warn)}
+.conf.unmapped{color:var(--unk)}
+.dash{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* sidebar + main split */
+.split{display:grid;grid-template-columns:236px minmax(0,1fr);gap:0;border:1px solid var(--line);
+  margin-top:14px}
+.side{background:var(--surface-2);border-right:1px solid var(--line);padding:16px}
+.side h5{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin:0 0 8px}
+.side .grp{margin-bottom:17px}
+.facet{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--ink-2)}
+.facet input{margin:0;accent-color:var(--accent)}
+.facet .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.facet.on{color:var(--accent);font-weight:500}
+.searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink)}
+.main-pane{min-width:0;background:var(--surface)}
+.applied{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line-2);
+  align-items:center;font-size:11.5px;color:var(--muted)}
+.filterpill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  background:var(--accent-wash);color:var(--accent);border-radius:2px;padding:2px 4px 2px 7px}
+/* the mockup's <x>✕</x> is deleted: a real button with a full accessible name */
+.filterpill button{font-family:var(--mono);font-size:10.5px;line-height:1;border:0;
+  background:transparent;color:var(--accent);padding:2px 3px;border-radius:2px;cursor:default}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 12px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap}
+.pagenums{display:flex;gap:3px}
+.pagenums a{min-width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:3px;text-decoration:none;color:var(--ink-2);font-family:var(--mono);font-size:11.5px}
+.pagenums a.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+/* cards + panels inside the app */
+.cards{display:grid;gap:12px;margin-top:14px}
+.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.panel{border:1px solid var(--line);background:var(--surface);min-width:0;overflow-x:auto;overflow-y:hidden}
+.panel > header{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 13px;border-bottom:1px solid var(--line-2);background:var(--surface-2)}
+.panel > header h3,.panel > header h4{font-size:12.5px;font-weight:600}
+.panel > header .hx{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+.panel .body{padding:16px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:12.5px}
+.kv dt{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.03em;padding-top:2px}
+.kv dd{margin:0;color:var(--ink);min-width:0;word-break:break-word}
+.mono{font-family:var(--mono);font-size:11.5px}
+.stat{padding:13px}
+.stat .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted)}
+.stat .big{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+  margin-top:4px;line-height:1}
+.stat .foot{font-size:11.5px;color:var(--muted);margin-top:5px}
+.bar{height:5px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:9px;display:flex}
+.bar i{display:block;height:100%}
+.hxnote{font-family:var(--mono);font-size:10px;color:var(--accent);background:var(--accent-wash);
+  border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:3px 8px;
+  border-radius:2px;display:inline-block}
+
+/* the empty / refusal content block — the 3px rule coloured to the content */
+.emptyblock{border:1px solid var(--line);border-left:3px solid var(--unk);background:var(--surface);
+  padding:16px 18px;margin-top:14px;max-width:74ch}
+.emptyblock.na{border-left-color:var(--na)}
+.emptyblock.warn{border-left-color:var(--warn)}
+.emptyblock.err{border-left-color:var(--err)}
+.emptyblock.acc{border-left-color:var(--accent)}
+.emptyblock h3{font-size:15px;font-weight:600}
+.emptyblock p{font-size:13px;color:var(--ink-2);margin-top:8px;line-height:1.5}
+.counterline{margin-top:16px;border-top:1px solid var(--line-2);padding-top:14px;
+  display:flex;flex-direction:column;gap:11px}
+.counterline .cl-h{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted)}
+.counterline .row{display:flex;gap:11px;align-items:flex-start}
+.counterline .row .txt{font-size:12.5px;color:var(--ink)}
+
+/* sign-in */
+.login{min-height:380px;display:grid;place-items:center;background:var(--surface-2);padding:44px 16px}
+.loginbox{width:380px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;box-shadow:var(--shadow-md);padding:32px;text-align:center}
+.loginbox h3{font-size:17px}
+.loginbox p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.oidc{width:100%;margin-top:20px;justify-content:center;padding:10px}
+.claimline{margin-top:20px;border-top:1px solid var(--line-2);padding-top:14px;text-align:left;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.7}
+
+/* modal over a dimmed page — vertical offset is 26px, always */
+.modal-wrap{position:relative}
+.dim{position:absolute;inset:0;background:color-mix(in srgb,var(--ink) 42%,transparent);z-index:2}
+.modal{position:absolute;z-index:3;left:50%;top:26px;transform:translateX(-50%);width:min(560px,92%);
+  background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow-md)}
+.modal > header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
+  border-bottom:1px solid var(--line-2)}
+.modal > header h3{font-size:14.5px;font-weight:600}
+.modal .body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.modal > footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;
+  border-top:1px solid var(--line-2);background:var(--surface-2)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600}
+.field .help{font-size:11.5px;color:var(--muted)}
+.field .req{color:var(--crit);font-family:var(--mono);font-size:10px}
+.input,.textarea,.select{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12.5px;color:var(--ink)}
+.input.mono,.textarea.mono{font-family:var(--mono);font-size:12px}
+.textarea{min-height:66px;resize:none}
+.errmsg{font-size:11.5px;color:var(--crit);display:flex;gap:6px;align-items:flex-start}
+/* invalid is border AND fill together, never fill alone and never colour alone */
+.input.invalid,.textarea.invalid,.select.invalid{border-color:var(--crit);background:var(--crit-wash)}
+
+/* toast / async progress */
+.toast{display:flex;gap:11px;align-items:flex-start;border:1px solid var(--line);
+  border-left:3px solid var(--accent);background:var(--surface-2);padding:11px 14px;margin-top:14px}
+.toast.err{border-left-color:var(--err)}
+.toast.warn{border-left-color:var(--warn)}
+.toast .spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);
+  border-top-color:var(--accent);flex:none;margin-top:2px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast b{font-size:12.5px}
+.toast p{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* specimen plates */
+.figure{margin-top:24px;border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--shadow-sm)}
+.figure .cap{display:flex;gap:12px;align-items:baseline;padding:11px 16px;
+  border-bottom:1px solid var(--line-2);background:var(--surface-2);flex-wrap:wrap}
+.figure .cap b{font-size:13px;font-weight:600}
+.figure .cap span{font-size:12.5px;color:var(--muted)}
+.figure .cap .id{font-family:var(--mono);font-size:10.5px;color:var(--accent);letter-spacing:.06em}
+.figure .plate{padding:20px 16px;overflow-x:auto}
+
+/* legend + prose blocks */
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:22px}
+.legend div{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.legend p{font-size:12px;color:var(--muted);line-height:1.45}
+.notebox{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
+  padding:16px 18px;margin-top:24px}
+.notebox.warn{border-left-color:var(--warn)}
+.notebox.unk{border-left-color:var(--unk)}
+.notebox.ok{border-left-color:var(--ok)}
+.notebox h4{font-size:13px;margin-bottom:8px}
+.notebox ul{margin:0;padding-left:19px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.notebox li{margin-bottom:5px}
+.notebox li b{color:var(--ink);font-weight:600}
+.notebox p{font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:22px}
+.codeblock{font-family:var(--mono);font-size:11px;line-height:1.75;color:var(--ink-2);
+  background:var(--surface-3);border:1px solid var(--line-2);border-radius:2px;
+  padding:12px 14px;margin-top:14px;overflow-x:auto;white-space:pre}
+footer.pagefoot{padding:34px 0 54px;color:var(--muted);font-size:12.5px}
+footer.pagefoot p{max-width:70ch}
+.srcs{font-family:var(--mono);font-size:11px;line-height:1.9;margin-top:10px;color:var(--muted)}
+
+/* ── file-local ──────────────────────────────────────────────────────────── */
+.exchange{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2)}
+.exchange > div{background:var(--surface);padding:14px 16px}
+.exchange h4{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin-bottom:9px}
+.exchange pre{font-family:var(--mono);font-size:11px;line-height:1.75;color:var(--ink-2);
+  margin:0;white-space:pre-wrap;word-break:break-word}
+.exchange pre b{color:var(--accent);font-weight:500}
+.exchange pre i{color:var(--muted);font-style:normal}
+
+/* the focused-field state, drawn — the global ring, applied statically so a
+   still image can show where focus lands after a server-rendered rejection */
+.focusdemo{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+/* the pending audit row, previewed before it exists */
+.pending{color:var(--muted);font-family:var(--mono);font-size:11.5px}
+.pending b{color:var(--ink-2);font-weight:500}
+.tbl tr.newrow td,.tbl tr.newrow th{background:var(--accent-wash)}
+</style>
+
+<div class="doc">
+
+<!-- ══ masthead ══════════════════════════════════════════════════════════ -->
+<header class="masthead">
+  <div class="wrap mast-grid">
+    <div>
+      <div class="eyebrow">Conda Package Supply Chain Monitor · v1</div>
+      <h1>Accept risk, with a justification that is not optional</h1>
+      <p class="standfirst">The button exists on the finding detail and D4 requires a recorded
+        justification, but only the route modal was ever drawn. G-3 says it is a transition like any
+        other: the route modal's shape, the note field promoted to <em>required</em>, and the same
+        one-transaction audit guarantee. Three states &mdash; empty, invalid, committed.</p>
+    </div>
+    <div class="mast-meta">
+      <div><b>Closes</b> EXPERIENCE.md G-3</div>
+      <div><b>Shape</b> the route modal, unchanged</div>
+      <div><b>Binds</b> CPM-AD-22 &middot; CPM-AD-23 &middot; CPM-APP-S04</div>
+      <div><b>Status</b> Visual reference &mdash; not implemented</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="sample-note">
+      <div><strong>Every figure on this page is sample data.</strong> The advisory identifier,
+      version ranges, the justification text and every timestamp are illustrative. The transition
+      name <code class="ref">(triaged &rarr; risk_accepted, security-reviewer)</code> is drawn from
+      the transition table's shape, not from a settled table &mdash; confirm the row exists before
+      building against it.</div>
+    </div>
+    <nav class="toc">
+      <a href="#rule"><span>The rule</span><b>A transition like any other</b></a>
+      <a href="#empty"><span>State 1</span><b>Empty &mdash; the form as opened</b></a>
+      <a href="#audit-preview"><span>Contract</span><b>The audit row that will be written</b></a>
+      <a href="#invalid"><span>State 2</span><b>Invalid &mdash; the bound form, re-rendered</b></a>
+      <a href="#done"><span>State 3</span><b>Committed &mdash; the audit row is the proof</b></a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ the rule ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="rule">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">&sect;</span><h2>A transition like any other</h2></div>
+    <p class="sec-sub">Nothing about accepting risk earns a bespoke surface. It moves a workflow item
+      from one state to another, it is permitted by a row in the transition table, and it writes an
+      audit row in the same transaction as the state change. What differs is one field's
+      requiredness.</p>
+
+    <div class="notebox">
+      <h4>What is reused, and the one thing that changes</h4>
+      <ul>
+        <li><b>Reused: the modal.</b> Same <code class="ref">min(560px, 92%)</code> width, same 26px
+          vertical offset, same header / body / footer bands, same ghost Cancel then primary action.
+          One level deep, never two.</li>
+        <li><b>Reused: the resulting-state preview.</b> <code class="ref">.chip.plain</code> for
+          both states with the transition-table entry named beneath, so the reviewer can see which
+          rule permits what they are about to do.</li>
+        <li><b>Reused: the audit guarantee.</b> The state change and its audit row commit together,
+          in one service function, in one transaction. Neither can survive alone.</li>
+        <li><b>Reused: server-side validation.</b> An invalid submission returns the bound form,
+          re-rendered by crispy-forms and swapped into the modal body. Alpine never decides whether
+          a justification is acceptable.</li>
+        <li><b>Changed: the note is required.</b> On the route modal the note is optional &mdash;
+          the routing itself carries the work. Here the justification <em>is</em> the artifact: it
+          is the only record of why a known finding was left open, and an acceptance without one is
+          rejected.</li>
+      </ul>
+    </div>
+
+    <div class="notebox warn">
+      <h4>And one thing that is deliberately absent</h4>
+      <p><b>There is no expiry field and no "review again on" date.</b> CPM-APP-S04's user-visible
+        point is that an accepted finding <em>stays</em> accepted: items are keyed on a
+        re-observation-stable finding key, so after the next collection the item does not reappear
+        as new work. Adding a re-review date here would invent a second scheduling concept that no
+        source defines and that nothing in v1 could act on. If acceptances should expire, that is a
+        transition-table question, not a form field.</p>
+    </div>
+
+    <div class="notebox unk">
+      <h4>Do not optimise this flow for speed</h4>
+      <p>CPM-SM-C2 makes time-to-close a queue item a metric and states plainly that faster is not
+        better if overrides are recorded without a substantive reason. Nothing on this form
+        pre-fills the justification, offers a canned reason, or remembers the last one. The
+        friction is the feature.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ state 1 — empty ═══════════════════════════════════════════════════ -->
+<section class="band" id="empty">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">1</span><h2>Empty &mdash; the form as it opens</h2></div>
+    <p class="sec-sub">Opened from <b>Accept risk</b> in the finding detail's button row. Focus moves
+      to the justification field, is trapped while the dialog is open, Escape closes, and focus
+      returns to the trigger.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-code">dialog open</span>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport modal-wrap"><div class="app" style="min-width:1000px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#empty">Home</a><a href="#empty">Packages</a>
+            <a href="#empty" class="on">My queue</a><a href="#empty">Reports</a>
+            <a href="#empty">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">my queue / CVE-2024-23334 &middot; aiohttp</div>
+              <h2>CVE-2024-23334</h2>
+              <div class="sub">Directory traversal in static file handling &middot; finding key
+                <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span></div>
+            </div>
+            <div class="btnrow">
+              <button type="button" class="btn">Accept risk</button>
+              <button type="button" class="btn">Recollect evidence</button>
+              <button type="button" class="btn">Route to remediation</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy versions</span><b>vuln@9</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+
+          <div class="cards c3">
+            <div class="panel"><div class="stat">
+              <div class="lbl">Vulnerability</div>
+              <div class="big" style="color:var(--crit);font-size:20px">critical</div>
+              <div class="foot">source osv &middot; observed 05:38Z &middot; KEV listed 2024-02-01</div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Remediation readiness</div>
+              <div class="big" style="font-size:20px">ready</div>
+              <div class="foot">3.9.2 published to a monitored channel &middot; 04:41Z</div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Internal exposure</div>
+              <div class="big">41</div>
+              <div class="foot">components across 6 lines of business</div></div></div>
+          </div>
+          <div style="height:120px"></div>
+        </div>
+      </div>
+
+      <div class="dim"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ar1-title">
+        <header>
+          <h3 id="ar1-title">Accept the risk on this finding</h3>
+          <span class="ev" style="margin:0">POST &middot; hx-target="#wf-row"</span>
+        </header>
+        <div class="body">
+          <div class="toast" style="margin:0">
+            <div><b>aiohttp &middot; CVE-2024-23334 &middot; critical</b>
+              <p>Accepting risk records a decision about this finding. It does not change the
+                evidence, the status, or the fact that a fix is published.</p></div>
+          </div>
+
+          <div class="field">
+            <label for="ar1-note">Justification <span class="req">required</span></label>
+            <textarea class="textarea focusdemo" id="ar1-note" name="note" required
+              aria-describedby="ar1-note-help" placeholder=""></textarea>
+            <span class="help" id="ar1-note-help">Recorded on the audit row and displayed on this
+              finding permanently, with your user identity. Say what makes the exposure acceptable
+              and who agreed &mdash; an acceptance without a reason is rejected.</span>
+          </div>
+
+          <div class="field">
+            <label id="ar1-state-lbl">Resulting state</label>
+            <div aria-labelledby="ar1-state-lbl">
+              <span class="chip plain">triaged</span>
+              <span style="color:var(--muted)">&rarr;</span>
+              <span class="chip plain">risk accepted</span>
+            </div>
+            <span class="help">Allowed by
+              <code>(triaged &rarr; risk_accepted, security-reviewer)</code> in the transition
+              table. The item stays in your queue and keeps its full history; no second item is
+              created.</span>
+          </div>
+
+          <div class="field">
+            <label id="ar1-audit-lbl">The audit row this writes</label>
+            <div class="pending" aria-labelledby="ar1-audit-lbl">
+              <b>when</b> set at commit &middot; <b>who</b> Dana Okafor &middot;
+              <b>from</b> triaged &middot; <b>to</b> risk_accepted &middot;
+              <b>note</b> your justification, verbatim
+            </div>
+            <span class="help">Written in the same transaction as the state change. Neither can
+              survive alone.</span>
+          </div>
+        </div>
+        <footer>
+          <button type="button" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary">Accept risk</button>
+        </footer>
+      </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Dialog semantics, stated on the element</h4>
+        <p><code>role="dialog"</code> <code>aria-modal="true"</code>
+          <code>aria-labelledby="ar1-title"</code>. Focus moves to the justification field on open,
+          is trapped while open, Escape closes, focus returns to the <b>Accept risk</b> trigger.
+          Alpine owns this &mdash; it is view state.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>The primary action is not <code>.btn.danger</code></h4>
+        <p><code>.danger</code> is defined and unused in v1: the only writes are a workflow
+          transition and a package-identity override, and neither is destructive. Accepting risk is
+          a recorded decision, not a deletion.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;btn</span></div></div>
+      <div class="anno"><h4>No placeholder standing in for a label</h4>
+        <p>The textarea has a visible <code>&lt;label&gt;</code> with an explicit <code>for</code>,
+          a required marker on the label, and help text bound by <code>aria-describedby</code>.
+          Placeholder text is never a label.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>The help text says what the justification is for</h4>
+        <p>"Say what makes the exposure acceptable and who agreed." A reviewer writing "accepted" in
+          the box has satisfied the server and defeated the point; the copy is the only place that
+          can push back.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C2</span></div></div>
+      <div class="anno"><h4>The status behind the modal is unchanged</h4>
+        <p>The finding still reads <code>critical</code> and readiness still reads
+          <code>ready</code>. Accepting risk is a workflow decision; it never rewrites derived
+          state, which the application cannot write at all.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-10</span></div></div>
+      <div class="anno"><h4>Nothing is pre-filled</h4>
+        <p>No canned reasons, no remembered last justification, no default. Speed is explicitly not
+          the goal for this transition.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C2</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ the audit row ═════════════════════════════════════════════════════ -->
+<section class="band alt" id="audit-preview">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">2</span><h2>The audit row that will be written</h2></div>
+    <p class="sec-sub">Shown in the modal in compressed form, and specified here in full. Append-only,
+      oldest first, never paginated away, never collapsed by default. It is the same table the route
+      transition writes into &mdash; one item, one history, whatever verb moved it.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Append-only audit table</b>
+        <span><code class="ref">wf_01JQ8G7T</code> &middot; the pending row highlighted</span>
+        <span class="id" style="margin-left:auto">CPM-AD-22 &middot; CPM-AD-23</span></div>
+      <div class="plate">
+        <table class="tbl" style="border:1px solid var(--line)">
+          <caption class="vh">Audit rows for workflow item wf_01JQ8G7T, with the row the accept-risk
+            transition will append</caption>
+          <thead><tr>
+            <th scope="col">When</th><th scope="col">Who</th><th scope="col">From</th>
+            <th scope="col">To</th><th scope="col">What happened</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-02 06:14Z</th>
+              <td>system &middot; policy run</td>
+              <td class="mono">&mdash;</td><td class="mono">open</td>
+              <td>created from finding key
+                <div class="ev">pr_01JQ8C &middot; vuln@9</div></td>
+            </tr>
+            <tr>
+              <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-03 06:12Z</th>
+              <td>system &middot; policy run</td>
+              <td class="mono">open</td><td class="mono">open</td>
+              <td>re-observed; not recreated as new work
+                <div class="ev">finding key is re-observation-stable</div></td>
+            </tr>
+            <tr>
+              <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-04 08:41Z</th>
+              <td>Dana Okafor</td>
+              <td class="mono">open</td><td class="mono">triaged</td>
+              <td>opened and reviewed evidence</td>
+            </tr>
+            <tr class="newrow">
+              <th scope="row" class="mono" style="text-align:left;font-weight:400">
+                <span class="pending">set at commit</span></th>
+              <td>Dana Okafor</td>
+              <td class="mono">triaged</td><td class="mono">risk_accepted</td>
+              <td><span class="pending">the justification, verbatim</span>
+                <div class="ev">written in the same transaction as the state change</div></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="notebox ok" style="margin-top:18px">
+          <h4>Why the timestamp is not decided by the form</h4>
+          <p>The <code class="ref">when</code> column is set by the service inside the transaction,
+            not composed by the template and not supplied by the client. That is what makes it
+            usable as proof: the timestamp the reviewer sees after the swap <em>is</em> the audit
+            row. Nothing on the screen reports success before that row exists, so a spinner on the
+            button while the transaction runs is correct and a row that changes before the response
+            arrives is not.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Five columns, fixed</h4>
+        <p>when &middot; who &middot; from &middot; to &middot; what happened. The same shape on the
+          finding detail and the package detail, so a reader learns it once.</p>
+        <div class="reftags"><span class="reftag">component patterns</span></div></div>
+      <div class="anno"><h4>The history predates this decision</h4>
+        <p>The re-observation row above is the visible proof that the item was not recreated. An
+          accepted finding stays accepted for the same reason: the key is the finding, not an
+          evidence row id.</p>
+        <div class="reftags"><span class="reftag">CPM-APP-S04</span></div></div>
+      <div class="anno"><h4>The justification is stored verbatim</h4>
+        <p>Not summarised, not truncated in storage, and not editable afterwards. It is a correction
+          on the record, not a correction of the record.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>Never paginated away</h4>
+        <p>The audit table is not collapsed by default and does not hide behind a disclosure. It is
+          the only thing on the surface that can answer "why is this still open?".</p>
+        <div class="reftags"><span class="reftag">component patterns</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ state 2 — invalid ═════════════════════════════════════════════════ -->
+<section class="band" id="invalid">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">3</span><h2>Invalid &mdash; the bound form,
+      re-rendered by the server</h2></div>
+    <p class="sec-sub">Dana submits with the justification empty. Nothing client-side made that
+      judgement; there is no client-side rule to drift out of step with the server's, because there
+      is none. The server returns the bound <code class="ref">AcceptRiskForm</code> and HTMX swaps
+      it into the modal body.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-code">422 &middot; bound form</span>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport modal-wrap"><div class="app" style="min-width:1000px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#invalid">Home</a><a href="#invalid">Packages</a>
+            <a href="#invalid" class="on">My queue</a><a href="#invalid">Reports</a>
+            <a href="#invalid">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">my queue / CVE-2024-23334 &middot; aiohttp</div>
+              <h2>CVE-2024-23334</h2>
+              <div class="sub">Directory traversal in static file handling &middot; finding key
+                <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span></div>
+            </div>
+            <div class="btnrow">
+              <button type="button" class="btn">Accept risk</button>
+              <button type="button" class="btn">Recollect evidence</button>
+              <button type="button" class="btn">Route to remediation</button>
+            </div>
+          </div>
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+          <div style="height:230px"></div>
+        </div>
+      </div>
+
+      <div class="dim"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ar2-title">
+        <header>
+          <h3 id="ar2-title">Accept the risk on this finding</h3>
+          <span class="ev" style="margin:0">422 &middot; hx-swap="innerHTML" on the body</span>
+        </header>
+        <div class="body" id="ar2-body">
+          <div class="toast err" style="margin:0">
+            <div><b>Not accepted. Nothing was written.</b>
+              <p>One field needs a value. The item is still <span class="mono">triaged</span> and no
+                audit row was appended.</p></div>
+          </div>
+
+          <div class="field">
+            <label for="ar2-note">Justification <span class="req">required</span></label>
+            <textarea class="textarea invalid focusdemo" id="ar2-note" name="note" required
+              aria-invalid="true"
+              aria-describedby="ar2-note-err ar2-note-help"></textarea>
+            <p class="errmsg" id="ar2-note-err">
+              <span aria-hidden="true">&#9650;</span>
+              An acceptance without a reason is rejected. Say what makes the exposure acceptable and
+              who agreed.</p>
+            <span class="help" id="ar2-note-help">Recorded on the audit row and displayed on this
+              finding permanently, with your user identity.</span>
+          </div>
+
+          <div class="field">
+            <label id="ar2-state-lbl">Resulting state</label>
+            <div aria-labelledby="ar2-state-lbl">
+              <span class="chip plain">triaged</span>
+              <span style="color:var(--muted)">&rarr;</span>
+              <span class="chip plain">risk accepted</span>
+            </div>
+            <span class="help">Allowed by
+              <code>(triaged &rarr; risk_accepted, security-reviewer)</code>. Still allowed &mdash;
+              the transition was never attempted, because the form did not validate.</span>
+          </div>
+        </div>
+        <footer>
+          <button type="button" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary">Accept risk</button>
+        </footer>
+      </div>
+      </div>
+    </div>
+
+    <div class="figure" style="margin-top:0;border-top:0">
+      <div class="cap"><b>The exchange</b>
+        <span>server-side by doctrine &mdash; the invalid state is a bound form, not a judgement</span>
+        <span class="id" style="margin-left:auto">no optimistic UI</span></div>
+      <div class="plate">
+        <div class="exchange">
+          <div>
+            <h4>Request</h4>
+<pre><b>POST</b> /queues/compliance/wf_01JQ8G7T/accept-risk/
+<i>HX-Request:</i> true
+<i>HX-Target:</i> wf-row
+<i>X-CSRFToken:</i> &hellip;   <i>(hx-headers)</i>
+
+note=</pre>
+          </div>
+          <div>
+            <h4>Response</h4>
+<pre><b>HTTP/1.1 422 Unprocessable Entity</b>
+<i>HX-Retarget:</i> #ar2-body
+<i>HX-Reswap:</i> innerHTML
+
+<i>&lt;the bound AcceptRiskForm, rendered by
+crispy-forms: aria-invalid="true",
+aria-describedby pointing at the error
+element, the submitted value re-bound&gt;</i></pre>
+          </div>
+          <div>
+            <h4>What did not happen</h4>
+<pre>No row was locked.
+No prior state was checked.
+No state was written.
+No audit row was appended.
+
+<i>The service was never called. The form
+did not validate, so there was nothing
+to run in a transaction.</i></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4><code>aria-invalid</code> and <code>aria-describedby</code>, both wired</h4>
+        <p>The error element has an id; the field carries <code>aria-invalid="true"</code> and an
+          <code>aria-describedby</code> listing the error <em>and</em> the help text, in that order,
+          so the reason is announced before the guidance. crispy-forms wires both &mdash; a
+          template-pack concern, not a per-template one.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>Border and fill together, never fill alone</h4>
+        <p>The invalid control takes <code>border-color: var(--crit)</code> <em>and</em>
+          <code>background: var(--crit-wash)</code>, because the <code>.errmsg</code> text is what
+          actually carries the reason and colour is never the only channel.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;forms</span></div></div>
+      <div class="anno"><h4>Focus returns to the invalid field</h4>
+        <p>Drawn here as the global focus ring on the textarea. The swap replaces the modal body
+          only; the dialog is not torn down and re-opened, so the trap and the return target are
+          both intact.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>"Nothing was written" is stated, not implied</h4>
+        <p>The same sentence the 500 page carries, for the same reason: a reviewer needs to know
+          whether their decision landed. Here it is true because the service was never called.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>The concurrent-advance case looks the same</h4>
+        <p>If someone advanced the item between page load and submit, the service refuses on the
+          state mismatch and returns the bound form saying so in plain words &mdash; "this item is
+          now <code>routed</code>; it was <code>triaged</code> when this page loaded" &mdash; and
+          the row re-renders at its true state.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-22</span></div></div>
+      <div class="anno"><h4>No client-side validation exists to disagree</h4>
+        <p>The <code>required</code> attribute is present for native browser behaviour, but the
+          server is the only authority. There is no Alpine rule mirroring it and therefore none to
+          drift.</p>
+        <div class="reftags"><span class="reftag">HTMX boundary</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ state 3 — committed ═══════════════════════════════════════════════ -->
+<section class="band alt" id="done">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">4</span><h2>Committed &mdash; the audit row is the
+      confirmation</h2></div>
+    <p class="sec-sub">Dana supplies the justification and submits. The service locks the row, checks
+      the expected prior state, writes the new state and the audit row in one transaction, and
+      returns the re-rendered surface. Nothing said "saved" before the audit row existed &mdash; the
+      timestamp on screen <em>is</em> the audit row.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-code">committed</span>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport"><div class="app" style="min-width:1000px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#done">Home</a><a href="#done">Packages</a>
+            <a href="#done" class="on">My queue</a><a href="#done">Reports</a>
+            <a href="#done">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">my queue / CVE-2024-23334 &middot; aiohttp</div>
+              <h2>CVE-2024-23334 <span class="chip plain"
+                style="vertical-align:middle;margin-left:6px">risk accepted</span></h2>
+              <div class="sub">Directory traversal in static file handling &middot; finding key
+                <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span></div>
+            </div>
+            <div class="btnrow">
+              <button type="button" class="btn">Recollect evidence</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+
+          <div id="wf-row" class="toast" aria-live="polite" aria-atomic="true">
+            <div><b>Risk accepted on this finding.</b>
+              <p>The state change and its audit row committed together at
+                <span class="mono">2026-09-04 09:03:18Z</span>.</p>
+              <div class="ev">workflow_items &middot; wf_01JQ8G7T &middot; triaged &rarr;
+                risk_accepted &middot; Dana Okafor</div>
+            </div>
+          </div>
+
+          <div class="cards c2" style="align-items:start">
+            <div class="panel">
+              <header><h3>The decision on the record</h3>
+                <span class="hx">displayed permanently &middot; not editable</span></header>
+              <div class="body">
+                <dl class="kv" style="grid-template-columns:120px minmax(0,1fr)">
+                  <dt>state</dt><dd><span class="chip plain">risk accepted</span></dd>
+                  <dt>decided by</dt><dd>Dana Okafor <span class="mono"
+                    style="color:var(--muted)">&middot; security-reviewer</span></dd>
+                  <dt>decided at</dt><dd class="mono">2026-09-04 09:03:18Z</dd>
+                  <dt>justification</dt><dd>The vulnerable path is the static file handler, which is
+                    disabled in every internal deployment of this package; the two services that
+                    enable it are behind the internal gateway. Agreed with the platform lead on
+                    2026-09-03. Revisit if any service enables static handling.</dd>
+                  <dt>transition</dt><dd class="mono">(triaged &rarr; risk_accepted,
+                    security-reviewer)</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="panel">
+              <header><h3>What the status still says</h3>
+                <span class="hx">unchanged by this decision</span></header>
+              <div class="body">
+                <dl class="kv" style="grid-template-columns:120px minmax(0,1fr)">
+                  <dt>vulnerability</dt>
+                  <dd><span class="chip crit">critical</span>
+                    <div class="ev">vulnerability_findings &middot; osv &middot; observed 05:38Z</div></dd>
+                  <dt>kev</dt>
+                  <dd><span class="chip crit">listed</span>
+                    <div class="ev">kev_findings &middot; catalogue date 2024-02-01 &middot; 05:38Z</div></dd>
+                  <dt>readiness</dt>
+                  <dd><span class="chip plain">ready</span>
+                    <div class="ev">3.9.2 on a monitored channel &middot; 04:41Z</div></dd>
+                </dl>
+                <div class="ev" style="margin-top:12px">accepting risk is a workflow decision
+                  &middot; it never rewrites derived state, and the application cannot write derived
+                  state at all</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-top:12px">
+            <header><h3>What has happened to this item</h3>
+              <span class="hx">audit rows, append-only</span></header>
+            <table class="tbl">
+              <caption class="vh">Audit rows for workflow item wf_01JQ8G7T after the accept-risk
+                transition committed</caption>
+              <thead><tr>
+                <th scope="col">When</th><th scope="col">Who</th><th scope="col">From</th>
+                <th scope="col">To</th><th scope="col">What happened</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-02 06:14Z</th>
+                  <td>system &middot; policy run</td><td class="mono">&mdash;</td>
+                  <td class="mono">open</td><td>created from finding key</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-03 06:12Z</th>
+                  <td>system &middot; policy run</td><td class="mono">open</td>
+                  <td class="mono">open</td><td>re-observed; not recreated as new work</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-04 08:41Z</th>
+                  <td>Dana Okafor</td><td class="mono">open</td><td class="mono">triaged</td>
+                  <td>opened and reviewed evidence</td>
+                </tr>
+                <tr class="newrow">
+                  <th scope="row" class="mono" style="text-align:left;font-weight:400">2026-09-04 09:03:18Z</th>
+                  <td>Dana Okafor</td><td class="mono">triaged</td>
+                  <td class="mono">risk_accepted</td>
+                  <td>The vulnerable path is the static file handler, which is disabled in every
+                    internal deployment of this package; the two services that enable it are behind
+                    the internal gateway. Agreed with the platform lead on 2026-09-03. Revisit if
+                    any service enables static handling.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="panel" style="margin-top:12px">
+            <header><h3>At the next collection</h3>
+              <span class="hx">CPM-APP-S04 &middot; item identity</span></header>
+            <div class="body">
+              <p style="font-size:12.5px;color:var(--ink-2);line-height:1.5">This finding will be
+                re-observed tomorrow and the advisory will still be there. The item is keyed on
+                <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span>, not on an
+                evidence row id, so it will not reappear as new work &mdash; the audit table will
+                gain a row reading <em>re-observed; not recreated as new work</em>, and the
+                acceptance will stand.</p>
+              <div class="ev" style="margin-top:10px">an accepted finding stays accepted &middot;
+                the counter-metric still counts it as a known, unremediated exposure</div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The confirmation is <code>aria-live="polite"</code></h4>
+        <p>The swapped region announces the commit, and it carries the committed second in mono.
+          There is no separate success toast, because the audit timestamp is the confirmation.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>The status did not move</h4>
+        <p><code>critical</code> is still <code>critical</code> and KEV is still
+          <code>listed</code>. Accepting risk changes what a human decided, not what the evidence
+          says. A design that softened the chip here would be the clean-proportion failure mode with
+          a paper trail.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C1</span><span class="reftag ad">CPM-AD-10</span></div></div>
+      <div class="anno"><h4>The button row narrowed</h4>
+        <p>Only the transitions whose <code>required_role</code> the user holds, evaluated against
+          the item's <em>new</em> state, are rendered. Whether an acceptance can be reopened, and by
+          whom, is a row in the transition table &mdash; not a UI decision, and not settled here.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-22</span><span class="reftag ad">CPM-AD-13</span></div></div>
+      <div class="anno"><h4>The justification is displayed, not filed away</h4>
+        <p>It appears in full on the item and in full in the audit row. A justification that lives
+          only in a database is not a justification the next reader can weigh.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-25</span></div></div>
+      <div class="anno"><h4>No auto-reload, ever</h4>
+        <p>The response re-renders the surface after the commit. The page never reloads itself under
+          the reader, and nothing polls &mdash; this write is synchronous and must not use the
+          in-progress state.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-9</span></div></div>
+      <div class="anno"><h4>The item stays in the compliance queue</h4>
+        <p>Accepting risk does not route it. Routing changes an item's queue field; this transition
+          changes only its state, and the item keeps its evidence, its history and its finding key
+          either way.</p>
+        <div class="reftags"><span class="reftag">CPM-APP-S04</span></div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <p>G-3 named this form so that it would not be invented ad hoc at implementation time. Three
+      states, one modal shape, one required field, one transaction. The only genuinely new decision
+      in the file is the absence of an expiry date on an acceptance &mdash; recorded above with its
+      reasoning so it can be argued with rather than discovered.</p>
+    <div class="srcs">
+      EXPERIENCE.md &sect; Open Gaps &rarr; G-3<br>
+      EXPERIENCE.md &sect; Queues and Transitions &rarr; The two halves &middot; Item identity and persistence<br>
+      EXPERIENCE.md &sect; Interaction Primitives &rarr; Rules that make the boundary safe<br>
+      EXPERIENCE.md &sect; Accessibility Floor &rarr; Close these<br>
+      DESIGN.md &sect; Components &rarr; <code class="ref">.modal</code> &middot; Form controls &middot;
+      <code class="ref">.btn</code> &middot; <code class="ref">.tbl</code><br>
+      Screen headings render as <code class="ref">&lt;h2&gt;</code> here because this documentation
+      page owns the single <code class="ref">&lt;h1&gt;</code>; in the application each is the
+      screen's one <code class="ref">&lt;h1&gt;</code>.
+    </div>
+  </div>
+</footer>
+
+</div>
