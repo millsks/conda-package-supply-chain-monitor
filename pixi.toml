@@ -634,6 +634,25 @@ precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", d
 # list rather than in a chain of per-task `depends-on` -- chaining would make
 # `pixi run lint` drag the whole gate behind it.
 [feature.gate.tasks]
+# The parity check the gate cannot do for you. Local runs use sqlite and the
+# gate uses `postgres:17`, which is risk R-5 -- *local development proves less
+# than running suggests* -- knowingly traded and documented under "The parity gap
+# between local runs and the gate" in `docs/development.md`. This task is that
+# document's recipe made runnable, so reproducing a CI-only failure is one
+# command rather than a block to copy correctly.
+#
+# It runs `test-cov` and not the whole gate: `precommit`, `build`, `typecheck`
+# and `lint` never open a connection, so a second run under another backend
+# proves nothing. Everything a backend can change lives in the suite.
+#
+# The body is a script rather than a `cmd` because pixi runs task commands
+# through `deno_task_shell`, which has no `for`, no `if` and no command
+# substitution -- and the readiness loop is the part that must not be dropped.
+#
+# Not a gate step, deliberately: `pixi run ci` must stay the one sequence CI runs
+# (AD-18), and this needs a container that no CI job for it declares.
+gate-postgres = { cmd = "bash scripts/gate-postgres.sh", default-environment = "dev", description = "Run the suite against a throwaway postgres:17, as the gate does" }
+
 ci = { depends-on = [
   "precommit",  # ruff format + ruff lint (auto-fix) + mypy, over every file
   "build",      # the package is distributable: catches import and packaging errors
