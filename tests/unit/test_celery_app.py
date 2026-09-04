@@ -12,6 +12,7 @@ from celery.signals import worker_ready
 from django_structlog.celery.receivers import CeleryReceiver
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
+from conda_package_supply_chain_monitor.core.queues import CELERY_TASK_ROUTES
 from config.celery_app import app
 from config.celery_app import config_loggers
 from config.celery_app import install_drain_handler
@@ -99,6 +100,51 @@ def test_the_django_structlog_bootstep_is_registered_on_the_worker():
     all, and nothing else in the tree would notice.
     """
     assert DjangoStructLogInitStep in app.steps["worker"]
+
+
+def test_the_application_routes_are_the_table_core_declares():
+    """`CPM-AD-20`: settings is the contribution site, and `app.conf` is a live view.
+
+    `config_from_object("django.conf:settings", namespace="CELERY")` leaves
+    `app.conf` a view over Django's settings rather than a copy of them, so
+    `CELERY_TASK_ROUTES` in `config/settings/base.py` *is* `app.conf.task_routes`
+    with no wiring in this module. That is worth an assertion rather than an
+    assumption: the whole reason the route table can live in `core` and be
+    installed from settings is that this indirection holds, and nothing else in
+    the suite would notice if it stopped.
+
+    Read as configuration rather than by publishing a task, and the distinction
+    is the point. `CELERY_TASK_ALWAYS_EAGER` is on for the whole suite, and eager
+    `apply_async` short-circuits to `apply()`: `task_routes` is never consulted
+    and no message acquires a queue, so a `.delay()` assertion here would assert
+    nothing at all.
+    """
+    assert app.conf.task_routes == CELERY_TASK_ROUTES
+
+
+def test_the_three_queues_exist_because_celery_creates_them_on_demand():
+    """The inherited default this story's routing quietly depends on.
+
+    Nothing in this repository declares `task_queues`, so `collect`, `policy` and
+    `verify` are not declared queues -- they exist because
+    `task_create_missing_queues` is `True` by celery's own default and the
+    producer declares each one the first time it publishes to it. That is a
+    perfectly ordinary way to run celery, and it is a dependency rather than a
+    decision anybody wrote down, which is why it is pinned here.
+
+    Set it `False` in a deployed component -- as an operator reasonably might,
+    to make queue creation explicit -- and every routed publish raises
+    `QueueNotFound` instead: no collector runs, and the failure is at publish time
+    in a worker, not in this gate. It would also break the router lookup
+    `tests/unit/django_apps/test_task_routing_audit.py` reads, so the audit would
+    start erroring rather than reporting.
+
+    The day queues are declared explicitly is the day `task_queues` stops being
+    `None`, and this case is where that arrives: it fails, and whoever declared
+    them writes the `-Q` list and the `[[processes]]` split at the same time.
+    """
+    assert app.conf.task_queues is None
+    assert app.conf.task_create_missing_queues is True
 
 
 def test_the_publish_side_receiver_is_connected():

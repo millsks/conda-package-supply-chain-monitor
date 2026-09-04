@@ -70,6 +70,7 @@ from typing import Final
 import pytest
 from django.core.management import get_commands
 
+from conda_package_supply_chain_monitor.core.queues import Queue
 from config.component import ComponentDeclaration
 from config.component import load_component_declaration
 from config.locality import PROCESS_ENV_VAR
@@ -136,6 +137,48 @@ SHUTDOWN_ALTERING_WORKER_FLAGS: Final[tuple[str, ...]] = (
     "-O fair",
 )
 FEATURE_MARKERS: Final[tuple[str, str]] = (f"# feature:{CELERY_FEATURE}", f"# /feature:{CELERY_FEATURE}")
+
+# The flag that says which queues a worker drains, and the separator Celery
+# splits its value on. CPM-AD-20 routes work to three queues, and routing without
+# consumption is inert: a worker with no `-Q` drains the default queue only, so
+# every task routed to `collect`, `policy` or `verify` would be published and
+# never run -- a failure with no error in it anywhere.
+#
+# Both spellings, because celery accepts both and only one of them is what
+# somebody happens to have typed. `--queues=a,b` puts the value in the same
+# argument; `-Q a,b` and `--queues a,b` put it in the next one. A parser that knew
+# one spelling would report "drains nothing" for a manifest that drains all four,
+# which is a failure message pointing at the wrong problem.
+WORKER_QUEUE_FLAGS: Final[tuple[str, ...]] = ("-Q", "--queues")
+WORKER_QUEUE_SEPARATOR: Final[str] = ","
+
+
+def worker_queues(command: str) -> set[str]:
+    """Return the queues a celery worker command declares it drains.
+
+    Args:
+        command: The task's `cmd` string.
+
+    Returns:
+        The queue names from every queue flag in the command, whitespace
+        stripped and empties dropped -- `-Q a, b` is the same declaration as
+        `-Q a,b` and celery reads it that way.
+
+    """
+    arguments = shlex.split(command)
+    values: list[str] = []
+    for index, argument in enumerate(arguments):
+        flag, separator, inline = argument.partition("=")
+        if flag not in WORKER_QUEUE_FLAGS:
+            continue
+        if separator:
+            values.append(inline)
+        elif index + 1 < len(arguments):
+            values.append(arguments[index + 1])
+    return {
+        stripped for value in values for queue in value.split(WORKER_QUEUE_SEPARATOR) if (stripped := queue.strip())
+    }
+
 
 # A task assignment as `pixi.toml` writes one: `name = { cmd = ... }`. Used only
 # to read task names back out of a *region*, which is a span of lines and not
@@ -636,6 +679,56 @@ def test_the_celery_feature_its_processes_and_its_task_region_are_present_or_abs
         f"The feature selection, the [[processes]] entries and the [tasks] region are one decision written in "
         f"three places (AD-24), and a strip that took some of them leaves a component whose declaration and "
         f"whose runnable tasks describe different components."
+    )
+
+
+def test_the_worker_drains_the_default_queue_and_all_three_workload_queues(manifest: dict[str, Any]) -> None:
+    """`CPM-AD-20`: routing without consumption is inert, and silently so.
+
+    `CELERY_TASK_ROUTES` sends a task to `collect`, `policy` or `verify`, and a
+    worker started with no `-Q` drains the default queue only -- so the message
+    is published, acknowledged by the broker, and never delivered to anything.
+    Nothing raises, nothing is logged, and the only symptom is work that does not
+    happen. The `-Q` list is the other half of the same decision and belongs in
+    the same gate.
+
+    The default queue stays in the list, and that is deliberate rather than
+    residual: the inherited `django_service.users.tasks.get_users_count` and the
+    probe in `tests/integration/test_celery_log_correlation.py` declare no `cpm.`
+    name, so they still land there, and a worker that dropped it would strand
+    them.
+
+    Read against `Queue` and `app.conf.task_default_queue` rather than against a
+    literal list, because a second spelling of a queue name is exactly what
+    `core/queues.py` exists to prevent -- and a spelling in a manifest is one a
+    Python import cannot reach.
+
+    The celery application is imported *here* rather than at module scope. The
+    rest of this module is a manifest gate: it parses two files and touches no
+    settings, and it should keep failing for manifest reasons only. A module-level
+    `from config.celery_app import app` would make every case in this file fail on
+    a broken settings import, which is a diagnosis nobody wants from a test about
+    `pixi.toml`.
+
+    Vacuous in the combinations where the `celery` region has been stripped,
+    which is correct: a component with no `worker` task consumes no queue.
+    """
+    from config.celery_app import app  # noqa: PLC0415 - see the docstring: kept out of this module's import surface
+
+    expected = {app.conf.task_default_queue} | {queue.value for queue in Queue}
+    offenders: list[str] = []
+    for table, name, definition in tasks_named(manifest, WORKER_PROCESS):
+        drained = worker_queues(task_command(definition))
+        missing = sorted(expected - drained)
+        extra = sorted(drained - expected)
+        if missing or extra:
+            offenders.append(f"{table}.{name} does not drain {missing} and drains {extra} that nothing routes to")
+
+    assert not offenders, (
+        f"these worker tasks do not consume exactly the queues this component routes to: {offenders}. "
+        f"CPM-AD-20 splits the work three ways and `core/queues.py` names the queues; a queue the worker does "
+        f"not drain turns every task routed there into work that is published and never run, and a queue it "
+        f"drains that nothing routes to is a name nobody declared."
     )
 
 

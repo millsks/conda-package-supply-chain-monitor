@@ -14,11 +14,13 @@ import importlib
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core import roles
 from config.authorization import claims
 from config.local_dev import keys
 from config.locality import LOCAL as LOCAL_RUNTIME
 from config.locality import RUNTIME_ENV_VAR
+from config.startup.allowlist import CONTRIBUTABLE_KEYS
 from tests.logging_config import assert_writes_no_files
 from tests.pixi_manifest import REPO_ROOT
 from tests.settings_import import evicted_settings_modules
@@ -1033,6 +1035,22 @@ CELERY_BANNER = "# Celery"
 NEXT_BANNER = "# django-allauth"
 CELERY_SWITCH = "DJANGO_STRUCTLOG_CELERY_ENABLED"
 
+# The inherited Celery limits, in seconds, named rather than written at the
+# assertion so the numbers read as the policy CPM-AD-9 states: five minutes hard,
+# sixty seconds soft, and work that would exceed them chunked per package.
+INHERITED_TASK_TIME_LIMIT_SECONDS = 300
+INHERITED_TASK_SOFT_TIME_LIMIT_SECONDS = 60
+
+# Where cadence lives (CPM-AD-20). The scheduler that reads its schedules from
+# database rows an operator can edit, rather than from a decorator that needs a
+# deploy to change.
+DATABASE_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# The one Celery key this product contributes to is `queues.CONTRIBUTED_SETTING_KEY`
+# and is not respelled here: it is the module's own contract, two test modules
+# assert its membership of `CONTRIBUTABLE_KEYS`, and one string spelled in two
+# places is the failure `core/queues.py` exists to prevent, applied to itself.
+
 
 def _assignment_lines(lines: list[str]) -> list[tuple[int, str]]:
     """Return the top-level assignment lines of a settings module's source.
@@ -1102,3 +1120,103 @@ def test_the_celery_correlation_switch_sits_inside_the_celery_block():
     assert all(line.startswith("CELERY_") for line in intervening), (
         f"non-Celery settings separate the banner from {CELERY_SWITCH}: {intervening}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CPM-EVIDENCE-S04 -- the three queues, and cadence as data.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def any_settings_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An environment under which all four settings modules import.
+
+    The four are not interchangeable to import: `production.py` refuses without
+    `DJANGO_SECRET_KEY` and `DJANGO_ADMIN_URL`, and every module needs a database
+    URL it will accept. One fixture that satisfies all of them is what lets the
+    Celery assertions below be *parametrized over the four* rather than written
+    against `base` alone -- and that is not tidiness. A `CELERY_BEAT_SCHEDULE` or
+    a raised `CELERY_TASK_TIME_LIMIT` in `production.py` is the one that would
+    actually reach a deployed component, and it is exactly the one a case reading
+    only `base` cannot see.
+    """
+    monkeypatch.setenv("DJANGO_SECRET_KEY", "x" * 50)
+    monkeypatch.setenv("DJANGO_ADMIN_URL", "admin/")
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+
+
+#: The four settings modules, as one list the Celery cases parametrize over.
+EVERY_SETTINGS_MODULE = (BASE, LOCAL, PRODUCTION, TEST)
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_celery_block_contributes_the_route_table_core_owns():
+    """`CPM-AD-20`: the route table is `core`'s, and settings is where it is installed.
+
+    Asserted as identity against the module `core` declares rather than against a
+    literal table written out here. A copy in this file would be a second
+    declaration of what routes where -- the exact failure the module exists to
+    prevent -- and it would pass while the two drifted.
+
+    Inherited `AD-8` is honoured by the *key*: `CELERY_TASK_ROUTES` is on the
+    `CONTRIBUTABLE_KEYS` roster a domain application may contribute to. The
+    membership is read from the allowlist rather than restated, and the roster's
+    length is deliberately not quoted here -- a count written into a docstring is
+    true until the day the roster changes and silently wrong afterwards. The
+    composition step that would apply such a contribution is the platform's
+    Epic 9 and is not built, so the entry is written by hand here on the same
+    terms the `LOCAL_APPS` adoption already is.
+    """
+    base = importlib.import_module(BASE)
+
+    assert base.CELERY_TASK_ROUTES is queues.CELERY_TASK_ROUTES
+    assert queues.CONTRIBUTED_SETTING_KEY in CONTRIBUTABLE_KEYS
+
+
+@pytest.mark.usefixtures("any_settings_module")
+@pytest.mark.parametrize("module", EVERY_SETTINGS_MODULE, ids=lambda name: name.rpartition(".")[2])
+def test_the_inherited_celery_time_limits_are_unchanged(module: str):
+    """`CPM-AD-9`: work that would exceed them is chunked, never given a longer limit.
+
+    Pinned rather than left to the platform, because this story's whole argument
+    for the queue split is that a five-minute `verify` build is *allowed* to take
+    five minutes and must not do it beside the daily sweep. Raise the limit and
+    the argument changes: the starvation window grows and the per-package
+    transaction boundary `CPM-AD-23` fixes stops being reachable.
+
+    Over all four modules, not `base` alone. `base` is the only one that declares
+    either value today, and `production.py` is the one whose value a deployed
+    component actually runs under -- so a case that read `base` would be checking
+    the module where an override is least likely and skipping the one where it
+    matters.
+
+    `tests/unit/django_apps/test_task_declaration_audit.py` holds the other half
+    -- that no individual task, and no module outside settings, overrides either.
+    """
+    settings_module = importlib.import_module(module)
+
+    assert settings_module.CELERY_TASK_TIME_LIMIT == INHERITED_TASK_TIME_LIMIT_SECONDS
+    assert settings_module.CELERY_TASK_SOFT_TIME_LIMIT == INHERITED_TASK_SOFT_TIME_LIMIT_SECONDS
+
+
+@pytest.mark.usefixtures("any_settings_module")
+@pytest.mark.parametrize("module", EVERY_SETTINGS_MODULE, ids=lambda name: name.rpartition(".")[2])
+def test_cadence_lives_in_the_database_scheduler(module: str):
+    """`CPM-AD-20` / `CPM-NFR-2`: a schedule is data an operator can change.
+
+    The database scheduler is what makes that true: a cadence lives in
+    `django_celery_beat`'s tables, editable without a deploy. A decorator-borne
+    schedule is the alternative this forecloses, and the source sweep in
+    `tests/unit/django_apps/test_task_declaration_audit.py` is the gate on it.
+
+    No `CELERY_BEAT_SCHEDULE` is declared in any of the four and none should be:
+    there is nothing to schedule until `CPM-EP-CURRENCY` registers the first
+    collector. Asserted over all four because `config/settings/` is the one
+    directory the source sweep permits a schedule in -- so a hard-coded cadence in
+    `production.py` is inside the carve-out, parsed by nothing, and would leave
+    both gates green.
+    """
+    settings_module = importlib.import_module(module)
+
+    assert settings_module.CELERY_BEAT_SCHEDULER == DATABASE_SCHEDULER
+    assert not hasattr(settings_module, "CELERY_BEAT_SCHEDULE")

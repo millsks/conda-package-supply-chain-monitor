@@ -32,7 +32,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-04-2026 19:15
+last_updated: 09-04-2026 21:40
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -50,7 +50,7 @@ development_status:
   cpm-evidence-s01-five-outcome-states-precedence-order: done
   cpm-evidence-s02-evidence-refuses-be-updated: done
   cpm-evidence-s03-run-ledger-survives-killed-worker: done
-  cpm-evidence-s04-three-queues-cadence-as-data: ready-for-dev
+  cpm-evidence-s04-three-queues-cadence-as-data: done
   cpm-evidence-s05-collector-base-carrying-external-call: ready-for-dev
   cpm-evidence-s06-stale-failed-evidence-read-as: ready-for-dev
   cpm-evidence-s07-policy-run-writer-rollup: ready-for-dev
