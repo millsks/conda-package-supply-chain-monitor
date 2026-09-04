@@ -1,0 +1,1249 @@
+<title>The Stale Overlay — Supply Chain Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   mock-stale-overlay.html
+
+   Governed by:
+     DESIGN.md      § Colors → The warn correction — stale is not a status
+                    § Components → .chip → The stale overlay (the ::after mark)
+                    § Components → .ev (the .ev.stale footline)
+     EXPERIENCE.md  § State Patterns → Stale is a property of a status, not a status
+                    § Open Gaps → G-5 (no theme toggle ships in v1)
+
+   The one visual decision in the system that was made without the user seeing
+   it drawn. This page draws it, and puts it beside the treatment it replaces.
+
+   Withheld: per-collector freshness targets are PRD OQ 7. Every footline here
+   interpolates {{ collector.freshness_target }} rather than stating a number.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ── tokens — reproduced verbatim from DESIGN.md § Colors ────────────────── */
+/* Dual-gated dark: system preference unless explicitly light, or explicitly  */
+/* dark regardless of the system. Both blocks carry identical declarations —  */
+/* the duplication is correct; there is no build step.                        */
+/* No hex value appears anywhere outside these three :root blocks.            */
+:root{
+  --paper:#e9edef;      --surface:#ffffff;   --surface-2:#f4f7f8;  --surface-3:#eaeff1;
+  --ink:#0e1719;        --ink-2:#33454c;     --muted:#556670;
+  --line:#ccd7db;       --line-2:#e0e8ea;
+  --accent:#0d5c73;     --accent-2:#0a4557;  --accent-wash:#dfedf1;  --on-accent:#ffffff;
+  --ok:#22643f;         --ok-wash:#e0efe6;
+  --warn:#855505;       --warn-wash:#f7ecd8;
+  --crit:#9d1729;       --crit-wash:#f7e2e4;
+  --unk:#5a6d75;        --unk-wash:#e6ecee;
+  --nf:#3c5a80;         --nf-wash:#e3eaf3;
+  --na:#655684;         --na-wash:#eae6f2;
+  --err:#8a3115;        --err-wash:#f6e5dd;
+  --shadow-sm:0 1px 2px rgba(14,23,25,.07);
+  --shadow-md:0 1px 2px rgba(14,23,25,.06),0 10px 26px -16px rgba(14,23,25,.35);
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+    --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+    --line:#2b3d43;       --line-2:#223136;
+    --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+    --ok:#6cc191;         --ok-wash:#14301f;
+    --warn:#e0ab55;       --warn-wash:#33260d;
+    --crit:#f08a95;       --crit-wash:#3a161c;
+    --unk:#9fb2b9;        --unk-wash:#1f2c30;
+    --nf:#93b3dd;         --nf-wash:#182533;
+    --na:#b7a6dd;         --na-wash:#241f33;
+    --err:#e3946f;        --err-wash:#331a10;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+  --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+  --line:#2b3d43;       --line-2:#223136;
+  --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+  --ok:#6cc191;         --ok-wash:#14301f;
+  --warn:#e0ab55;       --warn-wash:#33260d;
+  --crit:#f08a95;       --crit-wash:#3a161c;
+  --unk:#9fb2b9;        --unk-wash:#1f2c30;
+  --nf:#93b3dd;         --nf-wash:#182533;
+  --na:#b7a6dd;         --na-wash:#241f33;
+  --err:#e3946f;        --err-wash:#331a10;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+  --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+}
+
+/* ── documentation shell ─────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;margin:0}
+a{color:var(--accent);text-underline-offset:3px}
+h1,h2,h3,h4,h5{text-wrap:balance;margin:0;line-height:1.2}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+.vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.doc{display:flex;flex-direction:column;gap:0}
+
+.masthead{background:var(--surface);border-bottom:1px solid var(--line);padding:44px 0 34px}
+.mast-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:56px;align-items:end}
+@media (max-width:900px){.mast-grid{grid-template-columns:1fr;gap:28px}}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);font-weight:600}
+h1{font-size:clamp(30px,4.4vw,45px);font-weight:600;letter-spacing:-.022em;margin:14px 0 0}
+.standfirst{font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2);
+  max-width:60ch;margin-top:14px}
+.mast-meta{display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:11.5px;
+  color:var(--muted);border-left:2px solid var(--line);padding-left:16px}
+.mast-meta b{color:var(--ink-2);font-weight:500}
+.sample-note{margin-top:22px;display:flex;gap:10px;align-items:flex-start;background:var(--warn-wash);
+  border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);border-radius:2px;
+  padding:11px 14px;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.sample-note strong{color:var(--warn)}
+
+section.band{padding:56px 0;border-bottom:1px solid var(--line-2)}
+section.band.alt{background:var(--surface)}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:8px}
+.sec-num{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;
+  letter-spacing:.08em;padding-top:4px}
+h2{font-size:27px;font-weight:600;letter-spacing:-.015em}
+.sec-sub{font-family:var(--serif);color:var(--ink-2);font-size:16.5px;max-width:70ch;margin-top:10px}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
+
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:26px}
+.toc a{background:var(--surface);padding:13px 15px;text-decoration:none;color:var(--ink);
+  display:flex;flex-direction:column;gap:3px;transition:background .12s}
+.toc a:hover{background:var(--accent-wash)}
+.toc a span{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.09em;
+  text-transform:uppercase}
+.toc a b{font-weight:500;font-size:14px}
+
+/* the screen frame — a browser window holding a mock */
+.screen{margin-top:22px;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  background:var(--surface);box-shadow:var(--shadow-md)}
+.chrome{display:flex;align-items:center;gap:12px;padding:9px 13px;background:var(--surface-3);
+  border-bottom:1px solid var(--line)}
+.dots{display:flex;gap:6px;flex:none}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.urlbar{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:4px 11px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.urlbar b{color:var(--ink-2);font-weight:500}
+.chrome-role{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-wash);padding:3px 8px;border-radius:2px;flex:none}
+.chrome-code{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;
+  color:var(--muted);background:var(--surface);border:1px solid var(--line);
+  padding:2px 8px;border-radius:2px;flex:none}
+.viewport{overflow-x:auto}
+.viewport > .app{min-width:960px}
+
+/* annotation rail under each screen */
+.annos{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);border-top:0}
+.anno{background:var(--surface-2);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.anno h4{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.anno h4::before{content:"";width:5px;height:5px;background:var(--accent);flex:none;
+  transform:rotate(45deg)}
+.anno p{font-size:13px;color:var(--ink-2);line-height:1.48}
+.anno code,code.ref{font-family:var(--mono);font-size:11.5px;background:var(--surface-3);
+  padding:1px 4px;border-radius:2px;color:var(--accent-2);white-space:nowrap}
+.reftags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.reftag{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;color:var(--muted);
+  border:1px solid var(--line);border-radius:2px;padding:1px 6px;background:var(--surface)}
+.reftag.ad{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ── the mock application ────────────────────────────────────────────────── */
+.app{font-size:13px;color:var(--ink);background:var(--surface)}
+.app-top{display:flex;align-items:center;gap:22px;padding:0 16px;height:50px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;flex:none}
+.brand .glyph{width:20px;height:20px;border-radius:3px;background:var(--accent);
+  display:grid;place-items:center;color:var(--on-accent);font-family:var(--mono);
+  font-size:10px;font-weight:600}
+.app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
+.app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
+  color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
+.app-nav a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.who{display:flex;align-items:center;gap:9px;flex:none;font-size:12px;color:var(--muted)}
+.who .av{width:24px;height:24px;border-radius:50%;background:var(--accent-wash);color:var(--accent);
+  display:grid;place-items:center;font-size:10.5px;font-weight:600;font-family:var(--mono)}
+.who .role{font-family:var(--mono);font-size:10.5px;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.06em}
+
+.app-body{padding:16px}
+.app-h{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.app-h h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.app-h .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:4px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:default;
+  display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,transparent);color:var(--crit)}
+.btn.sm{font-size:11.5px;padding:4px 9px}
+
+/* the freshness bar — mandatory chrome, CPM-AD-11 */
+.freshbar{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin-top:14px;
+  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface-2);
+  font-family:var(--mono);font-size:11px}
+.freshbar div{padding:7px 13px;border-right:1px solid var(--line-2);display:flex;gap:7px;
+  align-items:baseline;color:var(--muted)}
+.freshbar div:last-child{border-right:0}
+.freshbar b{color:var(--ink-2);font-weight:500}
+.freshbar .lbl{text-transform:uppercase;letter-spacing:.07em;font-size:9.5px}
+.freshbar.unk{border-left-color:var(--unk)}
+.freshbar.warn{border-left-color:var(--warn)}
+
+/* status chips — hue AND marker shape AND the word AND the footline */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  padding:2px 8px 2px 7px;border-radius:2px;border:1px solid;white-space:nowrap;line-height:1.5}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.chip.ok{color:var(--ok);background:var(--ok-wash);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.chip.warn{color:var(--warn);background:var(--warn-wash);border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+.chip.crit{color:var(--crit);background:var(--crit-wash);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+.chip.unknown{color:var(--unk);background:var(--unk-wash);border-color:color-mix(in srgb,var(--unk) 32%,transparent)}
+.chip.unknown::before{background:transparent;border:1.5px solid currentColor}
+.chip.notfound{color:var(--nf);background:var(--nf-wash);border-color:color-mix(in srgb,var(--nf) 32%,transparent)}
+.chip.notfound::before{background:transparent;border:1.5px dashed currentColor}
+.chip.na{color:var(--na);background:var(--na-wash);border-color:color-mix(in srgb,var(--na) 32%,transparent)}
+.chip.na::before{background:linear-gradient(to bottom right,transparent 44%,currentColor 44%,currentColor 56%,transparent 56%);
+  border:1.5px solid currentColor}
+.chip.error{color:var(--err);background:var(--err-wash);border-color:color-mix(in srgb,var(--err) 32%,transparent)}
+.chip.error::before{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);height:9px}
+.chip.plain{color:var(--ink-2);background:var(--surface-2);border-color:var(--line)}
+.chip.plain::before{display:none}
+.chip.sm{font-size:10px;padding:1px 6px 1px 6px}
+
+/* the stale overlay — DESIGN.md § Components → the stale overlay           */
+/* ::before belongs permanently to the state's own marker, so stale takes   */
+/* ::after: two 2px amber bars, 2px apart, 8px tall, on the trailing side.  */
+.chip.is-stale::after{content:"";flex:none;width:6px;height:8px;margin-left:1px;
+  background:linear-gradient(to right,
+    var(--warn) 0 2px, transparent 2px 4px, var(--warn) 4px 6px)}
+
+/* the evidence footline that sits under every claimed value */
+.ev{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px;
+  display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ev::before{content:"";width:9px;height:1px;background:var(--line);flex:none}
+.ev.stale{color:var(--warn)}
+.panel .body .ev,.anno .ev,.toast .ev,.panel .tbl .ev,.emptyblock .ev{white-space:normal}
+.panel .body .ev::before{margin-top:7px;align-self:flex-start}
+
+/* tables */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.tbl th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:9px 11px;
+  background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  white-space:nowrap;position:relative}
+.tbl th.sorted{color:var(--accent)}
+.tbl td{padding:9px 11px;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr:hover td{background:var(--surface-2)}
+.tbl .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.tbl caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:9px 11px}
+.pkg{font-weight:600;font-size:13px}
+.panel .tbl td,.panel .tbl th{white-space:normal}
+.pkg a{text-decoration:none;color:var(--ink)}
+.pkg a:hover{color:var(--accent);text-decoration:underline}
+.pbucket{font-family:var(--mono);font-weight:600;font-size:12px;padding:2px 7px;border-radius:2px;
+  display:inline-block;letter-spacing:.02em}
+.p1,.p2{background:var(--crit-wash);color:var(--crit)}
+.p3,.p4{background:var(--warn-wash);color:var(--warn)}
+.p5,.p6,.p7{background:var(--accent-wash);color:var(--accent)}
+.p8,.p9,.p10{background:var(--surface-3);color:var(--muted)}
+.conf{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted)}
+.conf.verified{color:var(--ok)}
+.conf.derived{color:var(--warn)}
+.conf.unmapped{color:var(--unk)}
+.dash{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* sidebar + main split */
+.split{display:grid;grid-template-columns:236px minmax(0,1fr);gap:0;border:1px solid var(--line);
+  margin-top:14px}
+.side{background:var(--surface-2);border-right:1px solid var(--line);padding:16px}
+.side h5{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin:0 0 8px}
+.side .grp{margin-bottom:17px}
+.facet{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--ink-2)}
+.facet input{margin:0;accent-color:var(--accent)}
+.facet .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.facet.on{color:var(--accent);font-weight:500}
+.searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink)}
+.main-pane{min-width:0;background:var(--surface)}
+.applied{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line-2);
+  align-items:center;font-size:11.5px;color:var(--muted)}
+.filterpill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  background:var(--accent-wash);color:var(--accent);border-radius:2px;padding:2px 4px 2px 7px}
+/* the mockup's <x>✕</x> is deleted: a real button with a full accessible name */
+.filterpill button{font-family:var(--mono);font-size:10.5px;line-height:1;border:0;
+  background:transparent;color:var(--accent);padding:2px 3px;border-radius:2px;cursor:default}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 12px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap}
+.pagenums{display:flex;gap:3px}
+.pagenums a{min-width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:3px;text-decoration:none;color:var(--ink-2);font-family:var(--mono);font-size:11.5px}
+.pagenums a.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+/* cards + panels inside the app */
+.cards{display:grid;gap:12px;margin-top:14px}
+.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.panel{border:1px solid var(--line);background:var(--surface);min-width:0;overflow-x:auto;overflow-y:hidden}
+.panel > header{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 13px;border-bottom:1px solid var(--line-2);background:var(--surface-2)}
+.panel > header h3,.panel > header h4{font-size:12.5px;font-weight:600}
+.panel > header .hx{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+.panel .body{padding:16px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:12.5px}
+.kv dt{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.03em;padding-top:2px}
+.kv dd{margin:0;color:var(--ink);min-width:0;word-break:break-word}
+.mono{font-family:var(--mono);font-size:11.5px}
+.stat{padding:13px}
+.stat .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted)}
+.stat .big{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+  margin-top:4px;line-height:1}
+.stat .foot{font-size:11.5px;color:var(--muted);margin-top:5px}
+.bar{height:5px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:9px;display:flex}
+.bar i{display:block;height:100%}
+.hxnote{font-family:var(--mono);font-size:10px;color:var(--accent);background:var(--accent-wash);
+  border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:3px 8px;
+  border-radius:2px;display:inline-block}
+
+/* the empty / refusal content block — the 3px rule coloured to the content */
+.emptyblock{border:1px solid var(--line);border-left:3px solid var(--unk);background:var(--surface);
+  padding:16px 18px;margin-top:14px;max-width:74ch}
+.emptyblock.na{border-left-color:var(--na)}
+.emptyblock.warn{border-left-color:var(--warn)}
+.emptyblock.err{border-left-color:var(--err)}
+.emptyblock.acc{border-left-color:var(--accent)}
+.emptyblock h3{font-size:15px;font-weight:600}
+.emptyblock p{font-size:13px;color:var(--ink-2);margin-top:8px;line-height:1.5}
+.counterline{margin-top:16px;border-top:1px solid var(--line-2);padding-top:14px;
+  display:flex;flex-direction:column;gap:11px}
+.counterline .cl-h{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted)}
+.counterline .row{display:flex;gap:11px;align-items:flex-start}
+.counterline .row .txt{font-size:12.5px;color:var(--ink)}
+
+/* sign-in */
+.login{min-height:380px;display:grid;place-items:center;background:var(--surface-2);padding:44px 16px}
+.loginbox{width:380px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;box-shadow:var(--shadow-md);padding:32px;text-align:center}
+.loginbox h3{font-size:17px}
+.loginbox p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.oidc{width:100%;margin-top:20px;justify-content:center;padding:10px}
+.claimline{margin-top:20px;border-top:1px solid var(--line-2);padding-top:14px;text-align:left;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.7}
+
+/* modal over a dimmed page — vertical offset is 26px, always */
+.modal-wrap{position:relative}
+.dim{position:absolute;inset:0;background:color-mix(in srgb,var(--ink) 42%,transparent);z-index:2}
+.modal{position:absolute;z-index:3;left:50%;top:26px;transform:translateX(-50%);width:min(560px,92%);
+  background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow-md)}
+.modal > header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
+  border-bottom:1px solid var(--line-2)}
+.modal > header h3{font-size:14.5px;font-weight:600}
+.modal .body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.modal > footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;
+  border-top:1px solid var(--line-2);background:var(--surface-2)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600}
+.field .help{font-size:11.5px;color:var(--muted)}
+.field .req{color:var(--crit);font-family:var(--mono);font-size:10px}
+.input,.textarea,.select{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12.5px;color:var(--ink)}
+.input.mono,.textarea.mono{font-family:var(--mono);font-size:12px}
+.textarea{min-height:66px;resize:none}
+.errmsg{font-size:11.5px;color:var(--crit);display:flex;gap:6px;align-items:flex-start}
+/* invalid is border AND fill together, never fill alone and never colour alone */
+.input.invalid,.textarea.invalid,.select.invalid{border-color:var(--crit);background:var(--crit-wash)}
+
+/* toast / async progress */
+.toast{display:flex;gap:11px;align-items:flex-start;border:1px solid var(--line);
+  border-left:3px solid var(--accent);background:var(--surface-2);padding:11px 14px;margin-top:14px}
+.toast.err{border-left-color:var(--err)}
+.toast.warn{border-left-color:var(--warn)}
+.toast .spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);
+  border-top-color:var(--accent);flex:none;margin-top:2px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast b{font-size:12.5px}
+.toast p{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* specimen plates */
+.figure{margin-top:24px;border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--shadow-sm)}
+.figure .cap{display:flex;gap:12px;align-items:baseline;padding:11px 16px;
+  border-bottom:1px solid var(--line-2);background:var(--surface-2);flex-wrap:wrap}
+.figure .cap b{font-size:13px;font-weight:600}
+.figure .cap span{font-size:12.5px;color:var(--muted)}
+.figure .cap .id{font-family:var(--mono);font-size:10.5px;color:var(--accent);letter-spacing:.06em}
+.figure .plate{padding:20px 16px;overflow-x:auto}
+
+/* legend + prose blocks */
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:22px}
+.legend div{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.legend p{font-size:12px;color:var(--muted);line-height:1.45}
+.notebox{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
+  padding:16px 18px;margin-top:24px}
+.notebox.warn{border-left-color:var(--warn)}
+.notebox.unk{border-left-color:var(--unk)}
+.notebox.ok{border-left-color:var(--ok)}
+.notebox h4{font-size:13px;margin-bottom:8px}
+.notebox ul{margin:0;padding-left:19px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.notebox li{margin-bottom:5px}
+.notebox li b{color:var(--ink);font-weight:600}
+.notebox p{font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:22px}
+.codeblock{font-family:var(--mono);font-size:11px;line-height:1.75;color:var(--ink-2);
+  background:var(--surface-3);border:1px solid var(--line-2);border-radius:2px;
+  padding:12px 14px;margin-top:14px;overflow-x:auto;white-space:pre}
+footer.pagefoot{padding:34px 0 54px;color:var(--muted);font-size:12.5px}
+footer.pagefoot p{max-width:70ch}
+.srcs{font-family:var(--mono);font-size:11px;line-height:1.9;margin-top:10px;color:var(--muted)}
+
+/* ── file-local specimen affordances ─────────────────────────────────────── */
+/* The theme switch below is a SPECIMEN AFFORDANCE, not a product feature.    */
+/* v1 honours prefers-color-scheme only and ships no toggle (G-5). The        */
+/* data-theme hook exists in the CSS for a later preference surface; nothing  */
+/* in the application sets it.                                               */
+.themebar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;
+  flex-wrap:wrap;padding:9px 28px;background:var(--surface-2);
+  border-bottom:1px solid var(--line);border-left:3px solid var(--accent)}
+.themebar .tb-lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted)}
+.themebar .tb-note{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
+.themebar button{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:2px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer}
+.themebar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
+  color:var(--on-accent);font-weight:500}
+
+/* magnification plate — geometry is 6×8px at an 11px chip, so it needs one */
+.magbox{border:1px solid var(--line);background:var(--surface-2);border-radius:2px;
+  padding:16px;overflow:auto}
+.magrow{position:relative;height:96px;margin-bottom:6px}
+.magrow .mag{position:absolute;left:0;top:0;transform:scale(4);transform-origin:left top}
+.magcap{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.03em}
+
+/* greyscale proof */
+.grey{filter:grayscale(1)}
+
+/* the superseded mockup treatment, shown for comparison only */
+.oldbox{border:1px dashed color-mix(in srgb,var(--err) 45%,transparent);
+  background:var(--err-wash);border-radius:2px;padding:14px 16px}
+.newbox{border:1px solid var(--line);background:var(--surface);border-radius:2px;
+  padding:14px 16px}
+.boxlbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  font-weight:500;margin-bottom:10px;display:block}
+.oldbox .boxlbl{color:var(--err)}
+.newbox .boxlbl{color:var(--accent)}
+.boxnote{font-size:12px;color:var(--ink-2);margin-top:11px;line-height:1.5}
+
+/* token callout beside a specimen chip */
+.tok{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.03em}
+.tok b{color:var(--ink-2);font-weight:500}
+.hueproof{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2)}
+.hueproof > div{background:var(--surface);padding:16px}
+.hueproof h4{font-size:12.5px;font-weight:600;margin-bottom:10px}
+.hueproof .pair{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.hueproof .pair > div{display:flex;align-items:center;gap:10px}
+</style>
+
+<div class="doc">
+
+<div class="themebar" role="group" aria-label="Specimen theme">
+  <span class="tb-lbl">Specimen theme</span>
+  <button type="button" id="tb-system" aria-pressed="true">System</button>
+  <button type="button" id="tb-light" aria-pressed="false">Light</button>
+  <button type="button" id="tb-dark" aria-pressed="false">Dark</button>
+  <span class="tb-note">specimen affordance only &middot; v1 ships no theme toggle (G-5)</span>
+</div>
+
+<!-- ══ masthead ══════════════════════════════════════════════════════════ -->
+<header class="masthead">
+  <div class="wrap mast-grid">
+    <div>
+      <div class="eyebrow">Conda Package Supply Chain Monitor · v1</div>
+      <h1>The stale overlay, drawn</h1>
+      <p class="standfirst">The mockup rendered stale as an amber chip reading
+        <span class="mono">critical &middot; stale</span>, which overloaded
+        <span class="mono">--warn</span> three ways and degraded the status underneath it. The
+        correction &mdash; stale is a property of a status, never a status &mdash; was agreed in
+        prose and has never been seen. This is what it looks like.</p>
+    </div>
+    <div class="mast-meta">
+      <div><b>Governed by</b> DESIGN.md &sect; The stale overlay</div>
+      <div><b>And</b> EXPERIENCE.md &sect; Stale is a property</div>
+      <div><b>Binds</b> CPM-FR-6 &middot; CPM-FR-38 &middot; CPM-FR-41</div>
+      <div><b>Status</b> Visual reference &mdash; not implemented</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="sample-note">
+      <div><strong>Every figure on this page is sample data.</strong> Package names, advisory
+      identifiers, observation dates and counts are illustrative. Per-collector freshness targets
+      are withheld by the sources, so every footline here interpolates
+      <code class="ref">{{ collector.freshness_target }}</code> rather than naming a number.</div>
+    </div>
+    <nav class="toc">
+      <a href="#rule"><span>The rule</span><b>Stale is a property, not a status</b></a>
+      <a href="#specimen"><span>Specimen</span><b>Five states, fresh and stale</b></a>
+      <a href="#mag"><span>Geometry</span><b>The hold mark, magnified</b></a>
+      <a href="#hue"><span>The point</span><b>Stale critical keeps <span class="mono">--crit</span></b></a>
+      <a href="#old"><span>Comparison</span><b>Against the mockup treatment</b></a>
+      <a href="#dense"><span>In situ</span><b>A realistic dense table row</b></a>
+      <a href="#grey"><span>Proof</span><b>Greyscale separability</b></a>
+      <a href="#warn"><span>Consequence</span><b>What <span class="mono">--warn</span> means now</b></a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ the rule ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="rule">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">&sect;</span><h2>Stale is a property of a status,
+      not a status</h2></div>
+    <p class="sec-sub">The chip keeps its hue, keeps its marker and keeps its word. It gains three
+      things, and none of them is <span class="mono">--warn</span> on the chip's own hue.</p>
+
+    <div class="notebox warn">
+      <h4>What stale adds, and what it must never take away</h4>
+      <ul>
+        <li><b>A trailing amber hold mark.</b> The <code class="ref">::before</code> slot belongs
+          permanently to the state's own marker, so the stale mark takes
+          <code class="ref">::after</code> &mdash; two 2px vertical amber bars, 2px apart, 8px tall,
+          on the opposite side of the label. It reads as <em>held</em>: the conclusion stands, but
+          it cannot be acted on until the evidence is re-collected.</li>
+        <li><b>An amber <code class="ref">.ev</code> footline</b> naming the target it missed. The
+          footline is real text where the mark is CSS-generated, so the meaning survives for a
+          reader who cannot see the mark.</li>
+        <li><b>The word <code class="ref">stale</code> inside the chip, visually hidden.</b> The
+          visible label stays the bare <code class="ref">OutcomeState</code> value, so the closed
+          set of status values stays separate from the open set of chip labels. Assistive technology
+          announces "critical stale".</li>
+        <li><b>It takes nothing away.</b> Not the hue, not the marker, not the word, not the
+          legibility of the status. A strikethrough would degrade the status word, and the status
+          word is a load-bearing channel.</li>
+      </ul>
+    </div>
+
+    <div class="codeblock">/* DESIGN.md § Components → .chip → The stale overlay — verbatim */
+.chip.is-stale::after{content:"";flex:none;width:6px;height:8px;margin-left:1px;
+  background:linear-gradient(to right,
+    var(--warn) 0 2px, transparent 2px 4px, var(--warn) 4px 6px)}
+
+/* and the footline recolours, keeping its 9px tie-line */
+.ev.stale{color:var(--warn)}</div>
+  </div>
+</section>
+
+<!-- ══ specimen ══════════════════════════════════════════════════════════ -->
+<section class="band" id="specimen">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">1</span><h2>Five outcome states, fresh and stale,
+      at 11px in a table context</h2></div>
+    <p class="sec-sub">Five states, seven chips &mdash; determinate spans three hues on the ramp,
+      and each sentinel has exactly one. Read the two chip columns across: nothing in the left
+      column loses a channel in the right column.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Chip specimen</b>
+        <span>rendered inside <code class="ref">.tbl</code> at the app's 13px shell</span>
+        <span class="id" style="margin-left:auto">CPM-FR-6 &middot; CPM-FR-38</span></div>
+      <div class="plate">
+        <table class="tbl" style="border:1px solid var(--line)">
+          <caption class="vh">The five outcome states rendered fresh and stale, with the marker
+            geometry and the footline that carries staleness</caption>
+          <thead><tr>
+            <th scope="col">State</th>
+            <th scope="col">Hue token</th>
+            <th scope="col">Marker</th>
+            <th scope="col">Fresh</th>
+            <th scope="col">Stale</th>
+            <th scope="col">The stale footline</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400">determinate</th>
+              <td class="mono">--crit</td><td>filled dot</td>
+              <td><span class="chip crit">critical</span></td>
+              <td><span class="chip crit is-stale">critical<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">vulnerability_findings &middot; observed
+                2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400">determinate</th>
+              <td class="mono">--warn</td><td>filled dot</td>
+              <td><span class="chip warn">lagging</span></td>
+              <td><span class="chip warn is-stale">lagging<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">source_release_snapshots &middot; observed
+                2026-08-27 &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400">determinate</th>
+              <td class="mono">--ok</td><td>filled dot</td>
+              <td><span class="chip ok">none found</span></td>
+              <td><span class="chip ok is-stale">none found<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">vulnerability_findings &middot; observed
+                2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400"><code class="ref">unknown</code></th>
+              <td class="mono">--unk</td><td>hollow ring</td>
+              <td><span class="chip unknown">unknown</span></td>
+              <td><span class="chip unknown is-stale">unknown<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">advisory &middot; observed 2026-08-30
+                &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400"><code class="ref">not_found</code></th>
+              <td class="mono">--nf</td><td>dashed ring</td>
+              <td><span class="chip notfound">not_found</span></td>
+              <td><span class="chip notfound is-stale">not_found<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">feedstock_snapshots &middot; observed
+                2026-08-21 &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400"><code class="ref">not_applicable</code></th>
+              <td class="mono">--na</td><td>struck circle</td>
+              <td><span class="chip na">not_applicable</span></td>
+              <td><span class="chip na is-stale">not_applicable<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">python314_findings &middot; observed
+                2026-08-25 &middot; stale, target {{ collector.freshness_target }}</div></td>
+            </tr>
+            <tr>
+              <th scope="row" style="text-align:left;font-weight:400"><code class="ref">error</code></th>
+              <td class="mono">--err</td><td>triangle</td>
+              <td><span class="chip error">error</span></td>
+              <td><span class="chip error is-stale">error<span class="vh"> stale</span></span></td>
+              <td><div class="ev stale" style="margin:0">advisory &middot; observed 2026-08-30
+                &middot; stale, target {{ collector.freshness_target }} &middot; trace 4c1f9a2e</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The mark is rectilinear where the markers are not</h4>
+        <p>All four sentinel markers are round or triangular; the hold mark is two straight bars. It
+          sits on the right where they sit on the left, and it is <code>--warn</code> where they are
+          <code>currentColor</code>. Three axes of difference, so it cannot be read as a sixth
+          marker.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;stale</span></div></div>
+      <div class="anno"><h4>The visible label never changes</h4>
+        <p>Every chip in the stale column carries the same lowercase, verbatim
+          <code>OutcomeState</code> value as its fresh neighbour. <code>critical &middot; stale</code>
+          is an illegal chip label; the qualifier lives on the footline.</p>
+        <div class="reftags"><span class="reftag">L1</span><span class="reftag">L2</span><span class="reftag">L3</span></div></div>
+      <div class="anno"><h4>A hidden <code>stale</code> rides inside the chip</h4>
+        <p><code>&lt;span class="vh"&gt; stale&lt;/span&gt;</code> after the value, so the chip
+          announces "critical stale" while reading <code>critical</code>. The
+          <code>::after</code> mark is CSS-generated and invisible to assistive technology, which is
+          exactly why the word has to be real text.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>Sentinels go stale too</h4>
+        <p>Stale is computed per evidence row against that collector's freshness target, so an
+          <code>unknown</code> whose evidence is past target is a stale <code>unknown</code>. It is
+          not promoted, demoted or converted.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-38</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ magnified ═════════════════════════════════════════════════════════ -->
+<section class="band alt" id="mag">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">2</span><h2>The hold mark, magnified</h2></div>
+    <p class="sec-sub">6&times;8px against an 8px marker, on an 11px chip. At production size it is
+      a small mark; the point of enlarging it is that an implementer can check the geometry against
+      the CSS rather than eyeball it.</p>
+
+    <div class="figure">
+      <div class="cap"><b>&times;4</b>
+        <span>the leading marker and the trailing hold mark, same optical height</span>
+        <span class="id" style="margin-left:auto">two 2px bars, 2px apart, 8px tall</span></div>
+      <div class="plate">
+        <div class="magbox">
+          <div class="magrow"><span class="mag chip crit">critical</span></div>
+          <div class="magcap">fresh &middot; <span style="color:var(--ink-2)">.chip.crit</span>
+            &mdash; filled dot, no trailing mark</div>
+          <div style="height:20px"></div>
+          <div class="magrow"><span class="mag chip crit is-stale">critical<span class="vh"> stale</span></span></div>
+          <div class="magcap">stale &middot; <span style="color:var(--ink-2)">.chip.crit.is-stale</span>
+            &mdash; the same filled dot, the same word, the same
+            <span style="color:var(--ink-2)">--crit</span> hue, plus the trailing mark</div>
+          <div style="height:20px"></div>
+          <div class="magrow"><span class="mag chip ok is-stale">none found<span class="vh"> stale</span></span></div>
+          <div class="magcap">stale &middot; <span style="color:var(--ink-2)">.chip.ok.is-stale</span>
+            &mdash; a determinate clean result, still
+            <span style="color:var(--ink-2)">--ok</span>, held</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Both marks are 8px tall</h4>
+        <p>The leading marker and the trailing hold mark share an optical height, so the chip reads
+          as one object rather than a chip with something stuck on the end.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;stale</span></div></div>
+      <div class="anno"><h4>It resolves in both themes</h4>
+        <p><code>#855505</code> on a light wash and <code>#e0ab55</code> on a dark one, each well
+          clear of the chip grounds it sits on. Use the theme switch above to check the dark case
+          against every wash on this page.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;Colors</span></div></div>
+      <div class="anno"><h4>The <code>::before</code> slot is not negotiable</h4>
+        <p>It belongs permanently to the state's own marker. Any future overlay competing for it
+          would have to displace a channel that carries the state itself.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>No strikethrough</h4>
+        <p>The mockup's <code>#states</code> prose promised the conclusion would be struck through;
+          <code>line-through</code> appears once in the whole file and not on a chip. It was also
+          the wrong instrument &mdash; it degrades the status word.</p>
+        <div class="reftags"><span class="reftag">superseded</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ hue preservation ══════════════════════════════════════════════════ -->
+<section class="band" id="hue">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">3</span><h2>A stale <code>critical</code> keeps
+      <span class="mono">--crit</span>. A stale clean result keeps <span class="mono">--ok</span>.</h2></div>
+    <p class="sec-sub">This is the whole point of the correction. Under the old treatment both of
+      these became the same amber chip, so a critical finding and a clean one looked identical the
+      moment their evidence aged. Severity and currency are two axes, and staleness belongs to
+      neither.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Hue is preserved across the freshness boundary</b>
+        <span>the same finding, before and after its evidence passed target</span>
+        <span class="id" style="margin-left:auto">CPM-FR-38</span></div>
+      <div class="plate">
+        <div class="hueproof">
+          <div>
+            <h4><span class="mono">aiohttp</span> &mdash; a critical finding</h4>
+            <div class="pair">
+              <div>
+                <span class="chip crit">critical</span>
+                <span class="tok">fresh &middot; <b>--crit</b> &middot; filled dot</span>
+              </div>
+              <div class="ev" style="margin:0">vulnerability_findings &middot; observed 05:38Z</div>
+              <div>
+                <span class="chip crit is-stale">critical<span class="vh"> stale</span></span>
+                <span class="tok">stale &middot; <b>--crit</b> &middot; filled dot &middot; + hold mark</span>
+              </div>
+              <div class="ev stale" style="margin:0">vulnerability_findings &middot; observed
+                2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div>
+            </div>
+            <p class="boxnote"><b>The hue did not move.</b> A critical advisory that has not been
+              re-checked is still a critical advisory. What changed is that it cannot be acted on:
+              the transition table is evaluated against a stale finding, routing is not offered, and
+              the primary control on the finding detail reads <b>Recollect evidence</b>.</p>
+          </div>
+          <div>
+            <h4><span class="mono">orjson</span> &mdash; a clean determinate result</h4>
+            <div class="pair">
+              <div>
+                <span class="chip ok">none found</span>
+                <span class="tok">fresh &middot; <b>--ok</b> &middot; filled dot</span>
+              </div>
+              <div class="ev" style="margin:0">vulnerability_findings &middot; observed 05:38Z</div>
+              <div>
+                <span class="chip ok is-stale">none found<span class="vh"> stale</span></span>
+                <span class="tok">stale &middot; <b>--ok</b> &middot; filled dot &middot; + hold mark</span>
+              </div>
+              <div class="ev stale" style="margin:0">vulnerability_findings &middot; observed
+                2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div>
+            </div>
+            <p class="boxnote"><b>The hue did not move here either</b> &mdash; and this is the
+              harder half. A stale clean result is still the conclusion policy reached; turning it
+              amber would say the finding got worse, and turning it grey would say we never asked.
+              Both are false. It stays <span class="mono">--ok</span>, held, with the amber footline
+              saying exactly what is out of date.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notebox">
+      <h4>Why keeping <span class="mono">--ok</span> is not a softening</h4>
+      <p>The reflex is that a stale clean result should be pushed toward a warning, because "we do
+        not really know any more". That reflex is the CPM-SM-C1 failure mode running backwards: it
+        treats a hue as the carrier of confidence, which puts staleness on the severity ramp and
+        makes <span class="mono">--warn</span> mean two things again. The conclusion and its
+        currency are separate facts and get separate channels &mdash; the hue carries the
+        conclusion, the hold mark and the amber footline carry the currency, and the action the
+        server offers carries the consequence.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ old vs new ════════════════════════════════════════════════════════ -->
+<section class="band alt" id="old">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">4</span><h2>Against the mockup's treatment</h2></div>
+    <p class="sec-sub">The left-hand box is <em>superseded and must not be implemented</em>. It is
+      reproduced only so the difference is legible at a glance, and so a reader who knows the
+      mockup can see exactly which decision changed.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Same finding, two treatments</b>
+        <span><code class="ref">aiohttp</code> &middot; CVE-2024-23334 &middot; evidence past target</span>
+        <span class="id" style="margin-left:auto">the warn correction</span></div>
+      <div class="plate">
+        <div class="two-col" style="margin-top:0">
+          <div class="oldbox">
+            <span class="boxlbl">Superseded &mdash; the mockup</span>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span class="chip warn">critical &middot; stale</span>
+              <span class="tok"><b>--warn</b> &middot; filled dot</span>
+            </div>
+            <p class="boxnote">One amber chip carrying an interpolated label. The severity is
+              inside a string, the hue is borrowed from the determinate ramp, and
+              <span class="mono">--warn</span> is simultaneously doing duty for
+              <span class="mono">lagging</span>, <span class="mono">medium</span>,
+              <span class="mono">manual review</span>, the stale overlay and remediation
+              <span class="mono">blocked</span>. Three unrelated meanings sharing one channel means
+              the channel carries no meaning.</p>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+              <span class="chip warn">clean &middot; stale</span>
+              <span class="chip warn">lagging</span>
+              <span class="chip warn">blocked</span>
+            </div>
+            <p class="boxnote">Four chips, one hue, one marker. A stale critical and a stale clean
+              are indistinguishable, and both are indistinguishable from a determinate amber.</p>
+          </div>
+
+          <div class="newbox">
+            <span class="boxlbl">Corrected &mdash; binding</span>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span class="chip crit is-stale">critical<span class="vh"> stale</span></span>
+              <span class="tok"><b>--crit</b> &middot; filled dot &middot; + hold mark</span>
+            </div>
+            <div class="ev stale" style="margin-top:8px">vulnerability_findings &middot; observed
+              2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div>
+            <p class="boxnote">The status keeps every channel it had and gains a fourth signal for
+              staleness. The label is the enum member; the qualifier is prose on the footline; the
+              hue means severity and only severity.</p>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <span class="chip ok is-stale">none found<span class="vh"> stale</span></span>
+              <span class="chip warn">lagging</span>
+              <span class="chip plain">blocked</span>
+            </div>
+            <p class="boxnote">Three chips, three meanings. <span class="mono">--warn</span> is
+              determinate amber. <span class="mono">blocked</span> has moved to the readiness axis
+              and renders <code class="ref">.plain</code> in its own column.</p>
+          </div>
+        </div>
+
+        <table class="tbl" style="border:1px solid var(--line);margin-top:22px">
+          <caption class="vh">Channel-by-channel difference between the superseded mockup treatment
+            and the corrected stale overlay</caption>
+          <thead><tr>
+            <th scope="col">Channel</th>
+            <th scope="col">Mockup &mdash; superseded</th>
+            <th scope="col">Corrected</th>
+          </tr></thead>
+          <tbody>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Hue</th>
+              <td><span class="mono">--warn</span>, borrowed from the determinate ramp</td>
+              <td>the status's own hue &mdash; <span class="mono">--crit</span> stays
+                <span class="mono">--crit</span>, <span class="mono">--ok</span> stays
+                <span class="mono">--ok</span></td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Marker</th>
+              <td>filled dot, which reads as determinate whatever the underlying state was</td>
+              <td>the state's own marker, untouched &mdash; filled, hollow, dashed, struck or
+                angular</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Label</th>
+              <td class="mono">critical &middot; stale</td>
+              <td class="mono">critical</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Stale signal</th>
+              <td>carried by the hue alone</td>
+              <td><code class="ref">::after</code> hold mark &middot; amber footline &middot; hidden
+                <code class="ref">stale</code> text &mdash; three channels</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Footline</th>
+              <td>unspecified</td>
+              <td><code class="ref">.ev.stale</code> in <span class="mono">--warn</span>, naming the
+                collector, the observation time and the target it missed</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Announcement</th>
+              <td>"critical stale" is inside the visible label, so it is announced &mdash; but the
+                label is no longer an enum member</td>
+              <td>"critical stale" is announced from a visually-hidden span; the visible label stays
+                the enum member</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">Strikethrough</th>
+              <td>promised in prose, never implemented</td>
+              <td>not used &mdash; it would degrade the status word, which is a load-bearing
+                channel</td></tr>
+            <tr><th scope="row" style="text-align:left;font-weight:400">What <span class="mono">--warn</span> then means</th>
+              <td>determinate amber, stale, and remediation <span class="mono">blocked</span></td>
+              <td>determinate amber, and nothing else</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Do not implement the left-hand box</h4>
+        <p>It is drawn in <code>--err-wash</code> behind a dashed border for exactly one reason: so
+          nobody lifts it out of this file. Where the spines and the mockup conflict, the spines
+          win.</p>
+        <div class="reftags"><span class="reftag">reconcile</span></div></div>
+      <div class="anno"><h4><code>blocked</code> left the outcome axis</h4>
+        <p>It is a value on the CPM-FR-41 readiness axis &mdash; <code>ready</code> /
+          <code>blocked</code> / <code>unknown</code>, with stale as a property there too &mdash;
+          rendered <code>.plain</code> in its own column, never as an outcome chip.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-41</span><span class="reftag">L4</span></div></div>
+      <div class="anno"><h4>Two axes never share a column</h4>
+        <p>Outcome status in one, readiness in another, package-identity confidence in a third. The
+          old treatment had all three competing for <code>--warn</code>.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>Illegal labels decompose cleanly</h4>
+        <p><code>error &middot; 429</code> becomes an <code>error</code> chip over
+          <code>advisory &middot; 05:40Z &middot; 429 rate limited &middot; trace 4c1f9a2e</code>,
+          which is strictly more informative than what it replaced. The same move fixes
+          <code>critical &middot; stale</code>.</p>
+        <div class="reftags"><span class="reftag">L3</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ in situ ═══════════════════════════════════════════════════════════ -->
+<section class="band" id="dense">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">5</span><h2>In a realistic dense table row</h2></div>
+    <p class="sec-sub">The specimen only matters if it survives a queue at 12.5px with footlines
+      hanging under three columns at once. Two rows here are stale &mdash; one critical, one clean
+      &mdash; and neither is amber.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/remediation/?state=open</b></div>
+        <span class="chrome-role">packaging engineer</span></div>
+      <div class="viewport"><div class="app" style="min-width:1100px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#dense">Home</a><a href="#dense">Packages</a><a href="#dense" class="on">My queue</a>
+            <a href="#dense">Reports</a><a href="#dense">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi Nandakumar</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Remediation work queue</h2>
+              <div class="sub" aria-live="polite" aria-atomic="true">218 open &middot; 2 held on
+                stale evidence &middot; 41 blocked on an unpublished fix</div></div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">ranked by</span><b>priority_bucket, then score &middot; rules@6</b></div>
+          </div>
+
+          <table class="tbl" style="border:1px solid var(--line);margin-top:14px">
+            <caption class="vh">Remediation queue with two rows whose evidence is past its
+              freshness target</caption>
+            <thead><tr>
+              <th scope="col" style="width:34px"><span class="vh">Select</span>
+                <input type="checkbox" aria-label="Select all rows on this page"></th>
+              <th scope="col" class="sorted" aria-sort="ascending">Package</th>
+              <th scope="col">P</th><th scope="col">Score</th><th scope="col">Work</th>
+              <th scope="col">Vulnerability</th><th scope="col">Feedstock</th>
+              <th scope="col">Readiness</th><th scope="col">State</th><th scope="col">Age</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" aria-label="Select aiohttp"></td>
+                <th scope="row" class="pkg" style="text-align:left"><a href="#dense">aiohttp</a>
+                  <div class="ev">routed by Dana Okafor &middot; 08:44Z</div></th>
+                <td><span class="pbucket p1">P1</span></td><td class="num">96</td>
+                <td>fix vulnerability</td>
+                <td><span class="chip crit">critical</span>
+                  <div class="ev">vulnerability_findings &middot; 05:38Z</div></td>
+                <td><span class="chip ok">maintained</span>
+                  <div class="ev">feedstock_snapshots &middot; 04:55Z</div></td>
+                <td><span class="chip plain">ready</span>
+                  <div class="ev">3.9.2 on a monitored channel &middot; 04:41Z</div></td>
+                <td><span class="chip plain">routed</span></td><td class="mono">2d</td>
+              </tr>
+
+              <tr>
+                <td><input type="checkbox" aria-label="Select pyarrow"></td>
+                <th scope="row" class="pkg" style="text-align:left"><a href="#dense">pyarrow</a></th>
+                <td><span class="pbucket p1">P1</span></td><td class="num">88</td>
+                <td>update feedstock</td>
+                <td><span class="chip crit is-stale">critical<span class="vh"> stale</span></span>
+                  <div class="ev stale">vulnerability_findings &middot; observed 2026-08-29
+                    &middot; stale, target {{ collector.freshness_target }}</div></td>
+                <td><span class="chip warn">lagging</span>
+                  <div class="ev">feedstock_snapshots &middot; recipe 14 months inactive &middot; 04:55Z</div></td>
+                <td><span class="chip plain">unknown</span>
+                  <div class="ev stale">readiness not evaluated on stale evidence</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">6d</td>
+              </tr>
+
+              <tr>
+                <td><input type="checkbox" aria-label="Select orjson"></td>
+                <th scope="row" class="pkg" style="text-align:left"><a href="#dense">orjson</a></th>
+                <td><span class="pbucket p3">P3</span></td><td class="num">74</td>
+                <td>create recipe</td>
+                <td><span class="chip ok is-stale">none found<span class="vh"> stale</span></span>
+                  <div class="ev stale">vulnerability_findings &middot; observed 2026-08-29
+                    &middot; stale, target {{ collector.freshness_target }}</div></td>
+                <td><span class="chip notfound">not_found</span>
+                  <div class="ev">no feedstock, no staged recipe &middot; 04:55Z</div></td>
+                <td><span class="chip plain">ready</span>
+                  <div class="ev">staged recipe not started &middot; 04:55Z</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">11d</td>
+              </tr>
+
+              <tr>
+                <td><input type="checkbox" aria-label="Select internal-telemetry-sdk"></td>
+                <th scope="row" class="pkg" style="text-align:left"><a href="#dense">internal-telemetry-sdk</a></th>
+                <td><span class="pbucket p8">P8</span></td><td class="num">31</td>
+                <td>resolve identity</td>
+                <td><span class="chip unknown">unknown</span>
+                  <div class="ev">package identity unresolved &middot; gated at policy</div></td>
+                <td><span class="chip unknown">unknown</span>
+                  <div class="ev">absence cannot be claimed for an unmapped package</div></td>
+                <td><span class="chip plain">unknown</span>
+                  <div class="ev">readiness undefined without a resolved identity</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">31d</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="pager">
+            <span>Showing <b style="color:var(--ink-2)">1&ndash;4</b> of 218 &middot; page size
+              <span class="mono">{{ settings.PAGE_SIZE }}</span>, capped at
+              <span class="mono">{{ settings.CPM_MAX_PAGE_SIZE }}</span></span>
+            <div class="pagenums"><a href="#dense" class="on">1</a><a href="#dense">2</a>
+              <a href="#dense">3</a><a href="#dense">&hellip;</a></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Two stale rows, two different hues</h4>
+        <p><code>pyarrow</code> is a stale critical and reads <code>--crit</code>.
+          <code>orjson</code> is a stale clean result and reads <code>--ok</code>. Under the old
+          treatment both cells were the same amber chip.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-38</span></div></div>
+      <div class="anno"><h4>Amber appears exactly once, and it is determinate</h4>
+        <p><code>pyarrow</code>'s feedstock reads <code>lagging</code> &mdash; a genuine middle
+          position on a currency ramp. That is now the only thing <code>--warn</code> can mean on a
+          chip.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;warn</span></div></div>
+      <div class="anno"><h4>Readiness is its own column</h4>
+        <p><code>ready</code> / <code>blocked</code> / <code>unknown</code>, all
+          <code>.plain</code>. <code>pyarrow</code>'s readiness is <code>unknown</code> with an
+          amber footline, because the transition table was evaluated against stale evidence and
+          routing is not offered.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-41</span><span class="reftag">CPM-FR-38</span></div></div>
+      <div class="anno"><h4>Footlines still hang</h4>
+        <p><code>vertical-align: top</code> on every <code>td</code> is what lets three footlines in
+          one row sit under their values without pushing the other cells off their baseline. It is
+          not optional.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;tbl</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ greyscale ═════════════════════════════════════════════════════════ -->
+<section class="band alt" id="grey">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">6</span><h2>Greyscale &mdash; the states stay
+      separable without colour</h2></div>
+    <p class="sec-sub">The test in the accessibility floor: render any status-bearing surface in
+      greyscale and all five outcome states must remain distinguishable. If they do not, the chip is
+      broken, not the eyes reading it. Below is the same specimen under
+      <code class="ref">filter: grayscale(1)</code>.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Greyscale proof</b>
+        <span>fresh and stale, hue removed, marker geometry and words intact</span>
+        <span class="id" style="margin-left:auto">a11y floor &middot; the doctrinal rule</span></div>
+      <div class="plate">
+        <div class="grey">
+          <table class="tbl" style="border:1px solid var(--line)">
+            <caption class="vh">The five outcome states rendered in greyscale, fresh and stale</caption>
+            <thead><tr>
+              <th scope="col">State</th><th scope="col">Fresh</th><th scope="col">Stale</th>
+              <th scope="col">Separated by</th>
+            </tr></thead>
+            <tbody>
+              <tr><th scope="row" style="text-align:left;font-weight:400">determinate</th>
+                <td><span class="chip crit">critical</span></td>
+                <td><span class="chip crit is-stale">critical<span class="vh"> stale</span></span></td>
+                <td class="mono">filled dot &middot; the word</td></tr>
+              <tr><th scope="row" style="text-align:left;font-weight:400">determinate</th>
+                <td><span class="chip ok">none found</span></td>
+                <td><span class="chip ok is-stale">none found<span class="vh"> stale</span></span></td>
+                <td class="mono">filled dot &middot; the word</td></tr>
+              <tr><th scope="row" style="text-align:left;font-weight:400"><code class="ref">unknown</code></th>
+                <td><span class="chip unknown">unknown</span></td>
+                <td><span class="chip unknown is-stale">unknown<span class="vh"> stale</span></span></td>
+                <td class="mono">hollow ring &middot; the word</td></tr>
+              <tr><th scope="row" style="text-align:left;font-weight:400"><code class="ref">not_found</code></th>
+                <td><span class="chip notfound">not_found</span></td>
+                <td><span class="chip notfound is-stale">not_found<span class="vh"> stale</span></span></td>
+                <td class="mono">dashed ring &middot; the word</td></tr>
+              <tr><th scope="row" style="text-align:left;font-weight:400"><code class="ref">not_applicable</code></th>
+                <td><span class="chip na">not_applicable</span></td>
+                <td><span class="chip na is-stale">not_applicable<span class="vh"> stale</span></span></td>
+                <td class="mono">struck circle &middot; the word</td></tr>
+              <tr><th scope="row" style="text-align:left;font-weight:400"><code class="ref">error</code></th>
+                <td><span class="chip error">error</span></td>
+                <td><span class="chip error is-stale">error<span class="vh"> stale</span></span></td>
+                <td class="mono">triangle &middot; the word</td></tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top:18px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
+            <div>
+              <div class="magrow" style="height:96px;width:270px">
+                <span class="mag chip crit is-stale">critical<span class="vh"> stale</span></span>
+              </div>
+              <div class="magcap">&times;4 in greyscale &mdash; a round leading mark and two
+                straight trailing bars</div>
+            </div>
+            <div style="max-width:34ch">
+              <div class="ev stale" style="white-space:normal">vulnerability_findings &middot;
+                observed 2026-08-29 &middot; stale, target {{ collector.freshness_target }}</div>
+              <div class="magcap" style="margin-top:8px">the footline loses its amber and keeps
+                every word</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Six chips, six shapes, six words</h4>
+        <p>Filled, filled, hollow, dashed, struck, angular &mdash; and the lowercase status value as
+          real text under each. Removing hue costs one of four channels and the other three still
+          separate every state.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-6</span><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>Honest about what greyscale costs the hold mark</h4>
+        <p>In greyscale the mark is no longer amber. It survives on geometry and position: two
+          rectilinear bars on the trailing edge, where every state marker is round or triangular and
+          leads. It is still distinguishable, but it is one channel weaker.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;stale</span></div></div>
+      <div class="anno"><h4>Which is why the footline is real text</h4>
+        <p>The <code>::after</code> mark is CSS-generated and invisible to assistive technology, and
+          desaturated in greyscale. The <code>.ev.stale</code> line spells out the staleness in
+          words for both readers.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-37</span></div></div>
+      <div class="anno"><h4>Two determinate rows on purpose</h4>
+        <p>The first two rows are both determinate and both filled dots. They separate on the word
+          alone, which is exactly why the word may never be moved into a <code>title</code>, an
+          <code>aria-label</code>, an icon or a background image.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ what warn means now ═══════════════════════════════════════════════ -->
+<section class="band" id="warn">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">7</span><h2>What <span class="mono">--warn</span>
+      means now</h2></div>
+    <p class="sec-sub">One hue, one meaning. Everything that used to borrow it has somewhere else
+      to be.</p>
+
+    <div class="legend">
+      <div><span class="chip warn">lagging</span>
+        <p><b>Determinate amber.</b> A middle position on a severity or currency ramp. Also
+        <span class="mono">medium</span> and <span class="mono">manual review</span>. A filled dot,
+        because it is a conclusion.</p></div>
+      <div><span class="pbucket p3">P3</span>
+        <p><b>The <span class="mono">p3</span>&ndash;<span class="mono">p4</span> priority band.</b>
+        Bold mono, no marker, no border &mdash; visually distinct from a chip at a glance, which is
+        what stops a priority being read as a status. What the buckets contain is undefined in
+        every source.</p></div>
+      <div><span class="conf derived">inventory-derived</span>
+        <p><b>Package-identity confidence.</b> Text only, no chip, no marker. A determinate middle
+        position, shown normally and labelled. The label annotates the row; it never degrades the
+        value.</p></div>
+      <div><span class="chip crit is-stale">critical<span class="vh"> stale</span></span>
+        <p><b>The stale hold mark.</b> <span class="mono">--warn</span> appears on the chip, but as
+        a 6&times;8px overlay in the trailing slot &mdash; never as the chip's hue, its border or
+        its marker.</p></div>
+      <div><span class="chip plain">blocked</span>
+        <p><b>Readiness, not outcome.</b> <span class="mono">ready</span> /
+        <span class="mono">blocked</span> / <span class="mono">unknown</span>, markerless, in its
+        own column. A fix that exists nowhere yet is <span class="mono">blocked</span> &mdash;
+        distinct from <span class="mono">ready</span> and from <span class="mono">unknown</span>.</p></div>
+      <div><span class="mono" style="color:var(--warn)">collectors 7 of 8 healthy</span>
+        <p><b>Not a chip at all.</b> A string that belongs to no enumeration is not a chip &mdash;
+        it is a freshness-bar cell or body text. It may still take <span class="mono">--warn</span>
+        as a text colour, because there it is prose about currency, not a status on a value.</p></div>
+    </div>
+
+    <div class="notebox unk">
+      <h4>Five outcome states, and there will never be a sixth</h4>
+      <p><span class="mono">blocked</span>, <span class="mono">stale</span>,
+        <span class="mono">superseded</span>, <span class="mono">skipped</span> and every workflow
+        state are not among them. Each is a property, an axis or an enumeration of its own. The
+        stale overlay exists precisely so that expressing "this conclusion is held" never requires
+        inventing a state to hold it in.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <p>The theme switch at the top of this page sets <code class="ref">data-theme</code> on the root
+      element and is a specimen affordance for reviewing both palettes side by side. <b>v1 ships no
+      theme toggle</b> &mdash; the application honours <code class="ref">prefers-color-scheme</code>
+      only, and nothing in it sets <code class="ref">data-theme</code>. The hook is kept in the CSS
+      for a later preference surface (G-5). It is the only script in this file.</p>
+    <div class="srcs">
+      DESIGN.md &sect; Colors &rarr; The warn correction &mdash; stale is not a status<br>
+      DESIGN.md &sect; Components &rarr; <code class="ref">.chip</code> &rarr; The stale overlay<br>
+      EXPERIENCE.md &sect; State Patterns &rarr; Stale is a property of a status, not a status<br>
+      EXPERIENCE.md &sect; Open Gaps &rarr; G-5<br>
+      Per-collector freshness targets are PRD OQ 7 and are interpolated, never stated.
+    </div>
+  </div>
+</footer>
+
+</div>
+
+<script>
+/* The ONLY script in these mockups. It sets data-theme so a reviewer can
+   compare palettes. It is a specimen affordance, not a product feature:
+   v1 honours prefers-color-scheme only and ships no toggle (G-5). */
+(function () {
+  var root = document.documentElement;
+  var modes = ['system', 'light', 'dark'];
+  var buttons = {};
+  modes.forEach(function (mode) { buttons[mode] = document.getElementById('tb-' + mode); });
+  function apply(mode) {
+    if (mode === 'system') { root.removeAttribute('data-theme'); }
+    else { root.setAttribute('data-theme', mode); }
+    modes.forEach(function (m) {
+      buttons[m].setAttribute('aria-pressed', m === mode ? 'true' : 'false');
+    });
+  }
+  modes.forEach(function (mode) {
+    buttons[mode].addEventListener('click', function () { apply(mode); });
+  });
+})();
+</script>

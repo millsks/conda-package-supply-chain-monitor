@@ -1,0 +1,1332 @@
+<title>Empty and Error States — Supply Chain Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   mock-empty-and-error-states.html
+
+   Governed by:
+     DESIGN.md      § Colors · § Components (.chip, .ev, .freshbar, .panel,
+                      .btn, .filterpill, .pager) · § Elevation (the 3px left rule)
+     EXPERIENCE.md  § State Patterns → The empty states (E1–E5)
+                    § State Patterns → The error states (404 · 500 · session expired)
+                    § Voice and Tone · § Accessibility Floor
+
+   Every screen here was specified in prose and never drawn. Nothing on this
+   page states a withheld number: page size, the export cap, freshness targets
+   and the P1–P10 rule set appear as interpolated placeholders.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ── tokens — reproduced verbatim from DESIGN.md § Colors ────────────────── */
+/* Dual-gated dark: system preference unless explicitly light, or explicitly  */
+/* dark regardless of the system. Both blocks carry identical declarations —  */
+/* the duplication is correct; there is no build step.                        */
+/* No hex value appears anywhere outside these three :root blocks.            */
+:root{
+  --paper:#e9edef;      --surface:#ffffff;   --surface-2:#f4f7f8;  --surface-3:#eaeff1;
+  --ink:#0e1719;        --ink-2:#33454c;     --muted:#556670;
+  --line:#ccd7db;       --line-2:#e0e8ea;
+  --accent:#0d5c73;     --accent-2:#0a4557;  --accent-wash:#dfedf1;  --on-accent:#ffffff;
+  --ok:#22643f;         --ok-wash:#e0efe6;
+  --warn:#855505;       --warn-wash:#f7ecd8;
+  --crit:#9d1729;       --crit-wash:#f7e2e4;
+  --unk:#5a6d75;        --unk-wash:#e6ecee;
+  --nf:#3c5a80;         --nf-wash:#e3eaf3;
+  --na:#655684;         --na-wash:#eae6f2;
+  --err:#8a3115;        --err-wash:#f6e5dd;
+  --shadow-sm:0 1px 2px rgba(14,23,25,.07);
+  --shadow-md:0 1px 2px rgba(14,23,25,.06),0 10px 26px -16px rgba(14,23,25,.35);
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+    --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+    --line:#2b3d43;       --line-2:#223136;
+    --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+    --ok:#6cc191;         --ok-wash:#14301f;
+    --warn:#e0ab55;       --warn-wash:#33260d;
+    --crit:#f08a95;       --crit-wash:#3a161c;
+    --unk:#9fb2b9;        --unk-wash:#1f2c30;
+    --nf:#93b3dd;         --nf-wash:#182533;
+    --na:#b7a6dd;         --na-wash:#241f33;
+    --err:#e3946f;        --err-wash:#331a10;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1214;      --surface:#121c1f;   --surface-2:#172327;  --surface-3:#1d2c31;
+  --ink:#e6eef0;        --ink-2:#b3c4c9;     --muted:#8ba1a8;
+  --line:#2b3d43;       --line-2:#223136;
+  --accent:#57b6d2;     --accent-2:#8ad2e6;  --accent-wash:#123039;  --on-accent:#08171c;
+  --ok:#6cc191;         --ok-wash:#14301f;
+  --warn:#e0ab55;       --warn-wash:#33260d;
+  --crit:#f08a95;       --crit-wash:#3a161c;
+  --unk:#9fb2b9;        --unk-wash:#1f2c30;
+  --nf:#93b3dd;         --nf-wash:#182533;
+  --na:#b7a6dd;         --na-wash:#241f33;
+  --err:#e3946f;        --err-wash:#331a10;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+  --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+}
+
+/* ── documentation shell ─────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;margin:0}
+a{color:var(--accent);text-underline-offset:3px}
+h1,h2,h3,h4,h5{text-wrap:balance;margin:0;line-height:1.2}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+.vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.doc{display:flex;flex-direction:column;gap:0}
+
+.masthead{background:var(--surface);border-bottom:1px solid var(--line);padding:44px 0 34px}
+.mast-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:56px;align-items:end}
+@media (max-width:900px){.mast-grid{grid-template-columns:1fr;gap:28px}}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);font-weight:600}
+h1{font-size:clamp(30px,4.4vw,45px);font-weight:600;letter-spacing:-.022em;margin:14px 0 0}
+.standfirst{font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2);
+  max-width:60ch;margin-top:14px}
+.mast-meta{display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:11.5px;
+  color:var(--muted);border-left:2px solid var(--line);padding-left:16px}
+.mast-meta b{color:var(--ink-2);font-weight:500}
+.sample-note{margin-top:22px;display:flex;gap:10px;align-items:flex-start;background:var(--warn-wash);
+  border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);border-radius:2px;
+  padding:11px 14px;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.sample-note strong{color:var(--warn)}
+
+section.band{padding:56px 0;border-bottom:1px solid var(--line-2)}
+section.band.alt{background:var(--surface)}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:8px}
+.sec-num{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;
+  letter-spacing:.08em;padding-top:4px}
+h2{font-size:27px;font-weight:600;letter-spacing:-.015em}
+.sec-sub{font-family:var(--serif);color:var(--ink-2);font-size:16.5px;max-width:70ch;margin-top:10px}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
+
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:26px}
+.toc a{background:var(--surface);padding:13px 15px;text-decoration:none;color:var(--ink);
+  display:flex;flex-direction:column;gap:3px;transition:background .12s}
+.toc a:hover{background:var(--accent-wash)}
+.toc a span{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.09em;
+  text-transform:uppercase}
+.toc a b{font-weight:500;font-size:14px}
+
+/* the screen frame — a browser window holding a mock */
+.screen{margin-top:22px;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  background:var(--surface);box-shadow:var(--shadow-md)}
+.chrome{display:flex;align-items:center;gap:12px;padding:9px 13px;background:var(--surface-3);
+  border-bottom:1px solid var(--line)}
+.dots{display:flex;gap:6px;flex:none}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.urlbar{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:4px 11px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.urlbar b{color:var(--ink-2);font-weight:500}
+.chrome-role{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-wash);padding:3px 8px;border-radius:2px;flex:none}
+.chrome-code{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;
+  color:var(--muted);background:var(--surface);border:1px solid var(--line);
+  padding:2px 8px;border-radius:2px;flex:none}
+.viewport{overflow-x:auto}
+.viewport > .app{min-width:960px}
+
+/* annotation rail under each screen */
+.annos{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);border-top:0}
+.anno{background:var(--surface-2);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.anno h4{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.anno h4::before{content:"";width:5px;height:5px;background:var(--accent);flex:none;
+  transform:rotate(45deg)}
+.anno p{font-size:13px;color:var(--ink-2);line-height:1.48}
+.anno code,code.ref{font-family:var(--mono);font-size:11.5px;background:var(--surface-3);
+  padding:1px 4px;border-radius:2px;color:var(--accent-2);white-space:nowrap}
+.reftags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.reftag{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;color:var(--muted);
+  border:1px solid var(--line);border-radius:2px;padding:1px 6px;background:var(--surface)}
+.reftag.ad{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ── the mock application ────────────────────────────────────────────────── */
+.app{font-size:13px;color:var(--ink);background:var(--surface)}
+.app-top{display:flex;align-items:center;gap:22px;padding:0 16px;height:50px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;flex:none}
+.brand .glyph{width:20px;height:20px;border-radius:3px;background:var(--accent);
+  display:grid;place-items:center;color:var(--on-accent);font-family:var(--mono);
+  font-size:10px;font-weight:600}
+.app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
+.app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
+  color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
+.app-nav a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.who{display:flex;align-items:center;gap:9px;flex:none;font-size:12px;color:var(--muted)}
+.who .av{width:24px;height:24px;border-radius:50%;background:var(--accent-wash);color:var(--accent);
+  display:grid;place-items:center;font-size:10.5px;font-weight:600;font-family:var(--mono)}
+.who .role{font-family:var(--mono);font-size:10.5px;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.06em}
+
+.app-body{padding:16px}
+.app-h{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.app-h h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.app-h .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:4px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:default;
+  display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,transparent);color:var(--crit)}
+.btn.sm{font-size:11.5px;padding:4px 9px}
+
+/* the freshness bar — mandatory chrome, CPM-AD-11 */
+.freshbar{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin-top:14px;
+  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface-2);
+  font-family:var(--mono);font-size:11px}
+.freshbar div{padding:7px 13px;border-right:1px solid var(--line-2);display:flex;gap:7px;
+  align-items:baseline;color:var(--muted)}
+.freshbar div:last-child{border-right:0}
+.freshbar b{color:var(--ink-2);font-weight:500}
+.freshbar .lbl{text-transform:uppercase;letter-spacing:.07em;font-size:9.5px}
+.freshbar.unk{border-left-color:var(--unk)}
+.freshbar.warn{border-left-color:var(--warn)}
+
+/* status chips — hue AND marker shape AND the word AND the footline */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  padding:2px 8px 2px 7px;border-radius:2px;border:1px solid;white-space:nowrap;line-height:1.5}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.chip.ok{color:var(--ok);background:var(--ok-wash);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.chip.warn{color:var(--warn);background:var(--warn-wash);border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+.chip.crit{color:var(--crit);background:var(--crit-wash);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+.chip.unknown{color:var(--unk);background:var(--unk-wash);border-color:color-mix(in srgb,var(--unk) 32%,transparent)}
+.chip.unknown::before{background:transparent;border:1.5px solid currentColor}
+.chip.notfound{color:var(--nf);background:var(--nf-wash);border-color:color-mix(in srgb,var(--nf) 32%,transparent)}
+.chip.notfound::before{background:transparent;border:1.5px dashed currentColor}
+.chip.na{color:var(--na);background:var(--na-wash);border-color:color-mix(in srgb,var(--na) 32%,transparent)}
+.chip.na::before{background:linear-gradient(to bottom right,transparent 44%,currentColor 44%,currentColor 56%,transparent 56%);
+  border:1.5px solid currentColor}
+.chip.error{color:var(--err);background:var(--err-wash);border-color:color-mix(in srgb,var(--err) 32%,transparent)}
+.chip.error::before{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);height:9px}
+.chip.plain{color:var(--ink-2);background:var(--surface-2);border-color:var(--line)}
+.chip.plain::before{display:none}
+.chip.sm{font-size:10px;padding:1px 6px 1px 6px}
+
+/* the stale overlay — DESIGN.md § Components → the stale overlay           */
+/* ::before belongs permanently to the state's own marker, so stale takes   */
+/* ::after: two 2px amber bars, 2px apart, 8px tall, on the trailing side.  */
+.chip.is-stale::after{content:"";flex:none;width:6px;height:8px;margin-left:1px;
+  background:linear-gradient(to right,
+    var(--warn) 0 2px, transparent 2px 4px, var(--warn) 4px 6px)}
+
+/* the evidence footline that sits under every claimed value */
+.ev{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px;
+  display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ev::before{content:"";width:9px;height:1px;background:var(--line);flex:none}
+.ev.stale{color:var(--warn)}
+.panel .body .ev,.anno .ev,.toast .ev,.panel .tbl .ev,.emptyblock .ev{white-space:normal}
+.panel .body .ev::before{margin-top:7px;align-self:flex-start}
+
+/* tables */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.tbl th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:9px 11px;
+  background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  white-space:nowrap;position:relative}
+.tbl th.sorted{color:var(--accent)}
+.tbl td{padding:9px 11px;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr:hover td{background:var(--surface-2)}
+.tbl .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.tbl caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:9px 11px}
+.pkg{font-weight:600;font-size:13px}
+.panel .tbl td,.panel .tbl th{white-space:normal}
+.pkg a{text-decoration:none;color:var(--ink)}
+.pkg a:hover{color:var(--accent);text-decoration:underline}
+.pbucket{font-family:var(--mono);font-weight:600;font-size:12px;padding:2px 7px;border-radius:2px;
+  display:inline-block;letter-spacing:.02em}
+.p1,.p2{background:var(--crit-wash);color:var(--crit)}
+.p3,.p4{background:var(--warn-wash);color:var(--warn)}
+.p5,.p6,.p7{background:var(--accent-wash);color:var(--accent)}
+.p8,.p9,.p10{background:var(--surface-3);color:var(--muted)}
+.conf{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted)}
+.conf.verified{color:var(--ok)}
+.conf.derived{color:var(--warn)}
+.conf.unmapped{color:var(--unk)}
+.dash{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* sidebar + main split */
+.split{display:grid;grid-template-columns:236px minmax(0,1fr);gap:0;border:1px solid var(--line);
+  margin-top:14px}
+.side{background:var(--surface-2);border-right:1px solid var(--line);padding:16px}
+.side h5{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin:0 0 8px}
+.side .grp{margin-bottom:17px}
+.facet{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--ink-2)}
+.facet input{margin:0;accent-color:var(--accent)}
+.facet .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.facet.on{color:var(--accent);font-weight:500}
+.searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink)}
+.main-pane{min-width:0;background:var(--surface)}
+.applied{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line-2);
+  align-items:center;font-size:11.5px;color:var(--muted)}
+.filterpill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  background:var(--accent-wash);color:var(--accent);border-radius:2px;padding:2px 4px 2px 7px}
+/* the mockup's <x>✕</x> is deleted: a real button with a full accessible name */
+.filterpill button{font-family:var(--mono);font-size:10.5px;line-height:1;border:0;
+  background:transparent;color:var(--accent);padding:2px 3px;border-radius:2px;cursor:default}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 12px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap}
+.pagenums{display:flex;gap:3px}
+.pagenums a{min-width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:3px;text-decoration:none;color:var(--ink-2);font-family:var(--mono);font-size:11.5px}
+.pagenums a.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+/* cards + panels inside the app */
+.cards{display:grid;gap:12px;margin-top:14px}
+.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.panel{border:1px solid var(--line);background:var(--surface);min-width:0;overflow-x:auto;overflow-y:hidden}
+.panel > header{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 13px;border-bottom:1px solid var(--line-2);background:var(--surface-2)}
+.panel > header h3,.panel > header h4{font-size:12.5px;font-weight:600}
+.panel > header .hx{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+.panel .body{padding:16px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:12.5px}
+.kv dt{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.03em;padding-top:2px}
+.kv dd{margin:0;color:var(--ink);min-width:0;word-break:break-word}
+.mono{font-family:var(--mono);font-size:11.5px}
+.stat{padding:13px}
+.stat .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted)}
+.stat .big{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+  margin-top:4px;line-height:1}
+.stat .foot{font-size:11.5px;color:var(--muted);margin-top:5px}
+.bar{height:5px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:9px;display:flex}
+.bar i{display:block;height:100%}
+.hxnote{font-family:var(--mono);font-size:10px;color:var(--accent);background:var(--accent-wash);
+  border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:3px 8px;
+  border-radius:2px;display:inline-block}
+
+/* the empty / refusal content block — the 3px rule coloured to the content */
+.emptyblock{border:1px solid var(--line);border-left:3px solid var(--unk);background:var(--surface);
+  padding:16px 18px;margin-top:14px;max-width:74ch}
+.emptyblock.na{border-left-color:var(--na)}
+.emptyblock.warn{border-left-color:var(--warn)}
+.emptyblock.err{border-left-color:var(--err)}
+.emptyblock.acc{border-left-color:var(--accent)}
+.emptyblock h3{font-size:15px;font-weight:600}
+.emptyblock p{font-size:13px;color:var(--ink-2);margin-top:8px;line-height:1.5}
+.counterline{margin-top:16px;border-top:1px solid var(--line-2);padding-top:14px;
+  display:flex;flex-direction:column;gap:11px}
+.counterline .cl-h{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted)}
+.counterline .row{display:flex;gap:11px;align-items:flex-start}
+.counterline .row .txt{font-size:12.5px;color:var(--ink)}
+
+/* sign-in */
+.login{min-height:380px;display:grid;place-items:center;background:var(--surface-2);padding:44px 16px}
+.loginbox{width:380px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;box-shadow:var(--shadow-md);padding:32px;text-align:center}
+.loginbox h3{font-size:17px}
+.loginbox p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.oidc{width:100%;margin-top:20px;justify-content:center;padding:10px}
+.claimline{margin-top:20px;border-top:1px solid var(--line-2);padding-top:14px;text-align:left;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.7}
+
+/* modal over a dimmed page — vertical offset is 26px, always */
+.modal-wrap{position:relative}
+.dim{position:absolute;inset:0;background:color-mix(in srgb,var(--ink) 42%,transparent);z-index:2}
+.modal{position:absolute;z-index:3;left:50%;top:26px;transform:translateX(-50%);width:min(560px,92%);
+  background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow-md)}
+.modal > header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
+  border-bottom:1px solid var(--line-2)}
+.modal > header h3{font-size:14.5px;font-weight:600}
+.modal .body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.modal > footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;
+  border-top:1px solid var(--line-2);background:var(--surface-2)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600}
+.field .help{font-size:11.5px;color:var(--muted)}
+.field .req{color:var(--crit);font-family:var(--mono);font-size:10px}
+.input,.textarea,.select{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12.5px;color:var(--ink)}
+.input.mono,.textarea.mono{font-family:var(--mono);font-size:12px}
+.textarea{min-height:66px;resize:none}
+.errmsg{font-size:11.5px;color:var(--crit);display:flex;gap:6px;align-items:flex-start}
+/* invalid is border AND fill together, never fill alone and never colour alone */
+.input.invalid,.textarea.invalid,.select.invalid{border-color:var(--crit);background:var(--crit-wash)}
+
+/* toast / async progress */
+.toast{display:flex;gap:11px;align-items:flex-start;border:1px solid var(--line);
+  border-left:3px solid var(--accent);background:var(--surface-2);padding:11px 14px;margin-top:14px}
+.toast.err{border-left-color:var(--err)}
+.toast.warn{border-left-color:var(--warn)}
+.toast .spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);
+  border-top-color:var(--accent);flex:none;margin-top:2px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast b{font-size:12.5px}
+.toast p{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* specimen plates */
+.figure{margin-top:24px;border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--shadow-sm)}
+.figure .cap{display:flex;gap:12px;align-items:baseline;padding:11px 16px;
+  border-bottom:1px solid var(--line-2);background:var(--surface-2);flex-wrap:wrap}
+.figure .cap b{font-size:13px;font-weight:600}
+.figure .cap span{font-size:12.5px;color:var(--muted)}
+.figure .cap .id{font-family:var(--mono);font-size:10.5px;color:var(--accent);letter-spacing:.06em}
+.figure .plate{padding:20px 16px;overflow-x:auto}
+
+/* legend + prose blocks */
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:22px}
+.legend div{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.legend p{font-size:12px;color:var(--muted);line-height:1.45}
+.notebox{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
+  padding:16px 18px;margin-top:24px}
+.notebox.warn{border-left-color:var(--warn)}
+.notebox.unk{border-left-color:var(--unk)}
+.notebox.ok{border-left-color:var(--ok)}
+.notebox h4{font-size:13px;margin-bottom:8px}
+.notebox ul{margin:0;padding-left:19px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.notebox li{margin-bottom:5px}
+.notebox li b{color:var(--ink);font-weight:600}
+.notebox p{font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:22px}
+.codeblock{font-family:var(--mono);font-size:11px;line-height:1.75;color:var(--ink-2);
+  background:var(--surface-3);border:1px solid var(--line-2);border-radius:2px;
+  padding:12px 14px;margin-top:14px;overflow-x:auto;white-space:pre}
+footer.pagefoot{padding:34px 0 54px;color:var(--muted);font-size:12.5px}
+footer.pagefoot p{max-width:70ch}
+.srcs{font-family:var(--mono);font-size:11px;line-height:1.9;margin-top:10px;color:var(--muted)}
+
+/* ── file-local: the request/response exchange plate ─────────────────────── */
+.exchange{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2)}
+.exchange > div{background:var(--surface);padding:14px 16px}
+.exchange h4{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin-bottom:9px}
+.exchange pre{font-family:var(--mono);font-size:11px;line-height:1.75;color:var(--ink-2);
+  margin:0;white-space:pre-wrap;word-break:break-word}
+.exchange pre b{color:var(--accent);font-weight:500}
+.exchange pre i{color:var(--muted);font-style:normal}
+.badnote{border:1px solid color-mix(in srgb,var(--err) 45%,transparent);
+  background:var(--err-wash);border-radius:2px;padding:11px 14px;margin-top:14px;
+  font-size:12.5px;color:var(--ink-2);max-width:78ch}
+.badnote b{color:var(--err)}
+</style>
+
+<div class="doc">
+
+<!-- ══ masthead ══════════════════════════════════════════════════════════ -->
+<header class="masthead">
+  <div class="wrap mast-grid">
+    <div>
+      <div class="eyebrow">Conda Package Supply Chain Monitor · v1</div>
+      <h1>Every state that was specified and never drawn</h1>
+      <p class="standfirst">Five emptinesses and four failures. The mockup has no generic empty
+        state, no 404, no 500 and no session expiry; EXPERIENCE.md specifies all of them in prose.
+        This page draws them. The load-bearing one is E2 — a queue that is legitimately empty
+        must never be readable as "everything is fine".</p>
+    </div>
+    <div class="mast-meta">
+      <div><b>Governed by</b> EXPERIENCE.md § State Patterns</div>
+      <div><b>Tokens</b> DESIGN.md § Colors, verbatim</div>
+      <div><b>Binds</b> CPM-SM-C1 · CPM-FR-31 · CPM-AD-11 · CPM-AD-23</div>
+      <div><b>Status</b> Visual reference — not implemented</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="sample-note">
+      <div><strong>Every figure on this page is sample data.</strong> Package names, advisory
+      identifiers, counts, request ids and timestamps are illustrative. No number withheld by
+      the sources appears here: page size, the export row cap, per-collector freshness targets
+      and the P1&ndash;P10 rule set are shown as interpolated placeholders such as
+      <code class="ref">{{ settings.PAGE_SIZE }}</code>, never as literals.</div>
+    </div>
+    <nav class="toc">
+      <a href="#e1"><span>E1</span><b>Refused is not empty (403)</b></a>
+      <a href="#e2"><span>E2</span><b>A legitimately empty own-queue</b></a>
+      <a href="#e3"><span>E3</span><b>Zero results under a filter</b></a>
+      <a href="#e4"><span>E4</span><b>First run, no rollup yet</b></a>
+      <a href="#e5"><span>E5</span><b>A blank field is not an empty state</b></a>
+      <a href="#e404"><span>404</span><b>Not in the monitored inventory</b></a>
+      <a href="#e500"><span>500</span><b>Unexpected failure, nothing written</b></a>
+      <a href="#esession"><span>Session</span><b>Expiry, and the HX-Redirect rule</b></a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ E1 ════════════════════════════════════════════════════════════════ -->
+<section class="band alt" id="e1">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">E1</span><h2>Refused is not empty</h2></div>
+    <p class="sec-sub">An empty queue and a forbidden queue mean opposite things. Rendering a
+      forbidden queue as empty tells the reader their colleagues have no work. The mockup drew
+      this one; it is reproduced here so the whole set lives in one file, with the chip corrected
+      to the markerless variant.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/identity/</b></div>
+        <span class="chrome-code">HTTP 403</span>
+        <span class="chrome-role">packaging engineer</span></div>
+      <div class="viewport"><div class="app" style="min-width:0">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e1">Home</a><a href="#e1">Packages</a><a href="#e1">My queue</a>
+            <a href="#e1">Reports</a><a href="#e1">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi Nandakumar</div>
+        </div>
+        <div class="app-body">
+          <div style="max-width:600px;padding:24px 0">
+            <span class="chip plain">403 &middot; refused</span>
+            <h2 style="font-size:20px;margin-top:12px">The package-identity review queue belongs to
+              platform and engineering leadership</h2>
+            <p style="color:var(--ink-2);margin-top:10px;font-size:13.5px">
+              Your role reads all the evidence in the monitor, including every package's identity
+              and its provenance. Acting on package-identity review is a separate grant.</p>
+
+            <div class="panel" style="margin-top:16px">
+              <div class="body">
+                <dl class="kv" style="grid-template-columns:130px minmax(0,1fr)">
+                  <dt>your role</dt><dd class="mono">packaging-engineer</dd>
+                  <dt>required</dt><dd class="mono">platform-lead</dd>
+                  <dt>surface</dt><dd class="mono">queues.identity.list</dd>
+                  <dt>request id</dt><dd class="mono">01JQ8H4R7B</dd>
+                  <dt>logged</dt><dd>yes, with your user identity</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="btnrow" style="margin-top:16px">
+              <button type="button" class="btn primary">Back to my queue</button>
+              <button type="button" class="btn">View this package's identity</button>
+            </div>
+            <div class="ev" style="margin-top:14px">reading package identity is permitted &middot;
+              acting on the queue is not</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The refusal names the grant</h4>
+        <p>Which role owns the surface, which role you hold, which permission was checked, and the
+          request id. Vague refusals generate support tickets; specific ones generate a correct
+          request to an administrator.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-31</span><span class="reftag">CPM-NFR-11</span>
+          <span class="reftag">APP.05-API-004</span></div></div>
+      <div class="anno"><h4>Read is shared, act is scoped</h4>
+        <p>Two actions, always: back to your own queue, and the read-only view of the same object.
+          The <code>My queue</code> nav entry resolves to the caller's own queue, so this page is
+          only ever reached from a typed, pasted or bookmarked deep URL.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-13</span></div></div>
+      <div class="anno"><h4>Correction: the chip is <code>.plain</code></h4>
+        <p>The mockup drew <code>403 &middot; refused</code> as <code>.chip.crit</code> &mdash; a
+          filled dot in a determinate-ramp hue. An HTTP refusal is not an outcome state, so it takes
+          the markerless variant. <code>.plain</code> is never used to say something is fine, and a
+          refusal does not.</p>
+        <div class="reftags"><span class="reftag">L4</span><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>Refusals are readable, not just logged</h4>
+        <p>The required role and the requested surface are text on the page, not only a structured
+          log line. The log line still happens, and the page says so.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ E2 ════════════════════════════════════════════════════════════════ -->
+<section class="band" id="e2">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">E2</span><h2>A legitimately empty own-queue &mdash;
+      the mandatory counter-line</h2></div>
+    <p class="sec-sub">This is CPM-SM-C1 in its purest form. A queue with no open items is the one
+      screen in the product most likely to be read as "everything is fine", and it is the one screen
+      where that reading is most dangerous. The counter-line is not optional chrome and not
+      progressive disclosure: it states, in the same block, what is <em>not</em> in this queue
+      because it could not be assessed.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/?state=open</b></div>
+        <span class="chrome-code">0 rows</span>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport"><div class="app">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e2">Home</a><a href="#e2">Packages</a><a href="#e2" class="on">My queue</a>
+            <a href="#e2">Reports</a><a href="#e2">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Compliance review queue</h2>
+              <div class="sub">0 open items &middot; nothing is awaiting your decision</div></div>
+          </div>
+
+          <!-- provenance is mandatory chrome even with zero rows -->
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">ranked by</span><b>priority_bucket, then score &middot; rules@6</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+
+          <div class="emptyblock">
+            <h3>Your compliance review queue has no open items.</h3>
+            <p>Everything routed to you has been decided. That is a statement about this queue and
+              about nothing else.</p>
+
+            <div class="counterline">
+              <div class="cl-h">What is not in this queue, and why</div>
+
+              <div class="row">
+                <span class="chip unknown" style="flex:none;margin-top:1px">unknown</span>
+                <div class="txt">217 packages hold no vulnerability evidence and are not in this
+                  queue.
+                  <div class="ev">vulnerability_findings &middot; no row at the cut-off &middot;
+                    <a href="#e2">open these in the health view</a></div></div>
+              </div>
+
+              <div class="row">
+                <span class="chip error" style="flex:none;margin-top:1px">error</span>
+                <div class="txt">148 packages could not be assessed &mdash; the advisory collector
+                  failed and are not in this queue.
+                  <div class="ev">advisory &middot; 05:40Z &middot; rate limited, retries exhausted
+                    &middot; trace <a href="#e2">4c1f9a2e</a></div></div>
+              </div>
+
+              <div class="row">
+                <span class="conf unmapped" style="flex:none;margin-top:5px">unmapped</span>
+                <div class="txt">321 packages have unresolved package identity. Every gated status
+                  on them is written <code class="ref">unknown</code>; they sit in the
+                  package-identity review queue, not here.
+                  <div class="ev">identity_overrides &middot; no resolution &middot;
+                    <a href="#e2">unmapped identities report</a></div></div>
+              </div>
+            </div>
+
+            <div class="ev" style="margin-top:16px">this queue is empty &middot; the inventory is not
+              assessed in full</div>
+          </div>
+
+          <div class="btnrow" style="margin-top:16px">
+            <button type="button" class="btn">Open the 217 unassessed packages</button>
+            <button type="button" class="btn">Open the collector-health view</button>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>No <code>--ok</code> appears on this screen</h4>
+        <p>No green, no tick, no "all clear", no celebratory copy. The only hues present are
+          <code>--unk</code> slate, <code>--err</code> burnt orange and <code>--accent</code>. An
+          empty queue that renders green is CPM-SM-C1 arriving through the back door.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C1</span><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>The freshness bar still renders</h4>
+        <p>Zero rows does not suspend provenance. The reader still learns when the rollup was
+          computed, where the evidence cut-off fell, and which policy run produced the emptiness
+          they are looking at.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-11</span><span class="reftag">CPM-FR-37</span></div></div>
+      <div class="anno"><h4>The counter-line is in the same block</h4>
+        <p>Not a footnote, not a second panel below the fold, not a link. It shares the
+          <code>.emptyblock</code> with the emptiness statement, separated by one hairline, so the
+          two cannot be read apart.</p>
+        <div class="reftags"><span class="reftag">E2</span><span class="reftag">CPM-SM-C1</span></div></div>
+      <div class="anno"><h4>Each counter row carries its own evidence</h4>
+        <p>Source, observation time and a qualifier, on the <code>.ev</code> footline &mdash; the
+          same grammar the rest of the product uses. A counter-line without provenance is just an
+          assertion.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-37</span></div></div>
+      <div class="anno"><h4>The 3px rule is <code>--unk</code>, not <code>--accent</code></h4>
+        <p>The block concerns unresolved and unmapped state, so the provenance rule is coloured to
+          match its content. Never colour the rule with a hue that contradicts the block.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;3px</span></div></div>
+      <div class="anno"><h4>No bulk verbs in the header</h4>
+        <p>Bulk actions appear only when rows are checked. With zero rows the button row carries
+          navigation to the unassessed set, which is the only useful action on this screen.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-22</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ E3 ════════════════════════════════════════════════════════════════ -->
+<section class="band alt" id="e3">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">E3</span><h2>Zero results under a filter</h2></div>
+    <p class="sec-sub">Distinct from E2, and the distinction is the whole point: the packages exist,
+      the filter excluded them. The applied pills stay, the count reads <code>0 of 9,842</code>, and
+      every facet count stays visible so the reader can see which facet is at fault.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/?vuln=not_applicable&amp;pkg_identity_confidence=unmapped</b></div>
+        <span class="chrome-code">0 of 9,842</span>
+        <span class="chrome-role">shared &middot; all roles</span></div>
+      <div class="viewport"><div class="app" style="min-width:1020px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e3">Home</a><a href="#e3" class="on">Packages</a><a href="#e3">My queue</a>
+            <a href="#e3">Reports</a><a href="#e3">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">platform</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Current package health</h2>
+              <div class="sub" aria-live="polite" aria-atomic="true">9,842 packages in the inventory
+                &middot; <b style="color:var(--ink-2)">0</b> match these filters</div></div>
+            <div class="btnrow">
+              <button type="button" class="btn">Export CSV</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy versions</span><b>currency@4 vuln@9 licence@3 py314@2 feedstock@2 priority@6</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+
+          <div class="split">
+            <aside class="side" aria-label="Filters">
+              <div class="grp">
+                <h5>Search</h5>
+                <label for="e3-q" style="font-size:12px;display:block;margin-bottom:5px">Canonical package name</label>
+                <input class="searchbox" id="e3-q" type="text" value="">
+              </div>
+              <div class="grp">
+                <h5>Vulnerability status</h5>
+                <label class="facet"><input type="checkbox"> critical <span class="n">1,204</span></label>
+                <label class="facet"><input type="checkbox"> high <span class="n">2,911</span></label>
+                <label class="facet"><input type="checkbox"> none found <span class="n">4,388</span></label>
+                <label class="facet"><input type="checkbox"> unknown <span class="n">217</span></label>
+                <label class="facet"><input type="checkbox"> not_found <span class="n">0</span></label>
+                <label class="facet"><input type="checkbox"> error <span class="n">148</span></label>
+                <label class="facet on"><input type="checkbox" checked> not_applicable <span class="n">974</span></label>
+              </div>
+              <div class="grp">
+                <h5>Package-identity confidence</h5>
+                <label class="facet"><input type="checkbox"> verified <span class="n">8,180</span></label>
+                <label class="facet"><input type="checkbox"> inventory-derived <span class="n">1,341</span></label>
+                <label class="facet on"><input type="checkbox" checked> unmapped <span class="n">321</span></label>
+              </div>
+              <div class="grp">
+                <h5>Work type</h5>
+                <label class="facet"><input type="checkbox"> fix vulnerability <span class="n">412</span></label>
+                <label class="facet"><input type="checkbox"> create recipe <span class="n">188</span></label>
+                <label class="facet"><input type="checkbox"> resolve identity <span class="n">321</span></label>
+              </div>
+            </aside>
+
+            <div class="main-pane">
+              <div class="applied">
+                <span>Filters</span>
+                <span class="filterpill">vulnerability status = not_applicable
+                  <button type="button" aria-label="Remove filter: vulnerability status is not_applicable">&#10005;</button></span>
+                <span class="filterpill">package-identity confidence = unmapped
+                  <button type="button" aria-label="Remove filter: package-identity confidence is unmapped">&#10005;</button></span>
+                <span style="margin-left:auto">sorted by <b style="color:var(--ink-2)">rank</b>
+                  &middot; bucket then score</span>
+              </div>
+
+              <div style="padding:26px 16px 22px">
+                <div class="emptyblock na" style="margin-top:0">
+                  <h3>No package matches both of these filters.</h3>
+                  <p>Every package in the inventory still holds exactly one rollup row. Two facets
+                    are applied and their intersection is empty &mdash; 974 packages are
+                    <code class="ref">not_applicable</code> and 321 have unresolved package
+                    identity, and no package is both.</p>
+                  <div class="ev" style="margin-top:12px">counts across every filter sum to the
+                    inventory &middot; nothing was filtered out by policy</div>
+                  <div class="btnrow" style="margin-top:16px">
+                    <button type="button" class="btn primary">Clear filters</button>
+                    <button type="button" class="btn">Remove the package-identity filter</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pager">
+                <span>Showing <b style="color:var(--ink-2)">0</b> of 0 &middot; page size
+                  <span class="mono">{{ settings.PAGE_SIZE }}</span>, capped at
+                  <span class="mono">{{ settings.CPM_MAX_PAGE_SIZE }}</span></span>
+                <div class="pagenums"><a href="#e3" class="on">1</a></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Never "no packages found"</h4>
+        <p>The packages exist. The copy names the two facets and says their intersection is empty,
+          which is the fact the reader needs in order to fix it.</p>
+        <div class="reftags"><span class="reftag">E3</span></div></div>
+      <div class="anno"><h4>Facet counts stay</h4>
+        <p>All counts remain visible and server-computed, including <code>not_found</code> at zero
+          &mdash; a sentinel with no matches is still a first-class facet and is never folded into
+          an "other" row.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>The result count is the live region</h4>
+        <p><code>aria-live="polite"</code> <code>aria-atomic="true"</code> on the count line, so an
+          HTMX facet swap announces "0 match these filters". It is one of exactly two live regions
+          in the product.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>The pill remove control is a real button</h4>
+        <p><code>&lt;button&gt;</code> with the full filter in its accessible name &mdash; "Remove
+          filter: package-identity confidence is unmapped", not "remove". The mockup's invented
+          <code>&lt;x&gt;</code> element is deleted.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+      <div class="anno"><h4>Page size and cap are interpolated</h4>
+        <p>The pager states the page size and the ceiling, both read from settings. No template
+          literal repeats them, and this mockup asserts neither value.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-12</span><span class="reftag">withheld</span></div></div>
+      <div class="anno"><h4>The 3px rule is <code>--na</code></h4>
+        <p>The block concerns a <code>not_applicable</code> scope, so the rule takes the violet.
+          E2's takes slate. The rule colour is always the block's own semantic.</p>
+        <div class="reftags"><span class="reftag">DESIGN &sect;3px</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ E4 ════════════════════════════════════════════════════════════════ -->
+<section class="band" id="e4">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">E4</span><h2>First run &mdash; the rollup has never
+      been computed</h2></div>
+    <p class="sec-sub">There is no rollup row, so the table cannot render. This is not an error and
+      not an empty result: the policy run has not completed. The run-ledger row is shown, including
+      the case the reader most needs to see &mdash; a killed worker whose run still reads
+      <code class="ref">running</code>.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/</b></div>
+        <span class="chrome-code">no rollup</span>
+        <span class="chrome-role">platform lead</span></div>
+      <div class="viewport"><div class="app">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e4">Home</a><a href="#e4" class="on">Packages</a><a href="#e4">My queue</a>
+            <a href="#e4">Reports</a><a href="#e4">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">platform</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Current package health</h2>
+              <div class="sub" aria-live="polite" aria-atomic="true">9,842 packages in the inventory
+                &middot; no rollup row exists yet</div></div>
+          </div>
+
+          <!-- the bar renders; the cells it cannot supply carry E5's em dash -->
+          <div class="freshbar unk">
+            <div><span class="lbl">rollup computed</span><b class="dash">&mdash;</b></div>
+            <div><span class="lbl">evidence cut-off</span><b class="dash">&mdash;</b></div>
+            <div><span class="lbl">policy versions</span><b class="dash">&mdash;</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8F</b></div>
+          </div>
+
+          <div class="emptyblock" style="max-width:none">
+            <h3>The first policy run has not completed, so there is nothing to show yet.</h3>
+            <p>No package has a rollup row. The inventory is loaded and the collectors have written
+              evidence, but until a policy run finishes there is no derived status to display, and
+              the application does not compute one.</p>
+            <div class="ev" style="margin-top:12px">the application reads derived state and never
+              derives it &middot; an empty table here is the honest answer</div>
+          </div>
+
+          <div class="panel" style="margin-top:14px">
+            <header><h3>Policy run ledger</h3>
+              <span class="hx">append-only &middot; oldest first</span></header>
+            <table class="tbl">
+              <caption class="vh">Policy run ledger for the first run over the inventory</caption>
+              <thead><tr>
+                <th scope="col">Run</th><th scope="col">Started</th><th scope="col">Worker</th>
+                <th scope="col">Last heartbeat</th><th scope="col">State</th>
+                <th scope="col">Packages written</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <th scope="row" class="mono" style="font-weight:400;text-align:left">pr_01JQ8F</th>
+                  <td class="mono">2026-09-04 05:41Z</td>
+                  <td class="mono">celery@worker-3</td>
+                  <td class="mono">2026-09-04 05:58Z
+                    <div class="ev stale">no heartbeat since &middot; the worker stopped reporting</div></td>
+                  <td><span class="chip plain">running</span>
+                    <div class="ev">run_ledger &middot; state as recorded, not as inferred</div></td>
+                  <td class="num">0 <span class="dash">of 9,842</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="body" style="border-top:1px solid var(--line-2)">
+              <div class="ev" style="margin:0">a killed worker leaves its run reading
+                <b>running</b>. The ledger shows what was recorded; it does not guess that the run
+                failed, and it does not hide the row.</div>
+            </div>
+          </div>
+
+          <div class="btnrow" style="margin-top:14px">
+            <button type="button" class="btn">Open the run in the collector-health view</button>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Three emptinesses, three screens</h4>
+        <p>E2 has a queue and nothing in it. E3 has an inventory and a filter that excluded it. E4
+          has no derived state at all. Conflating any two of them is a bug.</p>
+        <div class="reftags"><span class="reftag">E2</span><span class="reftag">E3</span><span class="reftag">E4</span></div></div>
+      <div class="anno"><h4>A killed worker still reads <code>running</code></h4>
+        <p>The state the reader needs to see rather than a gap. The heartbeat column carries the
+          amber footline that makes the staleness legible; the state chip itself is untouched,
+          because <code>running</code> is what the ledger recorded.</p>
+        <div class="reftags"><span class="reftag">CPM-APP-S06</span></div></div>
+      <div class="anno"><h4>The freshness bar carries em dashes, not zeros</h4>
+        <p>Cells with no value take E5's em dash in <code>mono-value</code>. A zero or a fabricated
+          timestamp here would be a claim, and there is nothing to claim.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-11</span><span class="reftag">E5</span></div></div>
+      <div class="anno"><h4><code>running</code> is a <code>.plain</code> chip</h4>
+        <p>Run-ledger states are the second closed enumeration &mdash; <code>running</code>,
+          <code>succeeded</code>, <code>failed</code>, <code>idle</code>. They are markerless and
+          never take an outcome hue.</p>
+        <div class="reftags"><span class="reftag">L4</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ E5 ════════════════════════════════════════════════════════════════ -->
+<section class="band alt" id="e5">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">E5</span><h2>A blank field is not an empty state</h2></div>
+    <p class="sec-sub">Enumerated only so it is never confused with the four above. An em dash in
+      <code>mono-value</code>, no footline, and never in a status column. Blank means missing
+      &mdash; never zero, never estimated.</p>
+
+    <div class="figure">
+      <div class="cap"><b>Blank versus a status</b>
+        <span>a health-table fragment, both cases in one row</span>
+        <span class="id" style="margin-left:auto">E5 &middot; CPM-AD-24</span></div>
+      <div class="plate">
+        <table class="tbl" style="border:1px solid var(--line)">
+          <caption class="vh">A health-table fragment contrasting blank identity fields with status columns</caption>
+          <thead><tr>
+            <th scope="col">Package</th><th scope="col">Apps</th><th scope="col">Platforms</th>
+            <th scope="col">Downloads</th><th scope="col">Versions</th>
+            <th scope="col">Vulnerability</th><th scope="col">Feedstock</th>
+            <th scope="col">Pkg identity confidence</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <th scope="row" class="pkg" style="text-align:left"><a href="#e5">internal-telemetry-sdk</a>
+                <div class="ev">1.4.0 installed</div></th>
+              <td class="dash">&mdash;</td>
+              <td class="dash">&mdash;</td>
+              <td class="dash">&mdash;</td>
+              <td class="dash">&mdash;</td>
+              <td><span class="chip unknown">unknown</span>
+                <div class="ev">package identity unresolved &middot; gated at policy</div></td>
+              <td><span class="chip unknown">unknown</span>
+                <div class="ev">absence cannot be claimed for an unmapped package</div></td>
+              <td><span class="conf unmapped">unmapped</span>
+                <div class="ev">no source match</div></td>
+            </tr>
+            <tr>
+              <th scope="row" class="pkg" style="text-align:left"><a href="#e5">orjson</a>
+                <div class="ev">3.9.15 installed</div></th>
+              <td class="num">22</td>
+              <td class="num">3</td>
+              <td class="dash">&mdash;</td>
+              <td class="num">41</td>
+              <td><span class="chip ok">none found</span>
+                <div class="ev">advisory &middot; 05:38Z</div></td>
+              <td><span class="chip notfound">not_found</span>
+                <div class="ev">no feedstock, no staged recipe &middot; 04:55Z</div></td>
+              <td><span class="conf verified">verified</span>
+                <div class="ev">pypi-exact</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Blank is for identity fields only</h4>
+        <p><code>apps</code>, <code>platforms</code>, <code>downloads</code> and
+          <code>versions</code> stay blank until a source supplies them. A zero in one of those
+          columns is a claim, and we do not have it.</p>
+        <div class="reftags"><span class="reftag">CPM-APP-S02 OQ3</span></div></div>
+      <div class="anno"><h4>A status column always has a chip and a footline</h4>
+        <p>Never blank, in any of the five states. The two cells are not confusable: one is an em
+          dash with nothing under it, the other is a chip with provenance under it.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-24</span><span class="reftag">CPM-FR-6</span></div></div>
+      <div class="anno"><h4>The export inherits the same rule</h4>
+        <p>Blank means missing in identity columns; a status crosses into the export as its
+          <code>OutcomeState</code> value, verbatim and lowercase. The export is where these five
+          states were most likely to collapse.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-24</span><span class="reftag">CPM-APP-S06</span></div></div>
+      <div class="anno"><h4><code>not_found</code> versus <code>unknown</code>, in one table</h4>
+        <p><code>orjson</code> has no feedstock and we established that. <code>internal-telemetry-sdk</code>
+          is unmapped, so absence cannot be claimed for it at all. Two rows, two dashed-versus-hollow
+          markers, two different facts.</p>
+        <div class="reftags"><span class="reftag">APP.05-API-002</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 404 ═══════════════════════════════════════════════════════════════ -->
+<section class="band" id="e404">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">404</span><h2>Not in the monitored inventory</h2></div>
+    <p class="sec-sub">The highest-risk copy in the product. A 404 means "this identifier is not in
+      the curated watchlist"; the status value <code class="ref">not_found</code> means "a collector
+      asked and established an absence". They are different facts, and this page must not borrow
+      the other one's word.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/pyarrow-legacy/</b></div>
+        <span class="chrome-code">HTTP 404</span>
+        <span class="chrome-role">packaging engineer</span></div>
+      <div class="viewport"><div class="app" style="min-width:0">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e404">Home</a><a href="#e404" class="on">Packages</a><a href="#e404">My queue</a>
+            <a href="#e404">Reports</a><a href="#e404">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi Nandakumar</div>
+        </div>
+        <div class="app-body">
+          <div style="max-width:620px;padding:24px 0">
+            <span class="chip plain">404 &middot; not in inventory</span>
+            <h2 style="font-size:20px;margin-top:12px"><span class="mono"
+              style="font-size:19px">pyarrow-legacy</span> is not in the monitored inventory</h2>
+            <p style="color:var(--ink-2);margin-top:10px;font-size:13.5px">
+              The monitor watches a curated list of packages. This identifier is not on it, so
+              nothing has been collected about it and no status exists for it &mdash; neither a
+              conclusion nor an absence.</p>
+
+            <div class="emptyblock acc" style="margin-top:16px">
+              <h3>How the inventory changes</h3>
+              <p>The inventory is a curated watchlist versioned in the repository and changed by
+                pull request. Adding a package is a review, not a setting: open a pull request
+                against the watchlist and the next policy run picks it up.</p>
+              <div class="ev" style="margin-top:10px">inventory_snapshots &middot; watchlist
+                <span class="mono">inv@2026-09-01</span> &middot; 9,842 packages</div>
+            </div>
+
+            <div class="btnrow" style="margin-top:16px">
+              <button type="button" class="btn primary">Search the health view</button>
+              <button type="button" class="btn">How to propose a watchlist change</button>
+            </div>
+            <div class="ev" style="margin-top:14px">did you mean <a href="#e404">pyarrow</a>?
+              &middot; 1 near match in the inventory</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The string <code>not_found</code> does not appear on this page</h4>
+        <p>Not in the heading, not in the chip, not in the body, not in the footline. It is a member
+          of <code>OutcomeState</code> with a specific meaning, and reusing it here would tell the
+          reader a collector looked. None did.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-6</span><span class="reftag">L1</span></div></div>
+      <div class="anno"><h4>The mechanism is the actionable part</h4>
+        <p>"Not in the inventory" alone is a dead end. Naming the watchlist, its version and the
+          pull-request route turns the page into the first step of a fix.</p>
+        <div class="reftags"><span class="reftag">voice</span></div></div>
+      <div class="anno"><h4>A near match, offered as a question</h4>
+        <p>Never a redirect. Redirecting a mistyped identifier to a real package would show a
+          reader evidence about something they did not ask for.</p>
+        <div class="reftags"><span class="reftag">E4/404</span></div></div>
+      <div class="anno"><h4>The app shell stays</h4>
+        <p>Nav, brand and identity are all present. A 404 is a normal answer to a request, not a
+          crash, and the reader keeps every route they had.</p>
+        <div class="reftags"><span class="reftag">a11y floor</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 500 ═══════════════════════════════════════════════════════════════ -->
+<section class="band alt" id="e500">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">500</span><h2>Unexpected failure &mdash; and
+      nothing was written</h2></div>
+    <p class="sec-sub">A reader of a supply-chain tool needs to know whether their override landed.
+      <code class="ref">ATOMIC_REQUESTS=True</code> makes "nothing was written" true, so the page
+      states it as a fact rather than an apology. The shell and the nav stay; the request id is
+      carried in mono; there is never a stack trace.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/aiohttp/identity/</b></div>
+        <span class="chrome-code">HTTP 500</span>
+        <span class="chrome-role">platform lead</span></div>
+      <div class="viewport"><div class="app" style="min-width:0">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#e500">Home</a><a href="#e500" class="on">Packages</a><a href="#e500">My queue</a>
+            <a href="#e500">Reports</a><a href="#e500">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">platform</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div style="max-width:620px;padding:24px 0">
+            <span class="chip plain">500 &middot; unexpected failure</span>
+            <h2 style="font-size:20px;margin-top:12px">Something failed while handling this request</h2>
+            <p style="color:var(--ink-2);margin-top:10px;font-size:13.5px">
+              The failure is recorded with the request id below. Quote it and an administrator can
+              retrieve the full detail; it is not printed here.</p>
+
+            <div class="emptyblock err" style="margin-top:16px">
+              <h3>Nothing was written.</h3>
+              <p>Every request runs in one database transaction, and this one was rolled back in
+                full. Your package-identity override did not land, no audit row was appended, and no
+                evidence row was inserted. Submitting again is safe.</p>
+              <div class="ev" style="margin-top:10px">ATOMIC_REQUESTS &middot; the write and its
+                audit row commit together or not at all</div>
+            </div>
+
+            <div class="panel" style="margin-top:16px">
+              <div class="body">
+                <dl class="kv" style="grid-template-columns:130px minmax(0,1fr)">
+                  <dt>request id</dt><dd class="mono">01JQ8HB2K9</dd>
+                  <dt>when</dt><dd class="mono">2026-09-04 09:12:47Z</dd>
+                  <dt>surface</dt><dd class="mono">packages.identity.override</dd>
+                  <dt>your role</dt><dd class="mono">platform-lead</dd>
+                  <dt>written</dt><dd>nothing &mdash; the transaction was rolled back</dd>
+                  <dt>logged</dt><dd>yes, with your user identity</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="btnrow" style="margin-top:16px">
+              <button type="button" class="btn primary">Back to aiohttp</button>
+              <button type="button" class="btn">Try the override again</button>
+            </div>
+            <div class="ev" style="margin-top:14px">no stack trace is shown &middot; the detail is
+              retrievable from the request id</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>"Nothing was written" is the headline</h4>
+        <p>It is the one thing the reader cannot determine for themselves and the one thing that
+          changes what they do next. It gets its own block and the <code>--err</code> rule.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>The request id is mono and quotable</h4>
+        <p>A machine value, so it is set in <code>--mono</code>, next to the exact second and the
+          surface name. That triple is what an administrator needs.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-11</span></div></div>
+      <div class="anno"><h4>Not a collector error</h4>
+        <p>A collector that fails is a status on a row and a row in the collector-health table
+          &mdash; never routed to this page. This page is for a failure of the application handling
+          the request itself.</p>
+        <div class="reftags"><span class="reftag">CPM-APP-S06</span></div></div>
+      <div class="anno"><h4>"Submitting again is safe" is earned</h4>
+        <p>It is only true because the whole request rolled back. The copy states the mechanism next
+          to the reassurance so it is checkable rather than soothing.</p>
+        <div class="reftags"><span class="reftag">voice</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ session ═══════════════════════════════════════════════════════════ -->
+<section class="band" id="esession">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">SESSION</span><h2>Expiry mid-HTMX, and the
+      <code>HX-Redirect</code> resolution</h2></div>
+    <p class="sec-sub">On a full page load an OIDC session lapse redirects to the identity provider,
+      and that is fine. Mid-HTMX it is not: a 302 to the IdP inside an <code class="ref">hx-post</code>
+      swaps a sign-in page into a table row. The rule is middleware-level and applies to every view
+      at once.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-code">hx-post &middot; session lapsed</span>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport modal-wrap"><div class="app" style="min-width:0">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav" aria-label="Primary">
+            <a href="#esession">Home</a><a href="#esession">Packages</a>
+            <a href="#esession" class="on">My queue</a><a href="#esession">Reports</a>
+            <a href="#esession">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">my queue / CVE-2024-23334 &middot; aiohttp</div>
+              <h2>CVE-2024-23334</h2>
+              <div class="sub">Directory traversal in static file handling &middot; finding key
+                <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span></div>
+            </div>
+          </div>
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+          <div style="height:150px"></div>
+        </div>
+      </div>
+
+      <div class="dim"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sx-title">
+        <header><h3 id="sx-title">Route to the remediation queue</h3>
+          <span class="ev" style="margin:0">POST &middot; hx-target="#wf-row"</span></header>
+        <div class="body">
+          <div class="toast warn" style="margin:0">
+            <div><b>Submitting&hellip;</b>
+              <p>The session lapsed between this page loading and this submit.</p></div>
+          </div>
+          <div class="field">
+            <label for="sx-wt">Work type <span class="req">required</span></label>
+            <select class="select" id="sx-wt"><option>fix vulnerability</option></select>
+          </div>
+        </div>
+        <footer><button type="button" class="btn ghost">Cancel</button>
+          <button type="button" class="btn primary">Route with evidence</button></footer>
+      </div>
+      </div>
+    </div>
+
+    <div class="figure" style="margin-top:0;border-top:0">
+      <div class="cap"><b>What the server answers</b>
+        <span>the rule, stated as the exchange it produces</span>
+        <span class="id" style="margin-left:auto">middleware, not per view</span></div>
+      <div class="plate">
+        <div class="exchange">
+          <div>
+            <h4>Request &mdash; unauthenticated, HTMX</h4>
+<pre><b>POST</b> /queues/compliance/wf_01JQ8G7T/route/
+<i>HX-Request:</i> true
+<i>HX-Target:</i> wf-row
+<i>X-CSRFToken:</i> &hellip;
+<i>Cookie:</i> sessionid=&lt;expired&gt;</pre>
+          </div>
+          <div>
+            <h4>Response &mdash; the rule</h4>
+<pre><b>HTTP/1.1 200 OK</b>
+<i>HX-Redirect:</i> /accounts/login/?next=
+             /queues/compliance/wf_01JQ8G7T/
+<i>Content-Length:</i> 0
+
+<i>&lt;empty body&gt;</i></pre>
+          </div>
+          <div>
+            <h4>What the browser does</h4>
+<pre>htmx reads HX-Redirect and performs a
+full page navigation. Nothing is swapped
+into #wf-row. The modal is torn down with
+the document.
+
+<i>No write occurred: the request never
+reached the transition service.</i></pre>
+          </div>
+        </div>
+        <div class="badnote">
+          <b>The failure this prevents.</b> A plain 302 to the identity provider inside an
+          <code class="ref">hx-post</code> is followed transparently by the browser, and htmx swaps
+          the resulting sign-in page into <code class="ref">#wf-row</code> &mdash; a login form
+          rendered inside a table cell, inside a queue, under a modal. The response above is never a
+          partial, and that is the whole rule.
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>accounts/login/?next=/queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-code">full navigation</span>
+        <span class="chrome-role">platform-owned</span></div>
+      <div class="viewport"><div class="app" style="min-width:0">
+        <div class="login">
+          <div class="loginbox">
+            <span class="chip plain">session expired</span>
+            <h3 style="margin-top:12px">Sign in again to continue</h3>
+            <p>Your session lapsed while you were working. Nothing you submitted was written.</p>
+            <button type="button" class="btn primary oidc">Continue with your organisation account</button>
+            <div class="claimline">
+              you will return to<br>
+              <span style="color:var(--ink-2)">/queues/compliance/wf_01JQ8G7T/</span><br>
+              the item is unchanged &middot; state <span style="color:var(--ink-2)">triaged</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Middleware, not a per-view concern</h4>
+        <p>One rule covers every HTMX interaction in the product: facet swaps, evidence disclosure,
+          queue transitions and job polling. A per-view check would be forgotten on the fifth view
+          someone adds.</p>
+        <div class="reftags"><span class="reftag">HTMX boundary</span></div></div>
+      <div class="anno"><h4>Empty body, never a partial</h4>
+        <p><code>HX-Redirect</code> plus zero bytes. Returning a fragment &mdash; even a correct
+          one &mdash; leaves htmx free to swap something into the target.</p>
+        <div class="reftags"><span class="reftag">HTMX boundary</span></div></div>
+      <div class="anno"><h4>The sign-in page states the consequence</h4>
+        <p>"Nothing you submitted was written", the return URL, and the item's unchanged state. A
+          reviewer who was mid-transition needs to know whether to redo it.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>Two sign-in refusals still exist</h4>
+        <p>Separately from expiry: an authentication carrying <em>no group claim</em> and one
+          asserting <em>zero groups</em> are different states with different copy and different log
+          events. Both are platform-owned and G-4 remains open.</p>
+        <div class="reftags"><span class="reftag">G-4</span></div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <p>Nine states, one file. Each was specified in EXPERIENCE.md &sect; State Patterns and none had
+      been drawn. Where a copy string needs a number the sources withhold, it appears here as an
+      interpolated placeholder &mdash; <code class="ref">{{ settings.PAGE_SIZE }}</code>,
+      <code class="ref">{{ settings.CPM_MAX_PAGE_SIZE }}</code> &mdash; because a literal in a
+      mockup becomes a literal in a template.</p>
+    <div class="srcs">
+      EXPERIENCE.md &sect; State Patterns &rarr; The empty states (E1&ndash;E5)<br>
+      EXPERIENCE.md &sect; State Patterns &rarr; The error states (404 &middot; 500 &middot; session expired)<br>
+      EXPERIENCE.md &sect; Accessibility Floor &rarr; Close these &middot; Additional floor<br>
+      DESIGN.md &sect; Colors &middot; &sect; Components &middot; &sect; Elevation &rarr; The 3px left rule<br>
+      Screen headings render as <code class="ref">&lt;h2&gt;</code> here because this documentation
+      page owns the single <code class="ref">&lt;h1&gt;</code>; in the application each is the
+      screen's one <code class="ref">&lt;h1&gt;</code>.
+    </div>
+  </div>
+</footer>
+
+</div>
