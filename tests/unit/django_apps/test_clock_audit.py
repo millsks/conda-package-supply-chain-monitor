@@ -149,7 +149,7 @@ BANNED_FIELD_KEYWORDS: Final[frozenset[str]] = frozenset({"auto_now", "auto_now_
 # a larger and riskier edit than the rule is worth here; the entry is what keeps
 # the *next* `auto_now_add` -- on an evidence table, where replay does depend on
 # it -- a failing gate.
-RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
+RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "config/local_dev/tokens.py": {"datetime.now(...)": 1},
     "django_apps/conda_package_supply_chain_monitor/core/clock.py": {"timezone.now(...)": 1},
     "django_service/users/management/commands/prune_expired_state.py": {"timezone.now(...)": 1},

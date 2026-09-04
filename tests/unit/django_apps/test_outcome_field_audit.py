@@ -14,6 +14,12 @@ reason is the failure mode: a list is edited by whoever remembers it exists, so
 the first status field added by someone who did not is the one that escapes. The
 registry is edited by adding the field.
 
+The sweep's *scope* -- which applications count as this repository's own -- comes
+from `tests/model_registry.py`, which is shared with the two evidence audits
+`CPM-EVIDENCE-S02` added. It began here; it moved there for the reason
+`tests/source_scan.py` gives about its own primitives, that two sweeps
+disagreeing about what they cover look exactly like two passing tests.
+
 **The anti-vacuity guard is the load-bearing half today.** No derived-status
 model exists yet -- `CPM-EVIDENCE-S02` and `S03` bring the first ones -- so the
 sweep over the registry currently passes by finding nothing, which is exactly how
@@ -64,12 +70,10 @@ No database and no network: defining a model and reading `_meta` touches neither
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Final
 
 import pytest
-from django.apps import apps
 from django.db import models
 from django.db.models.fields import NOT_PROVIDED
 from django.test.utils import isolate_apps
@@ -77,7 +81,13 @@ from django.test.utils import isolate_apps
 from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.outcomes import outcome_type
-from tests.source_scan import SRC_ROOT
+from tests.model_registry import A_THIRD_PARTY_APP_NAME
+from tests.model_registry import FIRST_PARTY_APP_NAMES
+from tests.model_registry import FIXTURE_APP
+from tests.model_registry import FIXTURE_LABEL
+from tests.model_registry import first_party_app_names
+from tests.model_registry import first_party_models
+from tests.model_registry import installed_app_names
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -103,50 +113,10 @@ FIXED_VALUE: Final = re.compile(r"[a-z][a-z0-9_]*")
 #: audit instead of being reported as the finding it is.
 CHOICE_ENTRY_LENGTH: Final[int] = 2
 
-#: The app label the fixture models below are registered under, inside an
-#: isolated registry that is discarded at the end of each block.
-FIXTURE_APP: Final[str] = "conda_package_supply_chain_monitor.core"
-FIXTURE_LABEL: Final[str] = "core"
-
-#: Two applications that must be in scope, so a scope that had narrowed to
-#: nothing is caught. `core` is where evidence models will land; `users` is
-#: inherited platform and is still this repository's own source, which is what
-#: `CPM-AD-5`'s "anywhere" means.
-FIRST_PARTY_APP_NAMES: Final[tuple[str, ...]] = (
-    "conda_package_supply_chain_monitor.core",
-    "django_service.users",
-)
-
-#: An installed application that must *not* be in scope. Third-party packages
-#: carry status fields of their own -- a task result, a periodic task -- whose
-#: vocabularies are not this product's to dictate, and an audit that failed on
-#: them would be turned off within a day.
-A_THIRD_PARTY_APP_NAME: Final[str] = "allauth.account"
-
 #: A per-status type of the kind `CPM-EVIDENCE-S02` will declare, used to build
 #: the conforming fixture so that the fixture demonstrates the intended
 #: declaration rather than a hand-assembled approximation of it.
 FIXTURE_OUTCOME = outcome_type("WharfOutcome", [("MOORED", "moored"), ("ADRIFT", "adrift")])
-
-
-def first_party_models() -> list[type[models.Model]]:
-    """Return every model declared by an application living in this repository.
-
-    Scope taken from the source tree rather than from a list of app labels: an
-    application added under `src/django_apps/` is in scope the moment it exists,
-    which is the same promise the import-root remapping makes in
-    `pyproject.toml`.
-
-    Returns:
-        The models of every installed application whose package sits under
-        `src/`, in registry order.
-
-    """
-    found: list[type[models.Model]] = []
-    for app_config in apps.get_app_configs():
-        if Path(app_config.path).resolve().is_relative_to(SRC_ROOT):
-            found.extend(app_config.get_models())
-    return found
 
 
 def is_derived_status_name(name: str) -> bool:
@@ -304,14 +274,14 @@ def test_the_registry_scope_reaches_this_repositorys_applications() -> None:
     Without this the sweep below could pass because `first_party_models` had
     narrowed to nothing -- an app moved, a path comparison that stopped
     matching -- and the failure would look exactly like a clean repository.
-    """
-    in_scope = {
-        app_config.name
-        for app_config in apps.get_app_configs()
-        if Path(app_config.path).resolve().is_relative_to(SRC_ROOT)
-    }
 
-    installed = {app_config.name for app_config in apps.get_app_configs()}
+    The predicate is `tests/model_registry.py`'s, called rather than re-derived:
+    a guard that computed the scope a second way would keep passing while the
+    scope the sweep above actually uses had drifted, which is the failure mode
+    `tests/source_scan.py` was extracted to prevent.
+    """
+    in_scope = first_party_app_names()
+    installed = installed_app_names()
 
     for name in FIRST_PARTY_APP_NAMES:
         assert name in in_scope, name
