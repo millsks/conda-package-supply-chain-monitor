@@ -531,6 +531,20 @@ def test_the_row_carries_the_trace_id_the_platform_would_log(
     `add_otel_context` adds nothing at all when no span is recording: indexing
     straight into the event dict would turn "the platform emitted nothing here"
     into a `KeyError` from the test's own frame rather than the finding it is.
+
+    **The exported spans are checked by membership, never by equality, and the
+    difference is a backend difference.** The gate runs on PostgreSQL (`FR-32`)
+    where the psycopg instrumentor emits a span per statement, so the ledger's
+    own `INSERT` and `UPDATE` are exported alongside `collection`; on the sqlite
+    substitution the compatibility matrix runs, nothing instruments the driver
+    and `collection` is exported alone. An equality assertion therefore passes
+    locally and fails the gate, which is what it did. Membership is also all the
+    docstring above claims: that a real recording span was exported.
+
+    Asserting instead that every exported span carries this trace id would be
+    wrong rather than merely stricter -- the `CollectionRun.objects.get()` below
+    runs *outside* the span, so on PostgreSQL its `SELECT` is a root span with a
+    trace id of its own.
     """
     tracer = trace.get_tracer(__name__)
 
@@ -545,7 +559,7 @@ def test_the_row_carries_the_trace_id_the_platform_would_log(
     assert "trace_id" in emitted, "add_otel_context emitted no trace_id inside a recording span"
     assert row.trace_id == expected
     assert row.trace_id == emitted["trace_id"]
-    assert [recorded.name for recorded in recorded_spans.get_finished_spans()] == ["collection"]
+    assert "collection" in [recorded.name for recorded in recorded_spans.get_finished_spans()]
 
 
 @pytest.mark.django_db
