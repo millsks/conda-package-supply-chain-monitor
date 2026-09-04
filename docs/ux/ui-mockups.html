@@ -1,0 +1,2907 @@
+<title>Supply Chain Monitor Screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ── tokens ─────────────────────────────────────────────────────────────── */
+:root{
+  --paper:#e9edef;
+  --surface:#ffffff;
+  --surface-2:#f4f7f8;
+  --surface-3:#eaeff1;
+  --ink:#0e1719;
+  --ink-2:#33454c;
+  --muted:#63767e;
+  --line:#ccd7db;
+  --line-2:#e0e8ea;
+  --accent:#0d5c73;
+  --accent-2:#0a4557;
+  --accent-wash:#dfedf1;
+  --ok:#22643f;
+  --ok-wash:#e0efe6;
+  --warn:#855505;
+  --warn-wash:#f7ecd8;
+  --crit:#9d1729;
+  --crit-wash:#f7e2e4;
+  --unk:#5a6d75;
+  --unk-wash:#e6ecee;
+  --nf:#3c5a80;
+  --nf-wash:#e3eaf3;
+  --na:#655684;
+  --na-wash:#eae6f2;
+  --err:#8a3115;
+  --err-wash:#f6e5dd;
+  --shadow-sm:0 1px 2px rgba(14,23,25,.07);
+  --shadow-md:0 1px 2px rgba(14,23,25,.06),0 10px 26px -16px rgba(14,23,25,.35);
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1214;
+    --surface:#121c1f;
+    --surface-2:#172327;
+    --surface-3:#1d2c31;
+    --ink:#e6eef0;
+    --ink-2:#b3c4c9;
+    --muted:#8ba1a8;
+    --line:#2b3d43;
+    --line-2:#223136;
+    --accent:#57b6d2;
+    --accent-2:#8ad2e6;
+    --accent-wash:#123039;
+    --ok:#6cc191;
+    --ok-wash:#14301f;
+    --warn:#e0ab55;
+    --warn-wash:#33260d;
+    --crit:#f08a95;
+    --crit-wash:#3a161c;
+    --unk:#9fb2b9;
+    --unk-wash:#1f2c30;
+    --nf:#93b3dd;
+    --nf-wash:#182533;
+    --na:#b7a6dd;
+    --na-wash:#241f33;
+    --err:#e3946f;
+    --err-wash:#331a10;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1214;
+  --surface:#121c1f;
+  --surface-2:#172327;
+  --surface-3:#1d2c31;
+  --ink:#e6eef0;
+  --ink-2:#b3c4c9;
+  --muted:#8ba1a8;
+  --line:#2b3d43;
+  --line-2:#223136;
+  --accent:#57b6d2;
+  --accent-2:#8ad2e6;
+  --accent-wash:#123039;
+  --ok:#6cc191;
+  --ok-wash:#14301f;
+  --warn:#e0ab55;
+  --warn-wash:#33260d;
+  --crit:#f08a95;
+  --crit-wash:#3a161c;
+  --unk:#9fb2b9;
+  --unk-wash:#1f2c30;
+  --nf:#93b3dd;
+  --nf-wash:#182533;
+  --na:#b7a6dd;
+  --na-wash:#241f33;
+  --err:#e3946f;
+  --err-wash:#331a10;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+  --shadow-md:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.9);
+}
+
+/* ── page frame ─────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:3px}
+h1,h2,h3,h4{text-wrap:balance;margin:0;line-height:1.2}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.doc{display:flex;flex-direction:column;gap:0}
+
+/* masthead */
+.masthead{background:var(--surface);border-bottom:1px solid var(--line);padding:44px 0 34px}
+.mast-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:56px;align-items:end}
+@media (max-width:900px){.mast-grid{grid-template-columns:1fr;gap:28px}}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);font-weight:600}
+h1{font-size:clamp(30px,4.4vw,45px);font-weight:600;letter-spacing:-.022em;margin:14px 0 0}
+.standfirst{font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2);
+  max-width:60ch;margin-top:14px}
+.mast-meta{display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:11.5px;
+  color:var(--muted);border-left:2px solid var(--line);padding-left:16px}
+.mast-meta b{color:var(--ink-2);font-weight:500}
+.sample-note{margin-top:22px;display:flex;gap:10px;align-items:flex-start;background:var(--warn-wash);
+  border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);border-radius:2px;
+  padding:11px 14px;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.sample-note strong{color:var(--warn)}
+
+/* section rhythm */
+section.band{padding:56px 0;border-bottom:1px solid var(--line-2)}
+section.band.alt{background:var(--surface)}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:8px}
+.sec-num{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;
+  letter-spacing:.08em;padding-top:4px}
+h2{font-size:27px;font-weight:600;letter-spacing:-.015em}
+.sec-sub{font-family:var(--serif);color:var(--ink-2);font-size:16.5px;max-width:70ch;margin-top:10px}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
+
+/* contents */
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:26px}
+.toc a{background:var(--surface);padding:13px 15px;text-decoration:none;color:var(--ink);
+  display:flex;flex-direction:column;gap:3px;transition:background .12s}
+.toc a:hover{background:var(--accent-wash)}
+.toc a span{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.09em;
+  text-transform:uppercase}
+.toc a b{font-weight:500;font-size:14px}
+
+/* the screen frame ─ a browser window holding a mock */
+.screen{margin-top:22px;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  background:var(--surface);box-shadow:var(--shadow-md)}
+.chrome{display:flex;align-items:center;gap:12px;padding:9px 13px;background:var(--surface-3);
+  border-bottom:1px solid var(--line)}
+.dots{display:flex;gap:6px;flex:none}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.urlbar{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:4px 11px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.urlbar b{color:var(--ink-2);font-weight:500}
+.chrome-role{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-wash);padding:3px 8px;border-radius:2px;flex:none}
+.viewport{overflow-x:auto}
+.viewport > .app{min-width:960px}
+
+/* annotation rail under each screen */
+.annos{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);border-top:0}
+.anno{background:var(--surface-2);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.anno h4{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.anno h4::before{content:"";width:5px;height:5px;background:var(--accent);flex:none;
+  transform:rotate(45deg)}
+.anno p{font-size:13px;color:var(--ink-2);line-height:1.48}
+.anno code,code.ref{font-family:var(--mono);font-size:11.5px;background:var(--surface-3);
+  padding:1px 4px;border-radius:2px;color:var(--accent-2);white-space:nowrap}
+.reftags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.reftag{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;color:var(--muted);
+  border:1px solid var(--line);border-radius:2px;padding:1px 6px;background:var(--surface)}
+.reftag.ad{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ── the mock application ───────────────────────────────────────────────── */
+.app{font-size:13px;color:var(--ink);background:var(--surface)}
+.app-top{display:flex;align-items:center;gap:22px;padding:0 18px;height:50px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;flex:none}
+.brand .glyph{width:20px;height:20px;border-radius:3px;background:var(--accent);
+  display:grid;place-items:center;color:#fff;font-family:var(--mono);font-size:10px;font-weight:600}
+:root[data-theme="dark"] .brand .glyph,
+:root:not([data-theme="light"]) .brand .glyph{color:#08171c}
+.app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
+.app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
+  color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
+.app-nav a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.app-nav a.locked{color:var(--muted);opacity:.5}
+.who{display:flex;align-items:center;gap:9px;flex:none;font-size:12px;color:var(--muted)}
+.who .av{width:24px;height:24px;border-radius:50%;background:var(--accent-wash);color:var(--accent);
+  display:grid;place-items:center;font-size:10.5px;font-weight:600;font-family:var(--mono)}
+.who .role{font-family:var(--mono);font-size:10.5px;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.06em}
+
+.app-body{padding:18px}
+.app-h{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.app-h h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.app-h .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:4px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:default;
+  display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary,
+:root:not([data-theme="light"]) .btn.primary{color:#08171c}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,transparent);color:var(--crit)}
+.btn.sm{font-size:11.5px;padding:4px 9px}
+
+/* the freshness bar - the motif: nothing is shown without its provenance */
+.freshbar{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin-top:14px;
+  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface-2);
+  font-family:var(--mono);font-size:11px}
+.freshbar div{padding:7px 13px;border-right:1px solid var(--line-2);display:flex;gap:7px;
+  align-items:baseline;color:var(--muted)}
+.freshbar div:last-child{border-right:0}
+.freshbar b{color:var(--ink-2);font-weight:500}
+.freshbar .lbl{text-transform:uppercase;letter-spacing:.07em;font-size:9.5px}
+
+/* status chips - colour AND shape, so the five states never collapse */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  padding:2px 8px 2px 7px;border-radius:2px;border:1px solid;white-space:nowrap;line-height:1.5}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.chip.ok{color:var(--ok);background:var(--ok-wash);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.chip.warn{color:var(--warn);background:var(--warn-wash);border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+.chip.crit{color:var(--crit);background:var(--crit-wash);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+.chip.unknown{color:var(--unk);background:var(--unk-wash);border-color:color-mix(in srgb,var(--unk) 32%,transparent)}
+.chip.unknown::before{background:transparent;border:1.5px solid currentColor}
+.chip.notfound{color:var(--nf);background:var(--nf-wash);border-color:color-mix(in srgb,var(--nf) 32%,transparent)}
+.chip.notfound::before{background:transparent;border:1.5px dashed currentColor}
+.chip.na{color:var(--na);background:var(--na-wash);border-color:color-mix(in srgb,var(--na) 32%,transparent)}
+.chip.na::before{background:linear-gradient(to bottom right,transparent 44%,currentColor 44%,currentColor 56%,transparent 56%);
+  border:1.5px solid currentColor}
+.chip.error{color:var(--err);background:var(--err-wash);border-color:color-mix(in srgb,var(--err) 32%,transparent)}
+.chip.error::before{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);height:9px}
+.chip.plain{color:var(--ink-2);background:var(--surface-2);border-color:var(--line)}
+.chip.plain::before{display:none}
+.chip.sm{font-size:10px;padding:1px 6px 1px 6px}
+
+/* the evidence footline that sits under every claimed value */
+.ev{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px;
+  display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ev::before{content:"";width:9px;height:1px;background:var(--line);flex:none}
+.ev.stale{color:var(--warn)}
+.panel .body .ev,.anno .ev,.toast .ev,.panel .tbl .ev{white-space:normal}
+.panel .body .ev::before{margin-top:7px;align-self:flex-start}
+
+/* tables */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.tbl th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:9px 11px;
+  background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  white-space:nowrap;position:relative}
+.tbl th.sorted{color:var(--accent)}
+.tbl td{padding:9px 11px;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr:hover td{background:var(--surface-2)}
+.tbl .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.pkg{font-weight:600;font-size:13px}
+.panel .tbl td,.panel .tbl th{white-space:normal}
+.pkg a{text-decoration:none;color:var(--ink)}
+.pkg a:hover{color:var(--accent);text-decoration:underline}
+.pbucket{font-family:var(--mono);font-weight:600;font-size:12px;padding:2px 7px;border-radius:2px;
+  display:inline-block;letter-spacing:.02em}
+.p1,.p2{background:var(--crit-wash);color:var(--crit)}
+.p3,.p4{background:var(--warn-wash);color:var(--warn)}
+.p5,.p6,.p7{background:var(--accent-wash);color:var(--accent)}
+.p8,.p9,.p10{background:var(--surface-3);color:var(--muted)}
+.conf{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted)}
+.conf.verified{color:var(--ok)}
+.conf.derived{color:var(--warn)}
+.conf.unmapped{color:var(--unk)}
+
+/* sidebar + main split */
+.split{display:grid;grid-template-columns:236px minmax(0,1fr);gap:0;border:1px solid var(--line);
+  margin-top:14px}
+.side{background:var(--surface-2);border-right:1px solid var(--line);padding:14px}
+.side h5{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;margin:0 0 8px}
+.side .grp{margin-bottom:17px}
+.facet{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--ink-2)}
+.facet input{margin:0;accent-color:var(--accent)}
+.facet .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.facet.on{color:var(--accent);font-weight:500}
+.searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink)}
+.main-pane{min-width:0;background:var(--surface)}
+.applied{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line-2);
+  align-items:center;font-size:11.5px;color:var(--muted)}
+.filterpill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  background:var(--accent-wash);color:var(--accent);border-radius:2px;padding:2px 7px}
+.filterpill x{cursor:default;opacity:.65;font-style:normal}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 12px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap}
+.pagenums{display:flex;gap:3px}
+.pagenums a{min-width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:3px;text-decoration:none;color:var(--ink-2);font-family:var(--mono);font-size:11.5px}
+.pagenums a.on{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .pagenums a.on,
+:root:not([data-theme="light"]) .pagenums a.on{color:#08171c}
+
+/* cards + panels inside the app */
+.cards{display:grid;gap:12px;margin-top:14px}
+.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.panel{border:1px solid var(--line);background:var(--surface);min-width:0;overflow-x:auto;overflow-y:hidden}
+.panel > header{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 13px;border-bottom:1px solid var(--line-2);background:var(--surface-2)}
+.panel > header h4{font-size:12.5px;font-weight:600}
+.panel > header .hx{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+.panel .body{padding:13px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:12.5px}
+.kv dt{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.03em;padding-top:2px}
+.kv dd{margin:0;color:var(--ink);min-width:0;word-break:break-word}
+.mono{font-family:var(--mono);font-size:11.5px}
+.stat{padding:13px}
+.stat .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted)}
+.stat .big{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+  margin-top:4px;line-height:1}
+.stat .foot{font-size:11.5px;color:var(--muted);margin-top:5px}
+.bar{height:5px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:9px;display:flex}
+.bar i{display:block;height:100%}
+.hxnote{font-family:var(--mono);font-size:10px;color:var(--accent);background:var(--accent-wash);
+  border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:3px 8px;
+  border-radius:2px;display:inline-block}
+
+/* login */
+.login{min-height:420px;display:grid;place-items:center;background:var(--surface-2);padding:44px 18px}
+.loginbox{width:380px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;box-shadow:var(--shadow-md);padding:30px;text-align:center}
+.loginbox h3{font-size:17px}
+.loginbox p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.oidc{width:100%;margin-top:20px;justify-content:center;padding:10px}
+.claimline{margin-top:20px;border-top:1px solid var(--line-2);padding-top:14px;text-align:left;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.7}
+
+/* modal over a dimmed page */
+.modal-wrap{position:relative}
+.dim{position:absolute;inset:0;background:color-mix(in srgb,var(--ink) 42%,transparent);z-index:2}
+.modal{position:absolute;z-index:3;left:50%;top:26px;transform:translateX(-50%);width:min(560px,92%);
+  background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow-md)}
+.modal header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
+  border-bottom:1px solid var(--line-2)}
+.modal header h4{font-size:14.5px;font-weight:600}
+.modal .body{padding:16px;display:flex;flex-direction:column;gap:14px}
+.modal footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;
+  border-top:1px solid var(--line-2);background:var(--surface-2)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600}
+.field .help{font-size:11.5px;color:var(--muted)}
+.field .req{color:var(--crit);font-family:var(--mono);font-size:10px}
+.input,.textarea,.select{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:4px;
+  background:var(--surface);font-family:var(--sans);font-size:12.5px;color:var(--ink)}
+.input.mono,.textarea.mono{font-family:var(--mono);font-size:12px}
+.textarea{min-height:66px;resize:none}
+.errmsg{font-size:11.5px;color:var(--crit);display:flex;gap:6px;align-items:center}
+.input.invalid{border-color:var(--crit);background:var(--crit-wash)}
+
+/* toast / async progress */
+.toast{display:flex;gap:11px;align-items:flex-start;border:1px solid var(--line);
+  border-left:3px solid var(--accent);background:var(--surface-2);padding:11px 14px;margin-top:14px}
+.toast .spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);
+  border-top-color:var(--accent);flex:none;margin-top:2px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast b{font-size:12.5px}
+.toast p{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* diagram surface */
+.figure{margin-top:24px;border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--shadow-sm)}
+.figure .cap{display:flex;gap:12px;align-items:baseline;padding:11px 16px;
+  border-bottom:1px solid var(--line-2);background:var(--surface-2)}
+.figure .cap b{font-size:13px;font-weight:600}
+.figure .cap span{font-size:12.5px;color:var(--muted)}
+.figure .cap .id{font-family:var(--mono);font-size:10.5px;color:var(--accent);letter-spacing:.06em}
+.figure .plate{padding:20px 16px;overflow-x:auto}
+.figure svg{display:block;min-width:840px;margin:0 auto;font-family:var(--sans)}
+svg text{fill:var(--ink)}
+svg .t-mono{font-family:var(--mono)}
+svg .t-lbl{font-size:11px;fill:var(--muted);font-family:var(--mono);letter-spacing:.05em}
+svg .t-ttl{font-size:12.5px;font-weight:600}
+svg .t-sm{font-size:10.5px;fill:var(--ink-2)}
+svg .t-xs{font-size:9.5px;fill:var(--muted);font-family:var(--mono)}
+svg .box{fill:var(--surface-2);stroke:var(--line)}
+svg .box-acc{fill:var(--accent-wash);stroke:color-mix(in srgb,var(--accent) 45%,transparent)}
+svg .box-ok{fill:var(--ok-wash);stroke:color-mix(in srgb,var(--ok) 40%,transparent)}
+svg .box-crit{fill:var(--crit-wash);stroke:color-mix(in srgb,var(--crit) 40%,transparent)}
+svg .box-warn{fill:var(--warn-wash);stroke:color-mix(in srgb,var(--warn) 40%,transparent)}
+svg .lane{fill:var(--surface-2);stroke:none}
+svg .flow{stroke:var(--muted);fill:none;stroke-width:1.3}
+svg .flow-acc{stroke:var(--accent);fill:none;stroke-width:1.6}
+svg .flow-dash{stroke:var(--muted);fill:none;stroke-width:1.2;stroke-dasharray:4 3}
+svg .rule{stroke:var(--line);stroke-width:1}
+
+/* legend + prose blocks */
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+  background:var(--line-2);border:1px solid var(--line-2);margin-top:22px}
+.legend div{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.legend p{font-size:12px;color:var(--muted);line-height:1.45}
+.prose{font-family:var(--serif);font-size:16px;line-height:1.62;color:var(--ink-2);max-width:66ch}
+.prose + .prose{margin-top:14px}
+.notebox{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
+  padding:16px 18px;margin-top:24px}
+.notebox h4{font-size:13px;margin-bottom:8px}
+.notebox ul{margin:0;padding-left:19px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.notebox li{margin-bottom:5px}
+.notebox li b{color:var(--ink);font-weight:600}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:22px}
+.steps{counter-reset:s;display:flex;flex-direction:column;gap:0;margin-top:20px;
+  border:1px solid var(--line-2)}
+.steps li{list-style:none;display:grid;grid-template-columns:34px minmax(0,1fr) 190px;gap:14px;
+  padding:13px 16px;border-bottom:1px solid var(--line-2);background:var(--surface);align-items:start}
+.steps li:last-child{border-bottom:0}
+.steps li::before{counter-increment:s;content:counter(s);font-family:var(--mono);font-size:11px;
+  color:var(--accent);background:var(--accent-wash);width:24px;height:24px;display:grid;
+  place-items:center;border-radius:2px;font-weight:600}
+.steps b{font-size:13.5px;font-weight:600;display:block}
+.steps p{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+.steps .where{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.65}
+@media (max-width:760px){.steps li{grid-template-columns:28px minmax(0,1fr)}.steps .where{grid-column:2}}
+footer.pagefoot{padding:34px 0 54px;color:var(--muted);font-size:12.5px}
+footer.pagefoot p{max-width:70ch}
+.srcs{font-family:var(--mono);font-size:11px;line-height:1.9;margin-top:10px;color:var(--muted)}
+</style>
+
+<div class="doc">
+
+<!-- ══ masthead ══════════════════════════════════════════════════════════ -->
+<header class="masthead">
+  <div class="wrap mast-grid">
+    <div>
+      <div class="eyebrow">Conda Package Supply Chain Monitor · v1</div>
+      <h1>Screens and flows for the three roles</h1>
+      <p class="standfirst">Eleven screens and five flow diagrams, drawn from the brief, the
+        PRD and the architecture spine. The design carries one rule everywhere: no value is
+        shown without the evidence and the observation time behind it, and the five outcome
+        states never collapse into each other.</p>
+    </div>
+    <div class="mast-meta">
+      <div><b>Surface</b> Django templates · HTMX · Alpine.js</div>
+      <div><b>Styling</b> Bootstrap 5.2, inherited from the platform base</div>
+      <div><b>Binds</b> CPM-EP-APP · CPM-EP-IDENTITY · CPM-EP-NL</div>
+      <div><b>Status</b> Mockup — not implemented</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="sample-note">
+      <div><strong>Every figure on this page is sample data.</strong> Package names, advisory
+      identifiers, version numbers, counts and timestamps are illustrative — they are not a
+      reading of any real inventory, and no KEV membership shown here should be treated as a
+      live catalogue claim.</div>
+    </div>
+    <nav class="toc">
+      <a href="#flow"><span>Diagram 1</span><b>How a fact becomes a screen</b></a>
+      <a href="#map"><span>Diagram 2</span><b>Screen map and role gates</b></a>
+      <a href="#states"><span>Vocabulary</span><b>The five outcome states</b></a>
+      <a href="#s1"><span>Screen 1</span><b>Sign-in and the claim refusal</b></a>
+      <a href="#s2"><span>Screen 2</span><b>Reviewer home</b></a>
+      <a href="#s3"><span>Screen 3</span><b>Current package health</b></a>
+      <a href="#s4"><span>Screen 4</span><b>Package detail and evidence</b></a>
+      <a href="#s5"><span>Screen 5</span><b>Finding detail and routing</b></a>
+      <a href="#s6"><span>Screen 6</span><b>Remediation queue</b></a>
+      <a href="#s7"><span>Screen 7</span><b>Identity review and override</b></a>
+      <a href="#s8"><span>Screen 8</span><b>Coverage and collector health</b></a>
+      <a href="#s9"><span>Screen 9</span><b>Reports and export</b></a>
+      <a href="#s10"><span>Screen 10</span><b>Refusal and in-progress work</b></a>
+      <a href="#s11"><span>Screen 11</span><b>Investigation — post-MVP</b></a>
+      <a href="#journeys"><span>Diagram 3</span><b>The three journeys</b></a>
+      <a href="#machine"><span>Diagram 4</span><b>Queue item state machine</b></a>
+      <a href="#boundary"><span>Diagram 5</span><b>Request and task boundary</b></a>
+      <a href="#assumptions"><span>Closing</span><b>Invented vs. specified</b></a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ diagram 1 ═════════════════════════════════════════════════════════ -->
+<section class="band" id="flow">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">D1</span><h2>How a fact becomes a screen</h2></div>
+    <p class="sec-sub">Pipes and filters over an append-only log. Collectors share nothing but
+      the log; policy is a separate versioned pass; the application reads derived state and
+      never computes it. Every screen in this document sits at the right-hand end of this
+      picture.</p>
+
+    <div class="figure">
+      <div class="cap"><span class="id">D1</span><b>Collection → evidence → policy → surface</b>
+        <span>Dependency direction is one-way. Nothing on the right writes to the left.</span></div>
+      <div class="plate">
+      <svg viewBox="0 0 1180 476" role="img" aria-label="Pipeline from external sources through collectors, the append-only evidence log, the policy run, the rollup, and out to the read surfaces">
+        <defs>
+          <marker id="d1a" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--muted)"/></marker>
+          <marker id="d1b" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--accent)"/></marker>
+        </defs>
+
+        <text class="t-lbl" x="14" y="26">EXTERNAL SURFACES</text>
+        <text class="t-lbl" x="232" y="26">FILTERS · collectors</text>
+        <text class="t-lbl" x="460" y="26">THE LOG · append-only</text>
+        <text class="t-lbl" x="698" y="26">ONE POLICY RUN</text>
+        <text class="t-lbl" x="940" y="26">DERIVED STATE</text>
+
+        <!-- external sources -->
+        <g>
+          <rect class="box" x="14" y="44" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="63">Internal inventory source</text>
+          <rect class="box" x="14" y="81" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="100">Source repositories</text>
+          <rect class="box" x="14" y="118" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="137">PyPI</text>
+          <rect class="box" x="14" y="155" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="174">conda-forge feedstocks</text>
+          <rect class="box" x="14" y="192" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="211">Monitored conda channels</text>
+          <rect class="box" x="14" y="229" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="248">Advisory sources</text>
+          <rect class="box" x="14" y="266" width="176" height="30" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="26" y="285">KEV catalogue</text>
+        </g>
+
+        <!-- collectors -->
+        <rect class="box-acc" x="232" y="44" width="186" height="252" rx="4"/>
+        <text class="t-ttl" x="244" y="64">Ingestion + 8 collectors</text>
+        <text class="t-xs" x="244" y="82">inventory · source release</text>
+        <text class="t-xs" x="244" y="98">pypi · feedstock · published</text>
+        <text class="t-xs" x="244" y="114">vulnerability · kev · licence</text>
+        <text class="t-xs" x="244" y="130">python 3.14 readiness</text>
+        <line class="rule" x1="244" y1="146" x2="406" y2="146"/>
+        <text class="t-sm" x="244" y="166">One writes one table.</text>
+        <text class="t-sm" x="244" y="184">None imports another.</text>
+        <text class="t-sm" x="244" y="202">None writes a status.</text>
+        <line class="rule" x1="244" y1="218" x2="406" y2="218"/>
+        <text class="t-xs" x="244" y="238">rate limit · retry · timeout</text>
+        <text class="t-xs" x="244" y="254">observation window skips</text>
+        <text class="t-xs" x="244" y="270">a second run inside it</text>
+        <text class="t-xs" x="244" y="286">one failing blocks nothing</text>
+
+        <!-- evidence log -->
+        <rect class="box" x="460" y="44" width="196" height="252" rx="4"/>
+        <text class="t-ttl" x="472" y="64">Evidence tables</text>
+        <text class="t-xs" x="472" y="84">inventory_snapshots</text>
+        <text class="t-xs" x="472" y="100">source_release_snapshots</text>
+        <text class="t-xs" x="472" y="116">pypi_release_snapshots</text>
+        <text class="t-xs" x="472" y="132">feedstock_snapshots</text>
+        <text class="t-xs" x="472" y="148">conda_package_snapshots</text>
+        <text class="t-xs" x="472" y="164">vulnerability_findings</text>
+        <text class="t-xs" x="472" y="180">kev_findings</text>
+        <text class="t-xs" x="472" y="196">license_findings</text>
+        <text class="t-xs" x="472" y="212">python314_findings</text>
+        <line class="rule" x1="472" y1="228" x2="644" y2="228"/>
+        <text class="t-sm" x="472" y="248">Always inserts. Never</text>
+        <text class="t-sm" x="472" y="266">updates. Every row keeps</text>
+        <text class="t-sm" x="472" y="284">its own observed_at.</text>
+
+        <!-- ledgers, sitting beside the log -->
+        <rect class="box" x="460" y="312" width="196" height="46" rx="4"/>
+        <text class="t-sm" x="472" y="331">Run ledgers — not evidence</text>
+        <text class="t-xs" x="472" y="348">collection_runs · policy_runs</text>
+
+        <!-- policy run -->
+        <rect class="box-acc" x="698" y="44" width="200" height="252" rx="4"/>
+        <text class="t-ttl" x="710" y="64">Passes, in order</text>
+        <text class="t-xs" x="710" y="84">1 · version currency</text>
+        <text class="t-xs" x="710" y="100">2 · feedstock presence</text>
+        <text class="t-xs" x="710" y="116">3 · vulnerability + KEV</text>
+        <text class="t-xs" x="710" y="132">4 · licence</text>
+        <text class="t-xs" x="710" y="148">5 · python 3.14 readiness</text>
+        <text class="t-xs" x="710" y="164">6 · remediation readiness</text>
+        <text class="t-xs" x="710" y="180">7 · priority · score · work</text>
+        <line class="rule" x1="710" y1="196" x2="886" y2="196"/>
+        <text class="t-sm" x="710" y="216">Each writes only its own</text>
+        <text class="t-sm" x="710" y="234">derived table. No pass</text>
+        <text class="t-sm" x="710" y="252">writes the rollup.</text>
+        <text class="t-xs" x="710" y="276">cut-off = finished_at of a</text>
+        <text class="t-xs" x="710" y="290">completed collection run</text>
+
+        <!-- rollup + workflow -->
+        <rect class="box-ok" x="940" y="44" width="226" height="128" rx="4"/>
+        <text class="t-ttl" x="952" y="64">current_health rollup</text>
+        <text class="t-sm" x="952" y="86">One row per package. Always.</text>
+        <text class="t-sm" x="952" y="104">Including unmapped ones.</text>
+        <text class="t-xs" x="952" y="126">computed_at · cut_off</text>
+        <text class="t-xs" x="952" y="142">per-domain version map</text>
+        <text class="t-xs" x="952" y="158">written once, by one writer</text>
+
+        <rect class="box" x="940" y="188" width="226" height="108" rx="4"/>
+        <text class="t-ttl" x="952" y="208">workflow items</text>
+        <text class="t-sm" x="952" y="230">One table, three queues.</text>
+        <text class="t-xs" x="952" y="250">keyed on a finding key —</text>
+        <text class="t-xs" x="952" y="266">never an evidence row id</text>
+        <text class="t-xs" x="952" y="286">audit row per transition</text>
+
+        <!-- horizontal flow -->
+        <path class="flow" d="M190,170 L226,170" marker-end="url(#d1a)"/>
+        <path class="flow" d="M418,170 L454,170" marker-end="url(#d1a)"/>
+        <path class="flow" d="M656,170 L692,170" marker-end="url(#d1a)"/>
+        <path class="flow-acc" d="M898,108 L934,108" marker-end="url(#d1b)"/>
+        <path class="flow" d="M898,232 L934,232" marker-end="url(#d1a)"/>
+        <text class="t-xs" x="424" y="162">insert</text>
+        <text class="t-xs" x="660" y="162">read</text>
+
+        <!-- fan-out to read surfaces -->
+        <path class="flow-acc" d="M1053,296 L1053,336 L170,336" />
+        <path class="flow-acc" d="M170,336 L170,368" marker-end="url(#d1b)"/>
+        <path class="flow-acc" d="M380,336 L380,368" marker-end="url(#d1b)"/>
+        <path class="flow-acc" d="M590,336 L590,368" marker-end="url(#d1b)"/>
+        <path class="flow-acc" d="M800,336 L800,368" marker-end="url(#d1b)"/>
+        <path class="flow-acc" d="M1010,336 L1010,368" marker-end="url(#d1b)"/>
+
+        <text class="t-lbl" x="14" y="392">READ SURFACES · never write derived state</text>
+        <g>
+          <rect class="box" x="75" y="404" width="190" height="52" rx="3"/>
+          <text class="t-sm" x="87" y="424">Health + package detail</text>
+          <text class="t-xs" x="87" y="442">screens 3 · 4</text>
+          <rect class="box" x="285" y="404" width="190" height="52" rx="3"/>
+          <text class="t-sm" x="297" y="424">Role-scoped queues</text>
+          <text class="t-xs" x="297" y="442">screens 5 · 6 · 7</text>
+          <rect class="box" x="495" y="404" width="190" height="52" rx="3"/>
+          <text class="t-sm" x="507" y="424">Reports + exports</text>
+          <text class="t-xs" x="507" y="442">screens 8 · 9</text>
+          <rect class="box" x="705" y="404" width="190" height="52" rx="3"/>
+          <text class="t-sm" x="717" y="424">Governed API</text>
+          <text class="t-xs" x="717" y="442">same role checks</text>
+          <rect class="box" x="915" y="404" width="190" height="52" rx="3" stroke-dasharray="4 3"/>
+          <text class="t-sm" x="927" y="424">Governed views → NL</text>
+          <text class="t-xs" x="927" y="442">screen 11 · post-MVP</text>
+        </g>
+      </svg>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div><b>Two writes, both human</b><p>Queue actions write workflow state. The package-identity
+        override writes governed reference data. Nothing else in the application writes anything.</p></div>
+      <div><b>Cut-off, not "now"</b><p>A policy run reads the log at a stated cut-off, so re-running
+        the same version against the same cut-off reproduces the same screen.</p></div>
+      <div><b>Failure is a value</b><p>A rate-limited source degrades to stale evidence and a visible
+        <code class="ref">error</code> run, never to a clean result.</p></div>
+      <div><b>The rollup is the read model</b><p>Every screen from 3 onward reads one rollup row per
+        package plus the evidence rows behind it. None of them recomputes a status.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ diagram 2 ═════════════════════════════════════════════════════════ -->
+<section class="band alt" id="map">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">D2</span><h2>Screen map and role gates</h2></div>
+    <p class="sec-sub">One sign-in, one claim resolution, three role lanes. Reading evidence is
+      shared by all three roles; queues are role-exclusive, and reaching for another role's queue
+      produces a logged refusal rather than an empty page.</p>
+
+    <div class="figure">
+      <div class="cap"><span class="id">D2</span><b>Navigation, with what each role may reach</b>
+        <span>Numbers key to the screens below.</span></div>
+      <div class="plate">
+      <svg viewBox="0 0 1180 556" role="img" aria-label="Screen map showing sign-in, group claim resolution, three role lanes each with their own queue, shared read surfaces, and the refusal path">
+        <defs>
+          <marker id="d2a" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--muted)"/></marker>
+          <marker id="d2c" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--crit)"/></marker>
+        </defs>
+
+        <rect class="box-acc" x="450" y="16" width="280" height="44" rx="4"/>
+        <text class="t-ttl" x="466" y="36">1 · OIDC sign-in</text>
+        <text class="t-xs" x="466" y="52">no local password, in any environment</text>
+
+        <path class="flow" d="M590,60 L590,84" marker-end="url(#d2a)"/>
+
+        <rect class="box" x="450" y="84" width="280" height="48" rx="4"/>
+        <text class="t-ttl" x="466" y="104">Group claim → role</text>
+        <text class="t-xs" x="466" y="121">configuration, not code · refused if no claim</text>
+
+        <path class="flow" d="M590,132 L590,148 L196,148 L196,180" marker-end="url(#d2a)"/>
+        <path class="flow" d="M590,132 L590,180" marker-end="url(#d2a)"/>
+        <path class="flow" d="M590,132 L590,148 L984,148 L984,180" marker-end="url(#d2a)"/>
+
+        <!-- lanes -->
+        <rect class="lane" x="20" y="180" width="352" height="220" rx="4"/>
+        <rect class="lane" x="414" y="180" width="352" height="220" rx="4"/>
+        <rect class="lane" x="808" y="180" width="352" height="220" rx="4"/>
+        <rect x="20" y="180" width="352" height="220" rx="4" style="fill:none;stroke:var(--line)"/>
+        <rect x="414" y="180" width="352" height="220" rx="4" style="fill:none;stroke:var(--line)"/>
+        <rect x="808" y="180" width="352" height="220" rx="4" style="fill:none;stroke:var(--line)"/>
+
+        <text class="t-lbl" x="36" y="204">SECURITY &amp; COMPLIANCE REVIEWER</text>
+        <text class="t-lbl" x="430" y="204">PACKAGING ENGINEER</text>
+        <text class="t-lbl" x="824" y="204">PLATFORM &amp; ENGINEERING LEADERSHIP</text>
+
+        <rect class="box" x="36" y="216" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="50" y="241">2 · Reviewer home — my queue, my freshness</text>
+        <rect class="box-acc" x="36" y="264" width="320" height="44" rx="3"/>
+        <text class="t-ttl" x="50" y="284">Compliance review queue</text>
+        <text class="t-xs" x="50" y="300">KEV · CVE · licence exceptions</text>
+        <rect class="box" x="36" y="316" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="50" y="341">5 · Finding detail → route or accept risk</text>
+        <text class="t-xs" x="50" y="378">acts on: licence exception · risk acceptance</text>
+
+        <rect class="box" x="430" y="216" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="444" y="241">2 · Engineer home — what to fix next</text>
+        <rect class="box-acc" x="430" y="264" width="320" height="44" rx="3"/>
+        <text class="t-ttl" x="444" y="284">Remediation work queue</text>
+        <text class="t-xs" x="444" y="300">6 · ranked P1–P10, then score</text>
+        <rect class="box" x="430" y="316" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="444" y="341">9 · Feedstock-gap report → issue draft</text>
+        <text class="t-xs" x="444" y="378">acts on: the remediation queue</text>
+
+        <rect class="box" x="824" y="216" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="838" y="241">8 · Coverage and collector health</text>
+        <rect class="box-acc" x="824" y="264" width="320" height="44" rx="3"/>
+        <text class="t-ttl" x="838" y="284">Package-identity review queue</text>
+        <text class="t-xs" x="838" y="300">7 · ranked by internal usage breadth</text>
+        <rect class="box-warn" x="824" y="316" width="320" height="40" rx="3"/>
+        <text class="t-sm" x="838" y="341">7 · Identity override — the one human write</text>
+        <text class="t-xs" x="838" y="378">acts on: prioritisation · reporting · overrides</text>
+
+        <!-- refusal -->
+        <path class="flow-dash" style="stroke:var(--crit)" d="M356,286 L392,286 L392,430" marker-end="url(#d2c)"/>
+        <path class="flow-dash" style="stroke:var(--crit)" d="M750,286 L786,286 L786,430" marker-end="url(#d2c)"/>
+        <rect class="box-crit" x="392" y="430" width="396" height="44" rx="3"/>
+        <text class="t-ttl" x="406" y="450">10 · 403 — refused, and logged with the user identity</text>
+        <text class="t-xs" x="406" y="466">a queue that is not yours is refused, never rendered empty</text>
+
+        <!-- shared band -->
+        <path class="flow" d="M196,400 L196,502" marker-end="url(#d2a)"/>
+        <path class="flow" d="M590,400 L590,430" />
+        <path class="flow" d="M984,400 L984,502" marker-end="url(#d2a)"/>
+        <rect class="box" x="20" y="502" width="1140" height="44" rx="4"/>
+        <text class="t-ttl" x="36" y="522">Shared read surfaces — all three roles</text>
+        <text class="t-xs" x="36" y="538">3 · current package health   ·   4 · package detail with evidence   ·   9 · reports and exports   ·   governed API   ·   11 · investigation (post-MVP)</text>
+      </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ status vocabulary ═════════════════════════════════════════════════ -->
+<section class="band" id="states">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">§</span><h2>The five outcome states, drawn apart</h2></div>
+    <p class="sec-sub">The product's primary failure mode is an unknown rendered as clean. So the
+      four sentinels are given their own colour <em>and</em> their own marker shape — a hollow ring,
+      a dashed ring, a struck circle, a triangle — and none of them is ever a blank cell. Status
+      values are emitted lowercase and verbatim on every surface, screen and export alike.</p>
+
+    <div class="legend">
+      <div><span class="chip ok">current</span>
+        <p><b>Determinate.</b> Policy reached a conclusion from evidence inside its freshness
+        target. Green, amber and red are all determinate — a filled dot.</p></div>
+      <div><span class="chip unknown">unknown</span>
+        <p><b>Nobody has established this.</b> No evidence, or evidence the collector could not
+        match. Hollow ring. Never displayed as clean, never omitted from a count.</p></div>
+      <div><span class="chip notfound">not_found</span>
+        <p><b>Looked, and it is not there.</b> The lookup succeeded and returned nothing — no PyPI
+        project, no feedstock. Dashed ring. Distinct from unknown.</p></div>
+      <div><span class="chip na">not_applicable</span>
+        <p><b>The check does not apply.</b> A native library has no <code class="ref">Requires-Python</code>.
+        Struck circle. Modelled from v1 so the non-Python phase exercises a path that exists.</p></div>
+      <div><span class="chip error">error</span>
+        <p><b>The collection itself failed.</b> Rate limit, timeout, bad response. Triangle. Carries
+        a trace identifier, so it is investigable rather than merely recorded.</p></div>
+      <div><span class="chip warn">stale</span>
+        <p><b>Past its freshness target.</b> An overlay on any determinate value: the conclusion is
+        shown, struck through with an amber evidence line, and cannot be acted on.</p></div>
+    </div>
+
+    <div class="notebox">
+      <h4>What the confidence gate does to a row</h4>
+      <ul>
+        <li><b>verified</b> — comparisons and recommendations render normally.</li>
+        <li><b>inventory-derived</b> — the same values render, tagged lower confidence; the tag is
+          on the row, not a footnote at the bottom of the page.</li>
+        <li><b>unmapped</b> — every gated status is <em>written</em> as <code class="ref">unknown</code>.
+          The row still appears in the health view and still holds a rollup row; it simply never
+          claims the package is current, clean, or lacking a feedstock, and it is routed to the
+          identity review queue instead.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 1 ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s1">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S1</span><h2>Sign-in, and the claim that carries no role</h2></div>
+    <p class="sec-sub">There is one way in. The interesting screen is the second one: an
+      authentication that succeeds at the provider but asserts no group claim is refused with an
+      explanation, and that refusal is distinguishable from a claim asserting zero groups.</p>
+
+    <div class="two-col">
+      <div>
+        <div class="screen">
+          <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+            <div class="urlbar">https://cpm.internal/<b>accounts/login/</b></div></div>
+          <div class="viewport"><div class="app" style="min-width:0">
+            <div class="login">
+              <div class="loginbox">
+                <div class="brand" style="justify-content:center;margin-bottom:16px">
+                  <span class="glyph">cpm</span> Conda Package Supply Chain Monitor</div>
+                <h3>Sign in to continue</h3>
+                <p>Your access is determined by the groups your organisation asserts. There is no
+                  local account.</p>
+                <button class="btn primary oidc">Continue with organisation sign-in</button>
+                <div class="claimline">
+                  provider &nbsp;· &nbsp;oidc / corp-idp<br>
+                  scopes &nbsp;&nbsp;&nbsp;· &nbsp;openid profile email groups<br>
+                  session &nbsp;&nbsp;· &nbsp;8h, refresh 30d
+                </div>
+              </div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+      <div>
+        <div class="screen">
+          <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+            <div class="urlbar">https://cpm.internal/<b>accounts/login/?error=no_group_claim</b></div></div>
+          <div class="viewport"><div class="app" style="min-width:0">
+            <div class="login">
+              <div class="loginbox" style="text-align:left">
+                <span class="chip crit">authentication refused</span>
+                <h3 style="margin-top:12px">Your sign-in carried no group claim</h3>
+                <p>You authenticated successfully, but the token contained no <code class="ref">groups</code>
+                  claim at all. This is different from being in no groups — the monitor cannot tell
+                  what you are allowed to read, so it refuses rather than guessing.</p>
+                <div class="claimline">
+                  subject &nbsp;&nbsp;· &nbsp;d.okafor@corp<br>
+                  groups &nbsp;&nbsp;&nbsp;· &nbsp;<span style="color:var(--crit)">claim absent</span><br>
+                  request &nbsp;&nbsp;· &nbsp;01JQ8F3K2M<br>
+                  logged &nbsp;&nbsp;&nbsp;· &nbsp;yes, with your user identity
+                </div>
+                <p style="margin-top:14px">Ask your identity administrator to add you to one of the
+                  three monitor groups, then sign in again.</p>
+                <button class="btn oidc" style="margin-top:14px">Try again</button>
+              </div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>No local password path</h4>
+        <p>The template offers exactly one control. Nothing renders a username field in any
+          deployed environment.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-29</span></div></div>
+      <div class="anno"><h4>Two different empties</h4>
+        <p>A missing claim is refused and explained. A claim asserting zero groups signs the user in
+          and lands them on a page that says which group they need.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-29</span><span class="reftag">CPM-FR-30</span></div></div>
+      <div class="anno"><h4>Refusals are logged</h4>
+        <p>Every refused authorisation carries the acting user identity into the structured log,
+          alongside the request id shown here.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-11</span><span class="reftag ad">CPM-AD-13</span></div></div>
+      <div class="anno"><h4>No HTMX here</h4>
+        <p>Full page loads. The OIDC round trip leaves the application entirely, so a partial swap
+          would have nothing to swap into.</p>
+        <div class="reftags"><span class="reftag">django-allauth</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 2 ══════════════════════════════════════════════════════════ -->
+<section class="band" id="s2">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S2</span><h2>Reviewer home — what is mine, and what is stale</h2></div>
+    <p class="sec-sub">The landing page answers two questions before anything else: what is at the
+      top of my queue, and how much of what I am about to read is actually current. The second
+      question is answered in the same bar on every screen in the product.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/</div>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport"><div class="app" style="min-width:1180px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#" class="on">Home</a>
+            <a href="#">Packages</a>
+            <a href="#">My queue</a>
+            <a href="#">Reports</a>
+            <a href="#">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span>
+            <span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Good morning, Dana</h2>
+              <div class="sub">Compliance review queue · 34 open items · 3 at P1</div></div>
+            <div class="btnrow">
+              <button class="btn">Export my queue</button>
+              <button class="btn primary">Open queue</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy versions</span><b>currency@4 vuln@9 licence@3 py314@2 priority@6</b></div>
+            <div><span class="lbl">collectors</span><b style="color:var(--warn)">7 of 8 healthy</b></div>
+          </div>
+
+          <div class="cards c4">
+            <div class="panel stat">
+              <div class="lbl">KEV findings, open</div>
+              <div class="big" style="color:var(--crit)">3</div>
+              <div class="foot">all P1 · oldest opened 2 days ago</div>
+            </div>
+            <div class="panel stat">
+              <div class="lbl">Licence exceptions pending</div>
+              <div class="big">11</div>
+              <div class="foot">4 forbidden · 7 manual review</div>
+            </div>
+            <div class="panel stat">
+              <div class="lbl">Findings I cannot act on</div>
+              <div class="big" style="color:var(--warn)">6</div>
+              <div class="foot">2 stale evidence · 4 fix not published anywhere</div>
+            </div>
+            <div class="panel stat">
+              <div class="lbl">Vulnerability evidence fresh</div>
+              <div class="big">92<span style="font-size:15px;color:var(--muted)">%</span></div>
+              <div class="bar"><i style="width:92%;background:var(--ok)"></i><i style="width:5%;background:var(--warn)"></i><i style="width:3%;background:var(--err)"></i></div>
+              <div class="foot">fresh · stale · collector error</div>
+            </div>
+          </div>
+
+          <div class="cards c2" style="align-items:start">
+            <div class="panel">
+              <header><h4>Top of my queue</h4>
+                <span class="hx">hx-get="/queues/compliance/?top=4" · hx-trigger="every 60s"</span></header>
+              <table class="tbl">
+                <thead><tr><th>Package</th><th>Finding</th><th>State</th></tr></thead>
+                <tbody>
+                  <tr><td class="pkg"><a href="#">aiohttp</a></td>
+                    <td>CVE-2024-23334 · KEV listed
+                      <div class="ev">kev_findings · added 2024-02-01 · observed 05:38Z</div></td>
+                    <td><span class="chip crit">ready</span></td></tr>
+                  <tr><td class="pkg"><a href="#">cryptography</a></td>
+                    <td>CVE-2023-49083 · null deref
+                      <div class="ev">vulnerability_findings · observed 05:38Z</div></td>
+                    <td><span class="chip crit">ready</span></td></tr>
+                  <tr><td class="pkg"><a href="#">pyarrow</a></td>
+                    <td>CVE-2024-52338 · deserialisation
+                      <div class="ev stale">vulnerability_findings · observed 2026-08-29 · stale, target 24h</div></td>
+                    <td><span class="chip warn">stale — recollect</span></td></tr>
+                  <tr><td class="pkg"><a href="#">pillow</a></td>
+                    <td>GPL-3.0-only in bundled codec
+                      <div class="ev">license_findings · observed 04:02Z</div></td>
+                    <td><span class="chip warn">manual review</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="panel">
+              <header><h4>What the monitor could not see this cycle</h4>
+                <span class="hx">partial · reporting/_collector_health.html</span></header>
+              <div class="body" style="display:flex;flex-direction:column;gap:11px">
+                <div>
+                  <span class="chip error">error</span>
+                  <span style="margin-left:6px;font-weight:600">advisory collector</span>
+                  <div class="ev">429 from advisory source · 148 packages affected · trace 4c1f9a2e · last success 2026-09-02 05:40Z</div>
+                </div>
+                <div>
+                  <span class="chip warn">stale</span>
+                  <span style="margin-left:6px;font-weight:600">published conda collector</span>
+                  <div class="ev">last completed run 31h ago · freshness target 24h</div>
+                </div>
+                <div>
+                  <span class="chip unknown">unknown</span>
+                  <span style="margin-left:6px;font-weight:600">217 packages have no vulnerability evidence</span>
+                  <div class="ev">never successfully matched · not counted as clean anywhere</div>
+                </div>
+                <div style="border-top:1px solid var(--line-2);padding-top:11px">
+                  <span class="hxnote">hx-post="/collectors/advisory/recollect/" → 202 Accepted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The freshness bar is not decoration</h4>
+        <p>Rollup <code>computed_at</code>, the evidence cut-off and the per-domain version map are
+          a requirement of the view, not a debug affordance. They appear identically on screens 3,
+          4, 8 and 9, and in every export header.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-23</span><span class="reftag ad">CPM-AD-11</span><span class="reftag ad">CPM-AD-24</span></div></div>
+      <div class="anno"><h4>Counters that resist the failure mode</h4>
+        <p>"Findings I cannot act on" and "217 packages have no vulnerability evidence" exist so
+          that the clean proportion cannot quietly rise by absorbing unknowns.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C1</span><span class="reftag">CPM-FR-38</span></div></div>
+      <div class="anno"><h4>HTMX polling, bounded</h4>
+        <p><code>hx-trigger="every 60s"</code> on the queue partial only; the page itself never
+          reloads. The partial is the same template fragment the queue screen renders.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-12</span></div></div>
+      <div class="anno"><h4>Recollection leaves the request</h4>
+        <p>The recollect control posts and receives <code>202</code> with a job id — it never holds
+          the request open against a rate-limited third party.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-6</span><span class="reftag ad">CPM-AD-9</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 3 ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s3">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S3</span><h2>Current package health</h2></div>
+    <p class="sec-sub">The most-read screen in the product, and the one that has to hold ten
+      thousand rows without ever returning them all. Facets on the left, one rollup row per package
+      on the right, and under every status the timestamp of the observation that produced it.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/?vuln=critical&amp;confidence=verified&amp;page=1</b></div>
+        <span class="chrome-role">shared · all roles</span></div>
+      <div class="viewport"><div class="app" style="min-width:1180px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#" class="on">Packages</a><a href="#">My queue</a>
+            <a href="#">Reports</a><a href="#">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Current package health</h2>
+              <div class="sub">9,842 packages in the inventory · 1,204 match these filters</div></div>
+            <div class="btnrow">
+              <button class="btn">Save this view</button>
+              <button class="btn">Export CSV</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy versions</span><b>currency@4 vuln@9 licence@3 py314@2 feedstock@2 priority@6</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+          </div>
+
+          <div class="split">
+            <aside class="side">
+              <div class="grp">
+                <h5>Search</h5>
+                <input class="searchbox" type="text" placeholder="canonical name…" value="">
+                <div class="ev" style="margin-top:6px">hx-trigger keyup changed delay:300ms</div>
+              </div>
+              <div class="grp">
+                <h5>Vulnerability status</h5>
+                <label class="facet on"><input type="checkbox" checked> critical <span class="n">1,204</span></label>
+                <label class="facet"><input type="checkbox"> high <span class="n">2,911</span></label>
+                <label class="facet"><input type="checkbox"> none found <span class="n">4,388</span></label>
+                <label class="facet"><input type="checkbox"> unknown <span class="n">217</span></label>
+                <label class="facet"><input type="checkbox"> error <span class="n">148</span></label>
+                <label class="facet"><input type="checkbox"> not_applicable <span class="n">974</span></label>
+              </div>
+              <div class="grp">
+                <h5>Identity confidence</h5>
+                <label class="facet on"><input type="checkbox" checked> verified <span class="n">8,180</span></label>
+                <label class="facet"><input type="checkbox"> inventory-derived <span class="n">1,341</span></label>
+                <label class="facet"><input type="checkbox"> unmapped <span class="n">321</span></label>
+              </div>
+              <div class="grp">
+                <h5>Priority bucket</h5>
+                <label class="facet"><input type="checkbox"> P1 <span class="n">38</span></label>
+                <label class="facet"><input type="checkbox"> P2 <span class="n">96</span></label>
+                <label class="facet"><input type="checkbox"> P3 <span class="n">254</span></label>
+                <label class="facet"><input type="checkbox"> P4–P10 <span class="n">9,454</span></label>
+              </div>
+              <div class="grp">
+                <h5>Work type</h5>
+                <label class="facet"><input type="checkbox"> fix vulnerability <span class="n">412</span></label>
+                <label class="facet"><input type="checkbox"> create recipe <span class="n">188</span></label>
+                <label class="facet"><input type="checkbox"> update feedstock <span class="n">903</span></label>
+                <label class="facet"><input type="checkbox"> resolve identity <span class="n">321</span></label>
+                <label class="facet"><input type="checkbox"> review licence <span class="n">77</span></label>
+                <label class="facet"><input type="checkbox"> validate python 3.14 <span class="n">1,660</span></label>
+              </div>
+              <div class="grp">
+                <h5>Evidence freshness</h5>
+                <label class="facet"><input type="checkbox"> stale only <span class="n">641</span></label>
+              </div>
+            </aside>
+
+            <div class="main-pane">
+              <div class="applied">
+                <span>Filters</span>
+                <span class="filterpill">vuln = critical <x>✕</x></span>
+                <span class="filterpill">confidence = verified <x>✕</x></span>
+                <span style="margin-left:auto">sorted by <b style="color:var(--ink-2)">rank</b> · bucket then score</span>
+              </div>
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th class="sorted">Package</th><th>P</th><th>Score</th><th>Work</th>
+                    <th>Currency</th><th>Vulnerability</th><th>KEV</th><th>Licence</th>
+                    <th>Py 3.14</th><th>Feedstock</th><th>Confidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="pkg"><a href="#">aiohttp</a><div class="ev">3.9.1 installed</div></td>
+                    <td><span class="pbucket p1">P1</span></td>
+                    <td class="num">96</td>
+                    <td>fix vulnerability</td>
+                    <td><span class="chip warn">lagging</span><div class="ev">pypi · 05:31Z</div></td>
+                    <td><span class="chip crit">critical</span><div class="ev">advisory · 05:38Z</div></td>
+                    <td><span class="chip crit">listed</span><div class="ev">kev · 05:38Z</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">Apache-2.0 · 04:02Z</div></td>
+                    <td><span class="chip ok">inferred ok</span><div class="ev">metadata · 03:20Z</div></td>
+                    <td><span class="chip ok">maintained</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">pypi-exact</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">cryptography</a><div class="ev">41.0.4 installed</div></td>
+                    <td><span class="pbucket p1">P1</span></td>
+                    <td class="num">91</td>
+                    <td>fix vulnerability</td>
+                    <td><span class="chip warn">lagging</span><div class="ev">source · 05:29Z</div></td>
+                    <td><span class="chip crit">high</span><div class="ev">advisory · 05:38Z</div></td>
+                    <td><span class="chip ok">not listed</span><div class="ev">kev · 05:38Z</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">Apache-2.0 OR BSD-3 · 04:02Z</div></td>
+                    <td><span class="chip ok">verified ok</span><div class="ev">build · linux-64 · 08-30</div></td>
+                    <td><span class="chip ok">maintained</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">pypi-exact</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">pyarrow</a><div class="ev">14.0.1 installed</div></td>
+                    <td><span class="pbucket p1">P1</span></td>
+                    <td class="num">88</td>
+                    <td>fix vulnerability</td>
+                    <td><span class="chip ok">current</span><div class="ev">pypi · 05:31Z</div></td>
+                    <td><span class="chip warn">critical · stale</span><div class="ev stale">advisory · 08-29 · target 24h</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev stale">depends on stale finding</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">Apache-2.0 · 04:02Z</div></td>
+                    <td><span class="chip ok">inferred ok</span><div class="ev">metadata · 03:20Z</div></td>
+                    <td><span class="chip warn">inactive 14mo</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">pypi-exact</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">orjson</a><div class="ev">3.9.10 installed</div></td>
+                    <td><span class="pbucket p3">P3</span></td>
+                    <td class="num">74</td>
+                    <td>create recipe</td>
+                    <td><span class="chip warn">lagging</span><div class="ev">pypi · 05:31Z</div></td>
+                    <td><span class="chip ok">none found</span><div class="ev">advisory · 05:38Z</div></td>
+                    <td><span class="chip ok">not listed</span><div class="ev">kev · 05:38Z</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">Apache-2.0 · 04:02Z</div></td>
+                    <td><span class="chip ok">inferred ok</span><div class="ev">metadata · 03:20Z</div></td>
+                    <td><span class="chip notfound">not_found</span><div class="ev">no feedstock, no staged recipe · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">pypi-exact</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">libarchive</a><div class="ev">3.7.2 installed</div></td>
+                    <td><span class="pbucket p5">P5</span></td>
+                    <td class="num">61</td>
+                    <td>update feedstock</td>
+                    <td><span class="chip warn">lagging</span><div class="ev">source · 05:29Z</div></td>
+                    <td><span class="chip ok">none found</span><div class="ev">advisory · 05:38Z</div></td>
+                    <td><span class="chip ok">not listed</span><div class="ev">kev · 05:38Z</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">BSD-2-Clause · 04:02Z</div></td>
+                    <td><span class="chip na">not_applicable</span><div class="ev">native library · no python metadata</div></td>
+                    <td><span class="chip ok">maintained</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">manual override</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">internal-telemetry-sdk</a><div class="ev">2.4.0 installed</div></td>
+                    <td><span class="pbucket p7">P7</span></td>
+                    <td class="num">55</td>
+                    <td>resolve identity</td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">gated by confidence</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">gated by confidence</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">gated by confidence</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">gated by confidence</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">gated by confidence</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">never "absent" while unmapped</div></td>
+                    <td><span class="conf unmapped">unmapped</span><div class="ev">in identity queue</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">jinja2</a><div class="ev">3.1.2 installed</div></td>
+                    <td><span class="pbucket p4">P4</span></td>
+                    <td class="num">70</td>
+                    <td>fix vulnerability</td>
+                    <td><span class="chip ok">current</span><div class="ev">pypi · 05:31Z</div></td>
+                    <td><span class="chip error">error</span><div class="ev">429 rate limited · trace 4c1f9a2e</div></td>
+                    <td><span class="chip unknown">unknown</span><div class="ev">no finding to cross-reference</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">BSD-3-Clause · 04:02Z</div></td>
+                    <td><span class="chip ok">inferred ok</span><div class="ev">metadata · 03:20Z</div></td>
+                    <td><span class="chip ok">maintained</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf verified">verified</span><div class="ev">pypi-exact</div></td>
+                  </tr>
+                  <tr>
+                    <td class="pkg"><a href="#">numpy</a><div class="ev">1.26.4 installed</div></td>
+                    <td><span class="pbucket p9">P9</span></td>
+                    <td class="num">42</td>
+                    <td>already tracked</td>
+                    <td><span class="chip ok">current</span><div class="ev">pypi · 05:31Z</div></td>
+                    <td><span class="chip ok">none found</span><div class="ev">advisory · 05:38Z</div></td>
+                    <td><span class="chip ok">not listed</span><div class="ev">kev · 05:38Z</div></td>
+                    <td><span class="chip ok">allowed</span><div class="ev">BSD-3-Clause · 04:02Z</div></td>
+                    <td><span class="chip ok">verified ok</span><div class="ev">build · osx-arm64 · 09-01</div></td>
+                    <td><span class="chip ok">maintained</span><div class="ev">feedstock · 04:55Z</div></td>
+                    <td><span class="conf derived">inventory-derived</span><div class="ev">lower confidence</div></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="pager">
+                <span>Showing <b style="color:var(--ink-2)">1–8</b> of 1,204 · page size 50, capped at 200</span>
+                <div class="pagenums">
+                  <a href="#" class="on">1</a><a href="#">2</a><a href="#">3</a><a href="#">…</a><a href="#">25</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Facets swap the table, not the page</h4>
+        <p><code>hx-get="/packages/"</code> with <code>hx-target="#health-rows"</code>,
+          <code>hx-push-url="true"</code> and <code>hx-indicator</code>. The URL stays shareable and
+          the back button works, because every filter is a query parameter Django already parses.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-23</span></div></div>
+      <div class="anno"><h4>Alpine holds only view state</h4>
+        <p><code>x-data</code> tracks which facet groups are open and the pending filter set before
+          it is submitted. No status, count or timestamp is ever computed client-side.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-10</span></div></div>
+      <div class="anno"><h4>Pagination cannot be opted out of</h4>
+        <p>Page size and its ceiling are set globally in <code>REST_FRAMEWORK</code>, and the HTML
+          view reads the same constants. No filter combination returns the unbounded inventory.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-4</span><span class="reftag ad">CPM-AD-12</span></div></div>
+      <div class="anno"><h4>Read the unmapped row</h4>
+        <p><code>internal-telemetry-sdk</code> is present, ranked, and carries a rollup row — with
+          every gated status written as <code>unknown</code>. It is never absent from a count and
+          never reported as having no feedstock.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-5</span><span class="reftag ad">CPM-AD-4</span></div></div>
+      <div class="anno"><h4>Sort is bucket then score</h4>
+        <p>Rank is derived and stable for a policy run, so two people sorting the same view at the
+          same cut-off see the same order.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-20</span></div></div>
+      <div class="anno"><h4>Query count is bounded by a test</h4>
+        <p>The p95 budget is still an open question, but the story requires one to exist and to be
+          enforced — a regression fails the suite rather than merely running slower.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-5</span><span class="reftag">OQ-5</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 4 ══════════════════════════════════════════════════════════ -->
+<section class="band" id="s4">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S4</span><h2>Package detail — every status traced to its evidence</h2></div>
+    <p class="sec-sub">This is the screen that makes the product auditable. Each status opens onto
+      the rows that produced it, superseded observations stay reachable, and the package identity
+      shows its provenance including any human correction and the reason recorded with it.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>packages/aiohttp/</b></div>
+        <span class="chrome-role">shared · all roles</span></div>
+      <div class="viewport"><div class="app" style="min-width:1080px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#" class="on">Packages</a><a href="#">My queue</a>
+            <a href="#">Reports</a><a href="#">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">packages / aiohttp</div>
+              <h2>aiohttp <span class="pbucket p1" style="vertical-align:middle;margin-left:6px">P1</span>
+                <span class="chip plain sm" style="vertical-align:middle">score 96</span>
+                <span class="chip plain sm" style="vertical-align:middle">work: fix vulnerability</span></h2>
+              <div class="sub">Async HTTP client/server · 41 internal components · 6 lines of business</div>
+            </div>
+            <div class="btnrow">
+              <button class="btn">Recollect evidence</button>
+              <button class="btn">Draft tracking issue</button>
+              <button class="btn primary">Open finding</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy run</span><b>pr_01JQ8E</b></div>
+            <div><span class="lbl">tracking</span><b>OT-4471 · open</b></div>
+          </div>
+
+          <div class="cards" style="grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)">
+            <div style="display:flex;flex-direction:column;gap:12px">
+
+              <div class="panel">
+                <header><h4>Derived statuses</h4>
+                  <span class="hx">each row: hx-get="/packages/aiohttp/evidence/&lt;domain&gt;/" hx-swap="afterend"</span></header>
+                <table class="tbl">
+                  <thead><tr><th>Status</th><th>Value</th><th>Produced from</th><th></th></tr></thead>
+                  <tbody>
+                    <tr><td>Vulnerability</td>
+                      <td><span class="chip crit">critical</span></td>
+                      <td class="mono">vulnerability_findings ×3<div class="ev">latest observed 05:38Z · vuln@9</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+
+                    <!-- one row expanded, to show the disclosure -->
+                    <tr style="background:var(--accent-wash)">
+                      <td colspan="4" style="padding:0">
+                        <table class="tbl" style="background:transparent">
+                          <thead><tr>
+                            <th style="background:transparent;border-top:0">Advisory</th>
+                            <th style="background:transparent;border-top:0">Severity</th>
+                            <th style="background:transparent;border-top:0">Affected</th>
+                            <th style="background:transparent;border-top:0">Fixed</th>
+                            <th style="background:transparent;border-top:0">Matched</th>
+                            <th style="background:transparent;border-top:0">Source</th>
+                            <th style="background:transparent;border-top:0">Match confidence</th>
+                            <th style="background:transparent;border-top:0">observed_at</th>
+                          </tr></thead>
+                          <tbody>
+                            <tr><td class="mono">CVE-2024-23334</td><td><span class="chip crit sm">critical</span></td>
+                              <td class="mono">&gt;=1.0.5,&lt;3.9.2</td><td class="mono">3.9.2</td><td class="mono">3.9.1</td>
+                              <td class="mono">osv</td><td class="mono">exact-range</td>
+                              <td class="mono">2026-09-04 05:38Z</td></tr>
+                            <tr><td class="mono">CVE-2024-27306</td><td><span class="chip warn sm">medium</span></td>
+                              <td class="mono">&lt;3.9.4</td><td class="mono">3.9.4</td><td class="mono">3.9.1</td>
+                              <td class="mono">osv</td><td class="mono">exact-range</td>
+                              <td class="mono">2026-09-04 05:38Z</td></tr>
+                            <tr style="opacity:.62"><td class="mono">CVE-2024-23334</td><td><span class="chip crit sm">critical</span></td>
+                              <td class="mono">&gt;=1.0.5,&lt;3.9.2</td><td class="mono">3.9.2</td><td class="mono">3.9.1</td>
+                              <td class="mono">osv</td><td class="mono">exact-range</td>
+                              <td class="mono">2026-09-03 05:37Z <span class="chip plain sm">superseded</span></td></tr>
+                          </tbody>
+                        </table>
+                        <div style="padding:9px 11px;font-family:var(--mono);font-size:10.5px;color:var(--muted)">
+                          re-observation inserts a new row; nothing above was updated in place ·
+                          <a href="#">show all 14 observations</a>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <tr><td>KEV</td><td><span class="chip crit">listed</span></td>
+                      <td class="mono">kev_findings ×1<div class="ev">catalogue date added 2024-02-01 · observed 05:38Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                    <tr><td>Remediation readiness</td><td><span class="chip ok">ready</span></td>
+                      <td class="mono">fix 3.9.2 published to conda-forge<div class="ev">conda_package_snapshots · 04:41Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                    <tr><td>Source currency</td><td><span class="chip warn">lagging 2 releases</span></td>
+                      <td class="mono">source_release_snapshots<div class="ev">upstream 3.10.1 · observed 05:29Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                    <tr><td>Licence compliance</td><td><span class="chip ok">allowed</span></td>
+                      <td class="mono">license_findings<div class="ev">Apache-2.0 · policy licence@3 · observed 04:02Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                    <tr><td>Python 3.14 readiness</td><td><span class="chip ok">inferred compatible</span></td>
+                      <td class="mono">python314_findings<div class="ev">metadata only — not verified by build · 03:20Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                    <tr><td>Feedstock</td><td><span class="chip ok">present, maintained</span></td>
+                      <td class="mono">feedstock_snapshots<div class="ev">recipe 3.9.2 · last activity 11 days · 04:55Z</div></td>
+                      <td style="text-align:right"><button class="btn sm">evidence ▾</button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="panel">
+                <header><h4>Versions across the four surfaces</h4>
+                  <span class="hx">authority order is data on the package</span></header>
+                <table class="tbl">
+                  <thead><tr><th>Surface</th><th>Version</th><th>Observed</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td>Source repository <span class="chip plain sm">authority</span></td>
+                      <td class="mono">3.10.1</td><td class="mono">2026-09-04 05:29Z</td>
+                      <td><span class="chip ok">reachable</span></td></tr>
+                    <tr><td>PyPI</td><td class="mono">3.10.1</td><td class="mono">2026-09-04 05:31Z</td>
+                      <td><span class="chip ok">reachable</span></td></tr>
+                    <tr><td>Feedstock recipe</td><td class="mono">3.9.2</td><td class="mono">2026-09-04 04:55Z</td>
+                      <td><span class="chip warn">behind authority</span></td></tr>
+                    <tr><td>Published · conda-forge/noarch</td><td class="mono">3.9.2</td>
+                      <td class="mono">2026-09-04 04:41Z</td><td><span class="chip warn">behind authority</span></td></tr>
+                    <tr><td>Published · internal/linux-64</td><td class="mono">3.9.1</td>
+                      <td class="mono">2026-09-04 04:41Z</td><td><span class="chip crit">vulnerable build in use</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div class="panel">
+                <header><h4>Package identity</h4><span class="hx">governed reference data</span></header>
+                <div class="body">
+                  <dl class="kv">
+                    <dt>canonical_name</dt><dd class="mono">aiohttp</dd>
+                    <dt>confidence</dt><dd><span class="conf verified">verified</span></dd>
+                    <dt>identity_source</dt><dd class="mono">manual override</dd>
+                    <dt>associator_key</dt><dd class="mono">pypi:aiohttp</dd>
+                    <dt>resolved_at</dt><dd class="mono">2026-08-27 14:09Z</dd>
+                    <dt>source_repository</dt><dd class="mono">github.com/aio-libs/aiohttp</dd>
+                    <dt>primary_purl</dt><dd class="mono">pkg:pypi/aiohttp</dd>
+                    <dt>conda_purl</dt><dd class="mono">pkg:conda/aiohttp</dd>
+                    <dt>feedstock</dt><dd class="mono">conda-forge/aiohttp-feedstock</dd>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="panel" style="border-left:3px solid var(--warn)">
+                <header style="background:var(--warn-wash)"><h4>Corrected by a human</h4>
+                  <span class="hx">identity_overrides</span></header>
+                <div class="body">
+                  <dl class="kv" style="grid-template-columns:110px minmax(0,1fr)">
+                    <dt>actor</dt><dd>Sam Ibarra <span class="ev" style="display:inline">· platform lead</span></dd>
+                    <dt>at</dt><dd class="mono">2026-08-27 14:09Z</dd>
+                    <dt>field</dt><dd class="mono">source_repository_url</dd>
+                    <dt>prior value</dt><dd class="mono" style="text-decoration:line-through;color:var(--muted)">github.com/aio-libs/aiohttp-theme</dd>
+                    <dt>new value</dt><dd class="mono">github.com/aio-libs/aiohttp</dd>
+                    <dt>reason</dt><dd>Resolver matched the docs theme repository, not the library.
+                      Confirmed against the PyPI project page and the feedstock recipe source URL.</dd>
+                  </dl>
+                  <div class="ev" style="margin-top:11px">survives every automated collection · downgraded only by explicit re-resolution</div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <header><h4>Internal impact</h4><span class="hx">read at the run's cut-off</span></header>
+                <div class="body">
+                  <dl class="kv" style="grid-template-columns:150px minmax(0,1fr)">
+                    <dt>internal_components</dt><dd class="mono">41</dd>
+                    <dt>internal_lobs</dt><dd class="mono">6</dd>
+                    <dt>platforms</dt><dd class="mono">linux-64; osx-arm64</dd>
+                    <dt>downloads (90d)</dt><dd class="mono">18,402</dd>
+                    <dt>priority_reason</dt><dd>KEV-listed advisory with a published fix and
+                      usage breadth above the P1 threshold</dd>
+                    <dt>priority_source</dt><dd class="mono">rules@6 · rule kev_with_fix</dd>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="panel">
+                <header><h4>Collection runs, this package</h4><span class="hx">run ledger — not evidence</span></header>
+                <div class="body" style="display:flex;flex-direction:column;gap:9px">
+                  <div><span class="chip ok sm">success</span> <span class="mono">advisory</span>
+                    <div class="ev">05:38Z · 1.4s · trace 9be0c714</div></div>
+                  <div><span class="chip ok sm">success</span> <span class="mono">pypi</span>
+                    <div class="ev">05:31Z · 0.6s · trace 9be0c714</div></div>
+                  <div><span class="chip plain sm">skipped</span> <span class="mono">feedstock</span>
+                    <div class="ev">05:30Z · inside the 6h observation window</div></div>
+                  <div><span class="chip error sm">error</span> <span class="mono">published conda</span>
+                    <div class="ev">04:41Z · read timeout on internal channel · trace 4c1f9a2e</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Disclosure by HTMX, state by Alpine</h4>
+        <p>Each "evidence ▾" issues <code>hx-get</code> for a row partial and inserts it
+          <code>afterend</code>; Alpine only flips the caret and the pressed state. The evidence
+          rows are never shipped with the page — 14 observations per domain would be.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-24</span></div></div>
+      <div class="anno"><h4>Superseded stays reachable</h4>
+        <p>Yesterday's identical observation is dimmed and labelled, not deleted. Re-observing an
+          unchanged fact is still a new row with a new <code>observed_at</code>.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-36</span><span class="reftag ad">CPM-AD-2</span></div></div>
+      <div class="anno"><h4>Inferred is not verified</h4>
+        <p>Python 3.14 readiness states which evidence type produced it, every time it is shown.
+          Static metadata and a real build are different claims.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-19</span></div></div>
+      <div class="anno"><h4>The override is displayed, not hidden</h4>
+        <p>A correction is part of the identity, so the reason a human gave is on the package page —
+          not only in an audit table someone would have to know to query.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-3</span><span class="reftag">CPM-FR-24</span><span class="reftag ad">CPM-AD-14</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 5 ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s5">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S5</span><h2>Finding detail, and routing it to someone who can act</h2></div>
+    <p class="sec-sub">Dana's journey ends here: the advisory, the ranges, the version that matched,
+      where the fix is available, and one control that hands the work to a packaging engineer with
+      the evidence still attached. The Django form posts over HTMX and swaps the item's row.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/compliance/wf_01JQ8G7T/</b></div>
+        <span class="chrome-role">security &amp; compliance reviewer</span></div>
+      <div class="viewport modal-wrap"><div class="app" style="min-width:1020px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#">Packages</a><a href="#" class="on">My queue</a>
+            <a href="#">Reports</a><a href="#">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">reviewer</span><span class="av">DO</span> Dana Okafor</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div>
+              <div class="ev" style="margin:0 0 5px">my queue / CVE-2024-23334 · aiohttp</div>
+              <h2>CVE-2024-23334 <span class="chip crit" style="vertical-align:middle">KEV listed</span></h2>
+              <div class="sub">Directory traversal in static file handling ·
+                finding key <span class="mono">aiohttp:CVE-2024-23334:&gt;=1.0.5,&lt;3.9.2</span></div>
+            </div>
+            <div class="btnrow">
+              <button class="btn">Accept risk</button>
+              <button class="btn">Recollect evidence</button>
+              <button class="btn primary">Route to remediation</button>
+            </div>
+          </div>
+
+          <div class="cards c3">
+            <div class="panel"><div class="stat">
+              <div class="lbl">Severity</div><div class="big" style="color:var(--crit);font-size:20px">critical</div>
+              <div class="foot">CVSS 8.8 · source osv · observed 05:38Z</div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Remediation readiness</div><div class="big" style="color:var(--ok);font-size:20px">ready</div>
+              <div class="foot">3.9.2 published to conda-forge/noarch · 04:41Z</div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Internal exposure</div><div class="big">41</div>
+              <div class="foot">components across 6 lines of business</div></div></div>
+          </div>
+
+          <div class="cards c2" style="align-items:start">
+            <div class="panel">
+              <header><h4>The evidence behind this finding</h4><span class="hx">vulnerability_findings · kev_findings</span></header>
+              <div class="body">
+                <dl class="kv">
+                  <dt>advisory_id</dt><dd class="mono">CVE-2024-23334 · GHSA-5h86-8mv2-jq9f</dd>
+                  <dt>affected_range</dt><dd class="mono">&gt;=1.0.5,&lt;3.9.2</dd>
+                  <dt>fixed_range</dt><dd class="mono">&gt;=3.9.2</dd>
+                  <dt>matched_version</dt><dd class="mono">3.9.1 <span class="ev" style="display:inline">· internal/linux-64 build</span></dd>
+                  <dt>match_confidence</dt><dd class="mono">exact-range <span class="ev" style="display:inline">· not the identity confidence</span></dd>
+                  <dt>source</dt><dd class="mono">osv</dd>
+                  <dt>observed_at</dt><dd class="mono">2026-09-04 05:38Z <span class="chip ok sm">fresh · target 24h</span></dd>
+                  <dt>kev_added</dt><dd class="mono">2024-02-01</dd>
+                  <dt>policy version</dt><dd class="mono">vuln@9 · run pr_01JQ8E</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="panel">
+              <header><h4>Where the fix is</h4><span class="hx">remediation readiness inputs</span></header>
+              <table class="tbl">
+                <thead><tr><th>Surface</th><th>Has 3.9.2+</th><th>Observed</th></tr></thead>
+                <tbody>
+                  <tr><td>Upstream release</td><td><span class="chip ok">yes · 3.10.1</span></td><td class="mono">05:29Z</td></tr>
+                  <tr><td>PyPI</td><td><span class="chip ok">yes · 3.10.1</span></td><td class="mono">05:31Z</td></tr>
+                  <tr><td>Feedstock recipe</td><td><span class="chip ok">yes · 3.9.2</span></td><td class="mono">04:55Z</td></tr>
+                  <tr><td>conda-forge/noarch</td><td><span class="chip ok">yes · 3.9.2</span></td><td class="mono">04:41Z</td></tr>
+                  <tr><td>internal/linux-64</td><td><span class="chip crit">no · 3.9.1</span></td><td class="mono">04:41Z</td></tr>
+                </tbody>
+              </table>
+              <div class="body" style="border-top:1px solid var(--line-2)">
+                <div class="ev" style="margin:0">readiness is <b>ready</b> because a fixed version exists
+                  on a monitored channel. Had it existed nowhere, this would read
+                  <span class="chip warn sm" style="margin-left:4px">blocked</span> — never "ready".</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-top:12px">
+            <header><h4>What has happened to this item</h4><span class="hx">audit rows, append-only</span></header>
+            <table class="tbl">
+              <thead><tr><th>When</th><th>Actor</th><th>From</th><th>To</th><th>Note</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">2026-09-02 06:14Z</td><td>system · policy run</td>
+                  <td class="mono">—</td><td class="mono">open</td><td>created from finding key</td></tr>
+                <tr><td class="mono">2026-09-03 06:12Z</td><td>system · policy run</td>
+                  <td class="mono">open</td><td class="mono">open</td>
+                  <td>re-observed; not recreated as new work</td></tr>
+                <tr><td class="mono">2026-09-04 08:41Z</td><td>Dana Okafor</td>
+                  <td class="mono">open</td><td class="mono">triaged</td><td>opened and reviewed evidence</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="dim"></div>
+      <div class="modal">
+        <header><h4>Route to the remediation queue</h4><span class="ev" style="margin:0">POST · hx-target="#wf-row"</span></header>
+        <div class="body">
+          <div class="toast" style="margin:0">
+            <div><b>aiohttp · CVE-2024-23334</b>
+              <p>The evidence, the matched version and the fix location travel with the item. The
+                packaging engineer sees what you saw.</p></div>
+          </div>
+          <div class="field">
+            <label for="wt">Work type <span class="req">required</span></label>
+            <select class="select" id="wt"><option>fix vulnerability</option><option>update feedstock</option>
+              <option>file tracking issue</option></select>
+          </div>
+          <div class="field">
+            <label for="nt">Note for the engineer</label>
+            <textarea class="textarea" id="nt">3.9.2 is on conda-forge/noarch already. Internal linux-64 build is the only thing still on 3.9.1 — rebuild should be enough.</textarea>
+            <span class="help">Recorded on the audit row. It does not alter evidence or the package identity.</span>
+          </div>
+          <div class="field">
+            <label>Resulting state</label>
+            <div><span class="chip plain">triaged</span> <span style="color:var(--muted)">→</span>
+              <span class="chip ok">routed · remediation</span></div>
+            <span class="help">Allowed by <code>(triaged → routed, security-reviewer)</code> in the
+              transition table. The item moves queue; no second item is created.</span>
+          </div>
+        </div>
+        <footer><button class="btn ghost">Cancel</button>
+          <button class="btn primary">Route with evidence</button></footer>
+      </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>A plain Django form, posted by HTMX</h4>
+        <p><code>hx-post</code> with the CSRF token in <code>hx-headers</code>; the response is the
+          re-rendered queue row, swapped by <code>hx-target="#wf-row"</code>. On a validation error
+          the server returns the bound form and the modal body swaps in place — no client-side
+          validation logic to keep in step.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-25</span></div></div>
+      <div class="anno"><h4>Transitions come from data</h4>
+        <p>The buttons rendered are exactly the transitions whose <code>required_role</code> the
+          user holds. The service still locks the row, checks the prior state and refuses on
+          mismatch — the UI narrows the options, it does not enforce them.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-22</span><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>Stale blocks the action</h4>
+        <p>Had the advisory evidence been past its freshness target, the primary control would read
+          "Recollect evidence" and routing would be unavailable — the edge case in Dana's journey.</p>
+        <div class="reftags"><span class="reftag">CPM-UJ-1</span><span class="reftag">CPM-FR-38</span><span class="reftag">CPM-FR-41</span></div></div>
+      <div class="anno"><h4>Two confidences, never conflated</h4>
+        <p><code>match_confidence</code> is how sure we are the advisory applies. Identity
+          <code>confidence</code> is how sure we are which package this is. They are labelled
+          differently everywhere they appear.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-11</span><span class="reftag">glossary</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 6 ══════════════════════════════════════════════════════════ -->
+<section class="band" id="s6">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S6</span><h2>The remediation queue</h2></div>
+    <p class="sec-sub">Ravi's answer to "what do I fix next". Ranked by priority bucket then score,
+      with the rule that produced the bucket printed on the row — so the ranking is arguable rather
+      than mysterious. Bulk selection is the one place Alpine holds meaningful state.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/remediation/?state=open&amp;ready=1</b></div>
+        <span class="chrome-role">packaging engineer</span></div>
+      <div class="viewport"><div class="app" style="min-width:1100px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#">Packages</a><a href="#" class="on">My queue</a>
+            <a href="#">Reports</a><a href="#" class="locked">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi Nandakumar</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Remediation work queue</h2>
+              <div class="sub">218 open · 12 ready to act on now · 41 blocked on an unpublished fix</div></div>
+            <div class="btnrow">
+              <span class="chip plain">3 selected</span>
+              <button class="btn">Draft tracking issues</button>
+              <button class="btn primary">Claim selected</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">ranked by</span><b>priority_bucket, then score · rules@6</b></div>
+          </div>
+
+          <div class="applied" style="border:1px solid var(--line);border-bottom:0;margin-top:14px">
+            <span>Filters</span>
+            <span class="filterpill">state = open <x>✕</x></span>
+            <span class="filterpill">readiness = ready <x>✕</x></span>
+            <span style="margin-left:auto">x-data="{ selected: ['aiohttp','pyarrow','orjson'] }"</span>
+          </div>
+          <table class="tbl" style="border:1px solid var(--line);border-top:0">
+            <thead><tr>
+              <th style="width:34px"><input type="checkbox"></th>
+              <th>Package</th><th>P</th><th>Score</th><th>Work</th><th>Why this bucket</th>
+              <th>Readiness</th><th>State</th><th>Age</th>
+            </tr></thead>
+            <tbody>
+              <tr style="background:var(--accent-wash)">
+                <td><input type="checkbox" checked></td>
+                <td class="pkg"><a href="#">aiohttp</a><div class="ev">routed by Dana Okafor · 08:44Z</div></td>
+                <td><span class="pbucket p1">P1</span></td><td class="num">96</td>
+                <td>fix vulnerability</td>
+                <td>KEV-listed advisory with a published fix<div class="ev">rule kev_with_fix · rules@6</div></td>
+                <td><span class="chip ok">ready</span><div class="ev">3.9.2 on conda-forge · 04:41Z</div></td>
+                <td><span class="chip plain">routed</span></td><td class="mono">2d</td></tr>
+              <tr style="background:var(--accent-wash)">
+                <td><input type="checkbox" checked></td>
+                <td class="pkg"><a href="#">pyarrow</a></td>
+                <td><span class="pbucket p1">P1</span></td><td class="num">88</td>
+                <td>update feedstock</td>
+                <td>Critical advisory, feedstock 14 months inactive<div class="ev">rule critical_stale_feedstock · rules@6</div></td>
+                <td><span class="chip warn">stale evidence</span><div class="ev stale">advisory observed 08-29 · target 24h</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">6d</td></tr>
+              <tr style="background:var(--accent-wash)">
+                <td><input type="checkbox" checked></td>
+                <td class="pkg"><a href="#">orjson</a></td>
+                <td><span class="pbucket p3">P3</span></td><td class="num">74</td>
+                <td>create recipe</td>
+                <td>No feedstock, used by 22 internal components<div class="ev">rule no_feedstock_high_usage · rules@6</div></td>
+                <td><span class="chip ok">ready</span><div class="ev">staged recipe not started · 04:55Z</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">11d</td></tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">grpcio</a></td>
+                <td><span class="pbucket p2">P2</span></td><td class="num">81</td>
+                <td>fix vulnerability</td>
+                <td>High advisory, no fix published anywhere<div class="ev">rule high_no_fix · rules@6</div></td>
+                <td><span class="chip warn">blocked</span><div class="ev">fix exists on no surface · 05:38Z</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">19d</td></tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">libarchive</a></td>
+                <td><span class="pbucket p5">P5</span></td><td class="num">61</td>
+                <td>update feedstock</td>
+                <td>Recipe two minor versions behind authority<div class="ev">rule recipe_lag · rules@6</div></td>
+                <td><span class="chip ok">ready</span><div class="ev">upstream 3.7.4 · 05:29Z</div></td>
+                <td><span class="chip plain">in progress</span><div class="ev">claimed by you · 09-02</div></td>
+                <td class="mono">23d</td></tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">tornado</a></td>
+                <td><span class="pbucket p6">P6</span></td><td class="num">58</td>
+                <td>validate python 3.14</td>
+                <td>Inferred-only readiness on a widely used package<div class="ev">rule py314_unverified · rules@6</div></td>
+                <td><span class="chip unknown">unknown</span><div class="ev">no build verification has been run</div></td>
+                <td><span class="chip plain">open</span></td><td class="mono">31d</td></tr>
+            </tbody>
+          </table>
+          <div class="pager" style="border:1px solid var(--line);border-top:0">
+            <span>Showing <b style="color:var(--ink-2)">1–6</b> of 218 · page size 50</span>
+            <div class="pagenums"><a href="#" class="on">1</a><a href="#">2</a><a href="#">3</a><a href="#">4</a></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Three queues, one table</h4>
+        <p>This is a filtered view over the same workflow table that serves compliance review and
+          identity review. The <code>queue</code> field is what differs — routing changes it rather
+          than creating a second item.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-22</span><span class="reftag">CPM-FR-25</span></div></div>
+      <div class="anno"><h4>The bucket explains itself</h4>
+        <p>Every row prints the rule that matched and the rule-set version. Nobody has to read the
+          rule set to argue with the ranking — which is the point of making it versioned data.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-20</span></div></div>
+      <div class="anno"><h4>Blocked is not low priority</h4>
+        <p><code>grpcio</code> stays at P2 with no available fix. Readiness and priority are
+          independent: the queue tells you what you cannot do yet rather than hiding it.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-41</span></div></div>
+      <div class="anno"><h4>Coverage is greyed, not hidden</h4>
+        <p>A nav item this role cannot reach renders disabled with a tooltip. Clicking through by
+          URL still produces the logged 403 of screen 10.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-31</span><span class="reftag ad">CPM-AD-13</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 7 ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s7">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S7</span><h2>Identity review, and the one audited human write</h2></div>
+    <p class="sec-sub">The success metric is that a reviewer can carry an unmapped package to a
+      resolved, attributed identity without a database console. So the queue shows the candidates
+      the resolver found and the evidence for each, and the override form refuses to save without a
+      reason. The form is shown mid-error, because that is the state worth designing.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>queues/identity/internal-telemetry-sdk/</b></div>
+        <span class="chrome-role">platform &amp; engineering leadership</span></div>
+      <div class="viewport modal-wrap"><div class="app" style="min-width:1040px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#">Packages</a><a href="#" class="on">Identity queue</a>
+            <a href="#">Reports</a><a href="#">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">platform lead</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Package-identity review</h2>
+              <div class="sub">321 unmapped · 1,341 inventory-derived · ranked by internal usage breadth</div></div>
+            <div class="btnrow">
+              <button class="btn">Export unmapped</button>
+              <button class="btn primary">Override identity</button>
+            </div>
+          </div>
+
+          <div class="split" style="grid-template-columns:300px minmax(0,1fr)">
+            <aside class="side" style="padding:0">
+              <div style="padding:11px 13px;border-bottom:1px solid var(--line)">
+                <input class="searchbox" type="text" placeholder="filter the queue…">
+              </div>
+              <div style="padding:9px 13px;border-bottom:1px solid var(--line-2);background:var(--accent-wash)">
+                <div class="pkg" style="font-size:12.5px">internal-telemetry-sdk</div>
+                <div class="ev" style="margin-top:2px">22 components · 4 lobs · <span class="conf unmapped">unmapped</span></div>
+              </div>
+              <div style="padding:9px 13px;border-bottom:1px solid var(--line-2)">
+                <div class="pkg" style="font-size:12.5px">corp-auth-client</div>
+                <div class="ev" style="margin-top:2px">18 components · 3 lobs · <span class="conf unmapped">unmapped</span></div>
+              </div>
+              <div style="padding:9px 13px;border-bottom:1px solid var(--line-2)">
+                <div class="pkg" style="font-size:12.5px">pandas-gbq</div>
+                <div class="ev" style="margin-top:2px">14 components · 2 lobs · <span class="conf derived">inventory-derived</span></div>
+              </div>
+              <div style="padding:9px 13px;border-bottom:1px solid var(--line-2)">
+                <div class="pkg" style="font-size:12.5px">ml-feature-store</div>
+                <div class="ev" style="margin-top:2px">9 components · 2 lobs · <span class="conf unmapped">unmapped</span></div>
+              </div>
+              <div style="padding:11px 13px;color:var(--muted);font-size:11.5px">
+                317 more · <a href="#">load next 25</a>
+                <div class="ev" style="margin-top:4px">hx-get · hx-swap="beforeend"</div>
+              </div>
+            </aside>
+
+            <div class="main-pane">
+              <div class="app-body" style="padding:16px">
+                <div class="app-h" style="margin-bottom:4px">
+                  <div><h2 style="font-size:17px">internal-telemetry-sdk</h2>
+                    <div class="sub">Present in every inventory snapshot since 2026-06-14 · never resolved</div></div>
+                  <span class="conf unmapped" style="font-size:11px">unmapped</span>
+                </div>
+
+                <div class="toast" style="border-left-color:var(--unk)">
+                  <div><b>Nothing is claimed about this package.</b>
+                    <p>While the identity is unmapped, currency, vulnerability, licence, readiness and
+                      feedstock presence are all written as <code class="ref">unknown</code>. The
+                      monitor will not say this package has no feedstock — only that it does not
+                      know which feedstock to look for.</p></div>
+                </div>
+
+                <div class="panel" style="margin-top:12px">
+                  <header><h4>Candidate mappings the resolver found</h4>
+                    <span class="hx">ranked by associator score · evidence shown for each</span></header>
+                  <table class="tbl">
+                    <thead><tr><th></th><th>Candidate</th><th>Ecosystem</th><th>Evidence</th><th>Associator</th></tr></thead>
+                    <tbody>
+                      <tr><td style="width:30px"><input type="radio" name="cand"></td>
+                        <td class="mono">pkg:pypi/telemetry-sdk</td><td>PyPI</td>
+                        <td>Name similarity 0.71; no matching source repository
+                          <div class="ev">pypi_release_snapshots · 05:31Z</div></td>
+                        <td class="mono">name-fuzzy</td></tr>
+                      <tr><td><input type="radio" name="cand"></td>
+                        <td class="mono">github.com/corp-internal/telemetry-sdk</td><td>Source</td>
+                        <td>Private repository; recipe <code class="ref">source.url</code> match
+                          <div class="ev">feedstock_snapshots · 04:55Z</div></td>
+                        <td class="mono">recipe-source-url</td></tr>
+                      <tr><td><input type="radio" name="cand"></td>
+                        <td colspan="4"><b>Not published to any release ecosystem</b> — record
+                          <code class="ref">not_applicable</code> for PyPI rather than
+                          <code class="ref">not_found</code>
+                          <div class="ev">internal-only package; no ecosystem mapping applies</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="cards c2" style="margin-top:12px">
+                  <div class="panel">
+                    <header><h4>What ingestion has observed</h4><span class="hx">inventory_snapshots</span></header>
+                    <table class="tbl">
+                      <thead><tr><th>Run</th><th>Present</th><th>Components</th><th>Observed</th></tr></thead>
+                      <tbody>
+                        <tr><td class="mono">ing_0912</td><td><span class="chip ok sm">present</span></td>
+                          <td class="num">22</td><td class="mono">09-04 05:02Z</td></tr>
+                        <tr><td class="mono">ing_0911</td><td><span class="chip ok sm">present</span></td>
+                          <td class="num">22</td><td class="mono">09-03 05:02Z</td></tr>
+                        <tr><td class="mono">ing_0908</td><td><span class="chip ok sm">present</span></td>
+                          <td class="num">19</td><td class="mono">08-31 05:02Z</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="panel">
+                    <header><h4>Overrides on this package</h4><span class="hx">identity_overrides</span></header>
+                    <div class="body" style="color:var(--muted);font-size:12.5px">
+                      No human has corrected this identity. Every override ever made is queryable as
+                      a set, for audit.
+                      <div class="ev" style="margin-top:9px">0 rows · GET /api/v1/identity-overrides/</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dim"></div>
+      <div class="modal" style="top:40px">
+        <header><h4>Override package identity — internal-telemetry-sdk</h4>
+          <span class="ev" style="margin:0">the only human write to governed reference data</span></header>
+        <div class="body">
+          <div class="field">
+            <label for="src">source_repository_url</label>
+            <input class="input mono" id="src" type="text" value="github.com/corp-internal/telemetry-sdk">
+            <span class="help">Prior value: <span class="mono">(none)</span></span>
+          </div>
+          <div class="field">
+            <label for="eco">Release ecosystem</label>
+            <select class="select" id="eco">
+              <option>not_applicable — internal-only, not published</option>
+              <option>pypi</option>
+            </select>
+            <span class="help">Recording <code>not_applicable</code> is a decision, not a blank. It
+              is distinct from <code>not_found</code>.</span>
+          </div>
+          <div class="field">
+            <label for="rsn">Reason <span class="req">required</span></label>
+            <textarea class="textarea invalid" id="rsn" placeholder="Why is this correction right?"></textarea>
+            <div class="errmsg">This field is required. An override without a reason is rejected —
+              the write and its audit row are one transaction.</div>
+          </div>
+          <div class="field">
+            <label>Resulting confidence</label>
+            <div><span class="conf unmapped">unmapped</span> <span style="color:var(--muted)">→</span>
+              <span class="conf verified">verified</span></div>
+            <span class="help">Survives every subsequent automated collection. Downgraded only by an
+              explicit re-resolution.</span>
+          </div>
+        </div>
+        <footer><button class="btn ghost">Cancel</button>
+          <button class="btn primary">Save override</button></footer>
+      </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Errors come from the form, not from JavaScript</h4>
+        <p>The invalid state is a bound <code>IdentityOverrideForm</code> re-rendered by the server
+          and swapped into the modal body. Alpine never decides whether a reason is acceptable.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-3</span></div></div>
+      <div class="anno"><h4>One transaction, or neither write</h4>
+        <p>The identity update and the <code>identity_overrides</code> row commit together. Neither
+          can survive alone, so an audit trail cannot develop holes.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-32</span><span class="reftag ad">CPM-AD-23</span></div></div>
+      <div class="anno"><h4>Permission is checked twice</h4>
+        <p>The control renders only for the override permission; the view enforces it again. The
+          other two roles receive the logged refusal, not a hidden button.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-13</span><span class="reftag ad">CPM-AD-14</span></div></div>
+      <div class="anno"><h4>Leaving the queue has one condition</h4>
+        <p>A package leaves this queue when its confidence reaches <code>verified</code> — by
+          override here, or by a later resolution that earns it.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-4</span><span class="reftag">CPM-SM-3</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 8 ══════════════════════════════════════════════════════════ -->
+<section class="band" id="s8">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S8</span><h2>Coverage — what the monitor cannot see</h2></div>
+    <p class="sec-sub">Sam's screen, and the one that keeps the product honest. It reports identity
+      coverage, evidence freshness per collector, and failed runs with the trace identifier needed
+      to investigate them — so an <code class="ref">error</code> is a thing you can chase rather
+      than a thing you noticed.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>coverage/</b></div>
+        <span class="chrome-role">platform &amp; engineering leadership</span></div>
+      <div class="viewport"><div class="app" style="min-width:1040px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#">Packages</a><a href="#">Identity queue</a>
+            <a href="#">Reports</a><a href="#" class="on">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">platform lead</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div class="app-h">
+            <div><h2>Coverage and collector health</h2>
+              <div class="sub">Inventory of 9,842 packages · first full cycle completed 2026-06-21</div></div>
+            <div class="btnrow"><button class="btn">Export for the review deck</button></div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">rollup computed</span><b>2026-09-04 06:12Z</b></div>
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">last full refresh</span><b>2026-09-01 · unattended · partial success</b></div>
+          </div>
+
+          <div class="cards c3">
+            <div class="panel"><div class="stat">
+              <div class="lbl">Identity coverage</div>
+              <div class="big">96.7<span style="font-size:15px;color:var(--muted)">%</span></div>
+              <div class="bar">
+                <i style="width:83.1%;background:var(--ok)"></i>
+                <i style="width:13.6%;background:var(--warn)"></i>
+                <i style="width:3.3%;background:var(--unk)"></i></div>
+              <div class="foot">8,180 verified · 1,341 inventory-derived · 321 unmapped
+                <div class="ev">target: 95% verified or inventory-derived</div></div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Evidence inside its freshness target</div>
+              <div class="big" style="color:var(--warn)">93.5<span style="font-size:15px;color:var(--muted)">%</span></div>
+              <div class="bar">
+                <i style="width:93.5%;background:var(--ok)"></i>
+                <i style="width:5%;background:var(--warn)"></i>
+                <i style="width:1.5%;background:var(--err)"></i></div>
+              <div class="foot">641 packages hold stale evidence in at least one domain</div></div></div>
+            <div class="panel"><div class="stat">
+              <div class="lbl">Packages presented as clean</div>
+              <div class="big">54.1<span style="font-size:15px;color:var(--muted)">%</span></div>
+              <div class="foot" style="color:var(--warn)">counter-metric — do not optimise
+                <div class="ev">a rise here that tracks a fall in unknown is the failure mode</div></div></div></div>
+          </div>
+
+          <div class="panel" style="margin-top:12px">
+            <header><h4>Collector health, last 24 hours</h4>
+              <span class="hx">hx-get="/coverage/collectors/" hx-trigger="load, every 120s"</span></header>
+            <table class="tbl">
+              <thead><tr><th>Collector</th><th>Cadence</th><th>Freshness target</th><th>Last completed</th>
+                <th>Runs</th><th>Status</th><th>Packages affected</th><th>Trace</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">inventory</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">05:02Z</td><td class="num">1</td>
+                  <td><span class="chip ok">success</span></td><td class="num">9,842</td><td class="mono">—</td></tr>
+                <tr><td class="mono">source_release</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">05:29Z</td><td class="num">9,521</td>
+                  <td><span class="chip ok">success</span></td><td class="num">9,521</td><td class="mono">—</td></tr>
+                <tr><td class="mono">pypi</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">05:31Z</td><td class="num">8,410</td>
+                  <td><span class="chip ok">success</span></td><td class="num">8,410</td><td class="mono">—</td></tr>
+                <tr><td class="mono">feedstock</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">04:55Z</td><td class="num">9,521</td>
+                  <td><span class="chip ok">success</span></td><td class="num">9,521</td><td class="mono">—</td></tr>
+                <tr><td class="mono">published_conda</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">2026-09-02 04:41Z</td><td class="num">9,102</td>
+                  <td><span class="chip warn">stale · 31h</span></td><td class="num">9,102</td>
+                  <td class="mono">—</td></tr>
+                <tr><td class="mono">advisory</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">2026-09-02 05:40Z</td><td class="num">148</td>
+                  <td><span class="chip error">error · 429</span>
+                    <div class="ev">rate limited for 2 days · retries exhausted</div></td>
+                  <td class="num">148</td><td class="mono"><a href="#">4c1f9a2e</a></td></tr>
+                <tr><td class="mono">kev</td><td class="mono">daily</td><td class="mono">24h</td>
+                  <td class="mono">05:38Z</td><td class="num">1</td>
+                  <td><span class="chip ok">success</span></td><td class="num">412</td><td class="mono">—</td></tr>
+                <tr><td class="mono">licence</td><td class="mono">weekly</td><td class="mono">7d</td>
+                  <td class="mono">04:02Z</td><td class="num">9,521</td>
+                  <td><span class="chip ok">success</span></td><td class="num">9,521</td><td class="mono">—</td></tr>
+                <tr><td class="mono">python314_static</td><td class="mono">weekly</td><td class="mono">7d</td>
+                  <td class="mono">03:20Z</td><td class="num">8,410</td>
+                  <td><span class="chip ok">success</span></td><td class="num">8,410</td><td class="mono">—</td></tr>
+                <tr><td class="mono">python314_verify</td><td class="mono">on demand</td><td class="mono">30d</td>
+                  <td class="mono">2026-09-01 22:14Z</td><td class="num">36</td>
+                  <td><span class="chip plain">idle</span></td><td class="num">1,204</td><td class="mono">—</td></tr>
+              </tbody>
+            </table>
+            <div class="body" style="border-top:1px solid var(--line-2);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span class="chip error sm">error</span>
+              <span style="font-size:12.5px;color:var(--ink-2)">The 148 packages the advisory
+                collector could not reach show <b>error</b> in the health view — not clean, and not
+                omitted from the count.</span>
+              <button class="btn sm" style="margin-left:auto">Retry advisory collector</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Failures surface in the application</h4>
+        <p>Requirement, not convenience: collection failures are visible here, so nobody needs log
+          access to know the monitor has a blind spot.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-38</span><span class="reftag">CPM-SM-4</span></div></div>
+      <div class="anno"><h4>The trace id is a link</h4>
+        <p>Every collection run carries the correlation identifier of the task that produced it, so
+          the log lines for that run are one click away.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-39</span><span class="reftag ad">CPM-AD-15</span></div></div>
+      <div class="anno"><h4>A counter-metric on the dashboard</h4>
+        <p>"Packages presented as clean" is displayed with its warning attached. Showing it without
+          that framing would invite exactly the optimisation the metric exists to prevent.</p>
+        <div class="reftags"><span class="reftag">CPM-SM-C1</span></div></div>
+      <div class="anno"><h4>Freshness targets are per collector</h4>
+        <p>They are configuration, and a collector without one refuses to start. The column exists
+          so an operator can see what each collector promised.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-28</span><span class="reftag">OQ-7</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 9 ══════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s9">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S9</span><h2>Reports, and an export that leaves the request</h2></div>
+    <p class="sec-sub">Six recurring reports, each stating the evidence cut-off and policy version
+      it was produced from. Shown here: the feedstock-gap report Ravi works from, mid-export. The
+      export is a job, and the page says so instead of hanging.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>reports/feedstock-gap/</b></div>
+        <span class="chrome-role">shared · all roles</span></div>
+      <div class="viewport"><div class="app" style="min-width:1040px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav">
+            <a href="#">Home</a><a href="#">Packages</a><a href="#">My queue</a>
+            <a href="#" class="on">Reports</a><a href="#" class="locked">Coverage</a>
+          </nav>
+          <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi Nandakumar</div>
+        </div>
+        <div class="app-body">
+          <div class="cards c3" style="margin-top:0">
+            <div class="panel"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Daily</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px">KEV exposure</div>
+              <div class="ev">3 open · produced 06:14Z · vuln@9</div></div></div>
+            <div class="panel" style="border-color:var(--accent)"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Weekly</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px;color:var(--accent)">Feedstock lag and gaps</div>
+              <div class="ev">188 absent · 903 lagging · produced 06:14Z</div></div></div>
+            <div class="panel"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Weekly</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px">Python 3.14 readiness</div>
+              <div class="ev">1,660 unverified · produced 06:14Z · py314@2</div></div></div>
+            <div class="panel"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Weekly</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px">Licence exceptions</div>
+              <div class="ev">11 pending · produced 06:14Z · licence@3</div></div></div>
+            <div class="panel"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Weekly</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px">Unmapped identities</div>
+              <div class="ev">321 packages · produced 06:14Z</div></div></div>
+            <div class="panel"><div class="stat" style="padding:11px 13px">
+              <div class="lbl">Daily</div>
+              <div style="font-size:13.5px;font-weight:600;margin-top:5px">Stale evidence and collector failures</div>
+              <div class="ev">641 stale · 1 collector failing · produced 06:14Z</div></div></div>
+          </div>
+
+          <div class="app-h" style="margin-top:20px">
+            <div><h2>Feedstock lag and gaps</h2>
+              <div class="sub">Packages with no conda-forge feedstock, or one nobody is
+                maintaining · ranked by internal usage breadth</div></div>
+            <div class="btnrow">
+              <button class="btn">Draft tracking issues for selected</button>
+              <button class="btn primary">Export CSV · 1,091 rows</button>
+            </div>
+          </div>
+
+          <div class="freshbar">
+            <div><span class="lbl">evidence cut-off</span><b>2026-09-04 05:40Z</b></div>
+            <div><span class="lbl">policy versions</span><b>feedstock@2 · currency@4 · priority@6</b></div>
+            <div><span class="lbl">produced</span><b>2026-09-04 06:14Z</b></div>
+            <div><span class="lbl">excludes</span><b>321 unmapped packages — absence cannot be claimed</b></div>
+          </div>
+
+          <div class="toast">
+            <span class="spin" role="presentation"></span>
+            <div><b>Preparing your export — 1,091 rows exceeds the 500-row synchronous cap</b>
+              <p>Job <span class="mono">job_01JQ8H2P</span> · started 09:12Z · you can keep working;
+                the download appears here when it is ready.</p>
+              <p style="margin-top:5px">hx-get="/jobs/job_01JQ8H2P/" hx-trigger="every 3s" hx-swap="outerHTML"</p></div>
+            <button class="btn sm" style="margin-left:auto">Cancel</button>
+          </div>
+
+          <table class="tbl" style="border:1px solid var(--line);margin-top:14px">
+            <thead><tr><th style="width:34px"><input type="checkbox"></th>
+              <th>Package</th><th>Feedstock</th><th>Recipe version</th><th>Authority version</th>
+              <th>Last recipe activity</th><th>Components</th><th>P</th><th>Confidence</th></tr></thead>
+            <tbody>
+              <tr><td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">orjson</a></td>
+                <td><span class="chip notfound">not_found</span><div class="ev">no feedstock, no staged recipe · 04:55Z</div></td>
+                <td class="mono">—</td><td class="mono">3.10.3</td><td class="mono">—</td>
+                <td class="num">22</td><td><span class="pbucket p3">P3</span></td>
+                <td><span class="conf verified">verified</span></td></tr>
+              <tr><td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">polars-lts-cpu</a></td>
+                <td><span class="chip warn">staged recipe pending</span><div class="ev">staged-recipes PR #24118 · 04:55Z</div></td>
+                <td class="mono">0.20.2</td><td class="mono">0.20.2</td><td class="mono">3 days</td>
+                <td class="num">17</td><td><span class="pbucket p4">P4</span></td>
+                <td><span class="conf verified">verified</span></td></tr>
+              <tr><td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">pyarrow</a></td>
+                <td><span class="chip warn">present, inactive</span><div class="ev">no recipe activity in 14 months · 04:55Z</div></td>
+                <td class="mono">14.0.1</td><td class="mono">17.0.0</td><td class="mono">14 months</td>
+                <td class="num">63</td><td><span class="pbucket p1">P1</span></td>
+                <td><span class="conf verified">verified</span></td></tr>
+              <tr><td><input type="checkbox"></td>
+                <td class="pkg"><a href="#">fastavro</a></td>
+                <td><span class="chip ok">present, maintained</span><div class="ev">recipe 3 versions behind · 04:55Z</div></td>
+                <td class="mono">1.9.0</td><td class="mono">1.9.4</td><td class="mono">21 days</td>
+                <td class="num">8</td><td><span class="pbucket p6">P6</span></td>
+                <td><span class="conf derived">inventory-derived</span></td></tr>
+            </tbody>
+          </table>
+          <div class="pager" style="border:1px solid var(--line);border-top:0">
+            <span>Showing <b style="color:var(--ink-2)">1–4</b> of 1,091 · export columns match these,
+              plus freshness and confidence</span>
+            <div class="pagenums"><a href="#" class="on">1</a><a href="#">2</a><a href="#">3</a><a href="#">…</a><a href="#">22</a></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>The export is the same projection</h4>
+        <p>Export columns carry the historical report headings — <code>Core_Python_Package_Name</code>,
+          <code>Conda-Forge_FeedStock_URL</code> — while stored fields keep their snake_case names.
+          Two contracts, one projection, owned by the reporting layer.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-26</span><span class="reftag ad">CPM-AD-24</span></div></div>
+      <div class="anno"><h4>Unmapped packages are excluded, and it says so</h4>
+        <p>Absence of a feedstock cannot be claimed for a package whose identity is unresolved. The
+          exclusion is stated in the header rather than left for a reader to discover.</p>
+        <div class="reftags"><span class="reftag">CPM-UJ-2</span><span class="reftag">CPM-FR-40</span></div></div>
+      <div class="anno"><h4>One row cap, everywhere</h4>
+        <p>The synchronous export ceiling is a single settings constant read by every export path,
+          so no report can quietly stream the whole inventory.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-6</span><span class="reftag ad">CPM-AD-9</span></div></div>
+      <div class="anno"><h4>Polling, not websockets</h4>
+        <p>The job banner swaps itself every three seconds and replaces itself with a download link
+          when the task finishes. No extra transport to operate.</p>
+        <div class="reftags"><span class="reftag">HTMX</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 10 ═════════════════════════════════════════════════════════ -->
+<section class="band" id="s10">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S10</span><h2>Two states worth designing: refused, and in progress</h2></div>
+    <p class="sec-sub">A queue that is not yours is refused rather than rendered empty — an empty
+      queue and a forbidden queue mean very different things. And work that left the request says
+      what it is doing, with a job identifier that survives a page reload.</p>
+
+    <div class="two-col">
+      <div>
+        <div class="screen">
+          <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+            <div class="urlbar">https://cpm.internal/<b>queues/identity/</b></div>
+            <span class="chrome-role">packaging engineer</span></div>
+          <div class="viewport"><div class="app" style="min-width:0">
+            <div class="app-top">
+              <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+              <nav class="app-nav"><a href="#">Home</a><a href="#">Packages</a>
+                <a href="#">My queue</a><a href="#">Reports</a></nav>
+              <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi</div>
+            </div>
+            <div class="app-body">
+              <div style="max-width:560px;padding:26px 0">
+                <span class="chip crit">403 · refused</span>
+                <h2 style="font-size:20px;margin-top:12px">The package-identity queue belongs to
+                  platform and engineering leadership</h2>
+                <p style="color:var(--ink-2);margin-top:10px;font-size:13.5px">
+                  Your role reads all the evidence in the monitor, including every package's
+                  identity and its provenance. Acting on identity review is a different grant.</p>
+                <div class="panel" style="margin-top:16px">
+                  <div class="body">
+                    <dl class="kv" style="grid-template-columns:120px minmax(0,1fr)">
+                      <dt>your role</dt><dd class="mono">packaging-engineer</dd>
+                      <dt>required</dt><dd class="mono">platform-lead</dd>
+                      <dt>surface</dt><dd class="mono">queues.identity.list</dd>
+                      <dt>request</dt><dd class="mono">01JQ8H4R7B</dd>
+                      <dt>logged</dt><dd>yes, with your user identity</dd>
+                    </dl>
+                  </div>
+                </div>
+                <div class="btnrow" style="margin-top:16px">
+                  <button class="btn primary">Back to my queue</button>
+                  <button class="btn">View this package's identity</button>
+                </div>
+                <div class="ev" style="margin-top:14px">reading identity is permitted · acting on the
+                  queue is not</div>
+              </div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="screen">
+          <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+            <div class="urlbar">https://cpm.internal/<b>packages/tornado/?job=job_01JQ8H9K</b></div>
+            <span class="chrome-role">packaging engineer</span></div>
+          <div class="viewport"><div class="app" style="min-width:0">
+            <div class="app-top">
+              <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+              <nav class="app-nav"><a href="#">Home</a><a href="#" class="on">Packages</a>
+                <a href="#">My queue</a><a href="#">Reports</a></nav>
+              <div class="who"><span class="role">packaging</span><span class="av">RN</span> Ravi</div>
+            </div>
+            <div class="app-body">
+              <div class="app-h"><div><h2 style="font-size:19px">tornado</h2>
+                <div class="sub">Python 3.14 build verification requested</div></div></div>
+
+              <div class="toast" style="margin-top:14px">
+                <span class="spin" role="presentation"></span>
+                <div><b>Verification build running on linux-64</b>
+                  <p>Queued 09:06Z · started 09:07Z · typically 4–9 minutes.</p>
+                  <p style="margin-top:4px">Job <span class="mono">job_01JQ8H9K</span> · trace
+                    <span class="mono">7ad3e001</span></p></div>
+              </div>
+
+              <div class="panel" style="margin-top:12px">
+                <header><h4>Meanwhile, what is known</h4><span class="hx">unchanged until the job writes evidence</span></header>
+                <div class="body">
+                  <dl class="kv" style="grid-template-columns:150px minmax(0,1fr)">
+                    <dt>current readiness</dt>
+                    <dd><span class="chip ok">inferred compatible</span>
+                      <div class="ev">python314_findings · metadata only · 03:20Z</div></dd>
+                    <dt>verified readiness</dt>
+                    <dd><span class="chip unknown">unknown</span>
+                      <div class="ev">no build has completed for this package</div></dd>
+                    <dt>on completion</dt>
+                    <dd>a new <code class="ref">python314_findings</code> row is inserted with the
+                      platform, architecture and a log reference. Nothing is updated in place.</dd>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="ev" style="margin-top:12px">the banner survives a reload — job state is
+                server-side, keyed by the id in the URL</div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>Refusal names the grant</h4>
+        <p>The page says which role is required and which surface was requested. Vague refusals
+          generate support tickets; specific ones generate a correct request to an administrator.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-31</span><span class="reftag">CPM-NFR-11</span></div></div>
+      <div class="anno"><h4>Read is shared, act is scoped</h4>
+        <p>Ravi can still open the package and read its identity and provenance. Only the queue and
+          its transitions are role-exclusive.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-13</span></div></div>
+      <div class="anno"><h4>In-progress is not a spinner alone</h4>
+        <p>It carries a job id, a trace id and an honest duration estimate, and it states what the
+          job will write when it finishes.</p>
+        <div class="reftags"><span class="reftag">CPM-NFR-6</span><span class="reftag">CPM-FR-14</span></div></div>
+      <div class="anno"><h4>Verification is per package</h4>
+        <p>Build and import verification is triggered here, not run across the inventory. Static
+          assessment is what ships for all 9,842.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-14</span><span class="reftag">MVP §7</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ screen 11 ═════════════════════════════════════════════════════════ -->
+<section class="band alt" id="s11">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">S11</span><h2>Investigation — a capability, not the product</h2>
+    </div>
+    <p class="sec-sub">Post-MVP, and gated on a fitness spike. It ships only once the evidence store
+      and the policy engine are producing trustworthy results, because until then there is nothing
+      to cite. Every answer names the evidence tables, row identifiers and observation timestamps it
+      read, and it reports missing, stale, failed and not-applicable states as themselves.</p>
+
+    <div class="screen">
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="urlbar">https://cpm.internal/<b>investigate/</b></div>
+        <span class="chrome-role">post-MVP · read-only</span></div>
+      <div class="viewport"><div class="app" style="min-width:920px">
+        <div class="app-top">
+          <div class="brand"><span class="glyph">cpm</span> Supply Chain Monitor</div>
+          <nav class="app-nav"><a href="#">Home</a><a href="#">Packages</a><a href="#">My queue</a>
+            <a href="#">Reports</a><a href="#" class="on">Investigate</a></nav>
+          <div class="who"><span class="role">platform lead</span><span class="av">SI</span> Sam Ibarra</div>
+        </div>
+        <div class="app-body">
+          <div class="toast" style="border-left-color:var(--na);margin-top:0">
+            <div><b>Read-only, over governed views</b>
+              <p>This capability holds no write privilege on any table, reaches governed views only,
+                and every query it runs is row-limited, time-limited and audited with your user
+                identity.</p></div>
+          </div>
+
+          <div class="panel" style="margin-top:14px">
+            <div class="body" style="display:flex;flex-direction:column;gap:16px">
+              <div>
+                <div class="ev" style="margin:0 0 6px">you asked</div>
+                <div style="font-size:15px;font-weight:600">Which P1 and P2 packages have a KEV
+                  finding but no fix published to any monitored channel?</div>
+              </div>
+
+              <div style="border-left:2px solid var(--accent);padding-left:14px">
+                <div class="ev" style="margin:0 0 8px">answer · composed from 3 governed queries</div>
+                <p style="font-size:13.5px;color:var(--ink-2)">Four packages match:
+                  <b>grpcio</b>, <b>protobuf</b>, <b>libssh2</b> and <b>pyarrow</b>. Three carry a
+                  remediation readiness of <span class="chip warn sm">blocked</span>. The fourth,
+                  <b>pyarrow</b>, cannot be assessed: its advisory evidence is past its 24-hour
+                  freshness target, so its readiness is <span class="chip unknown sm">unknown</span>
+                  rather than blocked.</p>
+                <p style="font-size:13.5px;color:var(--ink-2);margin-top:9px">
+                  A further <b>148 packages</b> could not be included at all — the advisory
+                  collector has been failing since 2026-09-02 and their vulnerability status is
+                  <span class="chip error sm">error</span>. This answer does not claim they are
+                  clean.</p>
+              </div>
+
+              <div class="panel">
+                <header><h4>Evidence cited</h4><span class="hx">table · row · observed_at</span></header>
+                <table class="tbl">
+                  <thead><tr><th>Package</th><th>Evidence table</th><th>Row</th><th>observed_at</th><th>Used for</th></tr></thead>
+                  <tbody>
+                    <tr><td class="pkg">grpcio</td><td class="mono">kev_findings</td>
+                      <td class="mono">kf_88214</td><td class="mono">2026-09-04 05:38Z</td>
+                      <td>KEV membership</td></tr>
+                    <tr><td class="pkg">grpcio</td><td class="mono">conda_package_snapshots</td>
+                      <td class="mono">cps_704119</td><td class="mono">2026-09-04 04:41Z</td>
+                      <td>no fixed version on any channel</td></tr>
+                    <tr><td class="pkg">pyarrow</td><td class="mono">vulnerability_findings</td>
+                      <td class="mono">vf_512066</td><td class="mono">2026-08-29 05:38Z
+                        <span class="chip warn sm">stale</span></td>
+                      <td>why readiness is unknown</td></tr>
+                    <tr><td class="pkg">—</td><td class="mono">collection_runs</td>
+                      <td class="mono">cr_991204</td><td class="mono">2026-09-02 05:40Z</td>
+                      <td>the 148 excluded packages</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <span class="chip plain">policy versions: vuln@9 · priority@6</span>
+                <span class="chip plain">cut-off 2026-09-04 05:40Z</span>
+                <span class="chip plain">4 rows returned · limit 500</span>
+                <button class="btn sm" style="margin-left:auto">Open as a filtered package view</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="annos">
+      <div class="anno"><h4>It never concludes</h4>
+        <p>Every severity, currency, licence and priority word in that answer was produced by
+          deterministic policy. The capability explains and summarises; it does not decide.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-34</span></div></div>
+      <div class="anno"><h4>It reports what it could not see</h4>
+        <p>The 148 unreachable packages appear in the answer. An answer that silently omitted them
+          would be the product's failure mode wearing a friendlier interface.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-34</span><span class="reftag">CPM-SM-C3</span></div></div>
+      <div class="anno"><h4>A second database connection</h4>
+        <p>Reads go through an <code>analytics</code> alias with <code>SELECT</code> on governed
+          views only — no table grants, and a router confining the app to it.</p>
+        <div class="reftags"><span class="reftag">CPM-FR-33</span><span class="reftag ad">CPM-AD-16</span></div></div>
+      <div class="anno"><h4>Tools return structure</h4>
+        <p>Each tool hands back a payload of evidence references and status values, never a rendered
+          sentence — which is what makes the citation table above possible.</p>
+        <div class="reftags"><span class="reftag ad">CPM-AD-18</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ diagram 3 ═════════════════════════════════════════════════════════ -->
+<section class="band" id="journeys">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">D3</span><h2>The three journeys, across the screens</h2></div>
+    <p class="sec-sub">The PRD names three user journeys. Each one crosses several of the screens
+      above; each one has an edge case that is the actual design problem.</p>
+
+    <div class="figure">
+      <div class="cap"><span class="id">D3</span><b>CPM-UJ-1 — Dana clears a KEV finding before standup</b>
+        <span>and what happens instead when the evidence is stale</span></div>
+      <div class="plate">
+      <svg viewBox="0 0 1180 392" role="img" aria-label="Swimlane diagram of the reviewer journey across the reviewer, the application, and the background workers, including the stale-evidence branch">
+        <defs>
+          <marker id="d3a" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--muted)"/></marker>
+          <marker id="d3w" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--warn)"/></marker>
+        </defs>
+
+        <rect class="lane" x="140" y="34" width="1026" height="80" rx="3"/>
+        <rect class="lane" x="140" y="130" width="1026" height="80" rx="3"/>
+        <rect class="lane" x="140" y="226" width="1026" height="66" rx="3"/>
+        <text class="t-lbl" x="14" y="70">DANA</text>
+        <text class="t-lbl" x="14" y="86">reviewer</text>
+        <text class="t-lbl" x="14" y="166">THE</text>
+        <text class="t-lbl" x="14" y="182">APPLICATION</text>
+        <text class="t-lbl" x="14" y="262">BACKGROUND</text>
+        <text class="t-lbl" x="14" y="278">+ THE LOG</text>
+
+        <rect class="box" x="156" y="46" width="176" height="56" rx="3"/>
+        <text class="t-sm" x="168" y="66">1 · Opens the monitor,</text>
+        <text class="t-sm" x="168" y="82">already authenticated</text>
+        <text class="t-xs" x="168" y="96">screen 2</text>
+
+        <rect class="box" x="352" y="46" width="176" height="56" rx="3"/>
+        <text class="t-sm" x="364" y="66">2 · Reads her queue —</text>
+        <text class="t-sm" x="364" y="82">three KEV items at P1</text>
+        <text class="t-xs" x="364" y="96">screen 2 → 6</text>
+
+        <rect class="box" x="548" y="46" width="196" height="56" rx="3"/>
+        <text class="t-sm" x="560" y="66">3 · Opens the top finding,</text>
+        <text class="t-sm" x="560" y="82">checks ranges and source</text>
+        <text class="t-xs" x="560" y="96">screen 5</text>
+
+        <rect class="box-acc" x="764" y="46" width="186" height="56" rx="3"/>
+        <text class="t-sm" x="776" y="66">4 · Routes it, with a note,</text>
+        <text class="t-sm" x="776" y="82">to remediation</text>
+        <text class="t-xs" x="776" y="96">screen 5 · modal</text>
+
+        <rect class="box-ok" x="970" y="46" width="180" height="56" rx="3"/>
+        <text class="t-sm" x="982" y="66">5 · Ravi sees it, with</text>
+        <text class="t-sm" x="982" y="82">the evidence attached</text>
+        <text class="t-xs" x="982" y="96">screen 6</text>
+
+        <path class="flow" d="M332,74 L346,74" marker-end="url(#d3a)"/>
+        <path class="flow" d="M528,74 L542,74" marker-end="url(#d3a)"/>
+        <path class="flow" d="M744,74 L758,74" marker-end="url(#d3a)"/>
+        <path class="flow" d="M950,74 L964,74" marker-end="url(#d3a)"/>
+
+        <!-- application lane -->
+        <rect class="box" x="352" y="142" width="176" height="56" rx="3"/>
+        <text class="t-sm" x="364" y="162">Reads the rollup +</text>
+        <text class="t-sm" x="364" y="178">workflow items</text>
+        <text class="t-xs" x="364" y="192">ranked bucket, then score</text>
+
+        <rect class="box" x="548" y="142" width="196" height="56" rx="3"/>
+        <text class="t-sm" x="560" y="162">Serves evidence rows on</text>
+        <text class="t-sm" x="560" y="178">demand · hx-get partial</text>
+        <text class="t-xs" x="560" y="192">nothing recomputed here</text>
+
+        <rect class="box" x="764" y="142" width="186" height="56" rx="3"/>
+        <text class="t-sm" x="776" y="162">Locks the row, checks</text>
+        <text class="t-sm" x="776" y="178">prior state, writes audit</text>
+        <text class="t-xs" x="776" y="192">one transaction</text>
+
+        <path class="flow-dash" d="M440,102 L440,142" marker-end="url(#d3a)"/>
+        <path class="flow-dash" d="M646,102 L646,142" marker-end="url(#d3a)"/>
+        <path class="flow-dash" d="M857,102 L857,142" marker-end="url(#d3a)"/>
+        <path class="flow-dash" d="M950,170 L964,170 L1060,170 L1060,102" marker-end="url(#d3a)"/>
+
+        <!-- background lane -->
+        <rect class="box" x="156" y="238" width="372" height="42" rx="3"/>
+        <text class="t-sm" x="168" y="256">Overnight: collection runs finished at 05:40Z</text>
+        <text class="t-xs" x="168" y="272">that finished_at became the policy run's cut-off</text>
+
+        <rect class="box" x="548" y="238" width="402" height="42" rx="3"/>
+        <text class="t-sm" x="560" y="256">Policy run pr_01JQ8E wrote the rollup at 06:12Z — one row per package</text>
+        <text class="t-xs" x="560" y="272">the queue Dana is reading was composed once, by one writer, before she arrived</text>
+
+        <path class="flow-dash" d="M342,238 L342,204" marker-end="url(#d3a)"/>
+
+        <!-- stale branch -->
+        <path class="flow" style="stroke:var(--warn)" d="M646,102 L646,120 L300,120 L300,318" marker-end="url(#d3w)"/>
+        <rect class="box-warn" x="156" y="318" width="580" height="56" rx="3"/>
+        <text class="t-ttl" x="168" y="338" style="fill:var(--warn)">Edge case · the evidence is past its freshness target</text>
+        <text class="t-sm" x="168" y="356">The finding shows as stale, not actionable. Routing is unavailable; the primary</text>
+        <text class="t-sm" x="168" y="370">control becomes "Recollect evidence", which enqueues a job and returns 202.</text>
+
+        <rect class="box" x="756" y="318" width="394" height="56" rx="3"/>
+        <text class="t-sm" x="768" y="338">A recollection bypasses the observation window and always</text>
+        <text class="t-sm" x="768" y="354">writes. The finding becomes actionable only after the next policy</text>
+        <text class="t-sm" x="768" y="370">run reads it — Dana never acts on evidence policy has not seen.</text>
+        <path class="flow" style="stroke:var(--warn)" d="M736,346 L750,346" marker-end="url(#d3w)"/>
+      </svg>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <h3 style="margin-top:26px">CPM-UJ-2 · Ravi files the feedstock that never existed</h3>
+        <ol class="steps">
+          <li><b>Opens the feedstock-gap report</b>
+            <p>Packages with no feedstock and no staged recipe, ranked by internal usage breadth.</p>
+            <span class="where">screen 9<br>CPM-FR-26 · CPM-FR-40</span></li>
+          <li><b>Opens the highest-impact package</b>
+            <p>Confirms from the identity panel that the mapping is <code class="ref">verified</code>,
+              not inferred.</p>
+            <span class="where">screen 4<br>CPM-FR-24 · CPM-FR-2</span></li>
+          <li><b>Reads that no feedstock exists on any monitored channel</b>
+            <p>Recorded as <code class="ref">not_found</code> with a timestamp — an observation, not a null.</p>
+            <span class="where">screen 4<br>CPM-FR-9</span></li>
+          <li><b>Drafts a tracking issue from the package</b>
+            <p>The draft carries the package identity, the usage counts and the evidence rows behind
+              them. The monitor never files it.</p>
+            <span class="where">screen 4 · 9<br>non-goal: no auto-remediation</span></li>
+          <li><b>Files it, and the tracking URL is recorded</b>
+            <p>The package's workflow state moves to <code class="ref">already tracked</code>.</p>
+            <span class="where">screen 6<br>CPM-FR-25</span></li>
+        </ol>
+        <div class="notebox" style="margin-top:16px">
+          <h4>Edge case</h4>
+          <ul><li>An <b>unmapped</b> package never appears in this report. Absence of a feedstock
+            cannot be claimed for a package whose identity is unresolved — it reports
+            <code class="ref">unknown</code> and sits in the identity queue instead.</li></ul>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-top:26px">CPM-UJ-3 · Sam sees where the coverage gaps are</h3>
+        <ol class="steps">
+          <li><b>Opens coverage before the monthly review</b>
+            <p>Identity coverage, evidence freshness per collector, failed runs and why.</p>
+            <span class="where">screen 8<br>CPM-FR-38 · CPM-SM-1</span></li>
+          <li><b>Finds a collector failing on a rate-limited source</b>
+            <p>Two days of 429s. Its 148 packages show <code class="ref">error</code> — not clean.</p>
+            <span class="where">screen 8<br>CPM-FR-15 · CPM-NFR-3</span></li>
+          <li><b>Follows the trace identifier into the logs</b>
+            <p>The run record carries the trace id of the task that produced it, so the failure is
+              investigable rather than merely recorded.</p>
+            <span class="where">screen 8<br>CPM-FR-39</span></li>
+          <li><b>Exports the current-inventory view for the deck</b>
+            <p>The export carries the same freshness and confidence columns the application shows.</p>
+            <span class="where">screen 9<br>CPM-FR-26</span></li>
+          <li><b>Corrects a package mapped to the wrong repository</b>
+            <p>From the package detail view, with a required reason — the one write that changes
+              governed reference data.</p>
+            <span class="where">screen 4 · 7<br>CPM-FR-3 · CPM-FR-32</span></li>
+        </ol>
+        <div class="notebox" style="margin-top:16px">
+          <h4>Why this is the leadership screen</h4>
+          <ul><li>The other two roles act on findings. This role acts on <b>what the monitor cannot
+            see</b> — and holds the only permission that can correct governed reference data.</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ diagram 4 ═════════════════════════════════════════════════════════ -->
+<section class="band alt" id="machine">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">D4</span><h2>What a queue item can do</h2></div>
+    <p class="sec-sub">One table serves all three queues. An item is keyed on a finding key that
+      survives re-observation, transitions are declared as data with the role each one requires, and
+      routing between queues changes a field rather than creating a second item.</p>
+
+    <div class="figure">
+      <div class="cap"><span class="id">D4</span><b>Workflow item states and the role each transition requires</b>
+        <span>State names are illustrative — the spine fixes the mechanism, not the vocabulary.</span></div>
+      <div class="plate">
+      <svg viewBox="0 0 1180 400" role="img" aria-label="State machine for a workflow queue item with transitions labelled by the role each requires">
+        <defs>
+          <marker id="d4a" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--muted)"/></marker>
+          <marker id="d4b" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--accent)"/></marker>
+        </defs>
+
+        <text class="t-lbl" x="14" y="30">CREATED BY THE POLICY RUN · NEVER BY A HUMAN</text>
+
+        <rect class="box" x="14" y="46" width="150" height="52" rx="4"/>
+        <text class="t-ttl" x="26" y="68">open</text>
+        <text class="t-xs" x="26" y="86">unactioned work</text>
+
+        <rect class="box-acc" x="214" y="46" width="150" height="52" rx="4"/>
+        <text class="t-ttl" x="226" y="68">triaged</text>
+        <text class="t-xs" x="226" y="86">a human has looked</text>
+
+        <rect class="box-acc" x="414" y="46" width="150" height="52" rx="4"/>
+        <text class="t-ttl" x="426" y="68">routed</text>
+        <text class="t-xs" x="426" y="86">queue field changed</text>
+
+        <rect class="box-acc" x="614" y="46" width="150" height="52" rx="4"/>
+        <text class="t-ttl" x="626" y="68">in_progress</text>
+        <text class="t-xs" x="626" y="86">claimed by someone</text>
+
+        <rect class="box-ok" x="814" y="46" width="150" height="52" rx="4"/>
+        <text class="t-ttl" x="826" y="68">resolved</text>
+        <text class="t-xs" x="826" y="86">with an audit row</text>
+
+        <rect class="box-warn" x="1014" y="46" width="152" height="52" rx="4"/>
+        <text class="t-ttl" x="1026" y="68">accepted</text>
+        <text class="t-xs" x="1026" y="86">risk or exception</text>
+
+        <path class="flow" d="M164,72 L208,72" marker-end="url(#d4a)"/>
+        <text class="t-xs" x="166" y="64">any role</text>
+        <path class="flow-acc" d="M364,72 L408,72" marker-end="url(#d4b)"/>
+        <text class="t-xs" x="366" y="64">reviewer</text>
+        <path class="flow-acc" d="M564,72 L608,72" marker-end="url(#d4b)"/>
+        <text class="t-xs" x="566" y="64">packaging</text>
+        <path class="flow-acc" d="M764,72 L808,72" marker-end="url(#d4b)"/>
+        <text class="t-xs" x="766" y="64">packaging</text>
+
+        <!-- accepted branch -->
+        <path class="flow" d="M289,98 L289,140 L1090,140 L1090,98" marker-end="url(#d4a)"/>
+        <text class="t-xs" x="600" y="134">triaged → accepted · security &amp; compliance reviewer only, with a recorded justification</text>
+
+        <!-- blocked hold -->
+        <rect class="box" x="414" y="180" width="350" height="52" rx="4" stroke-dasharray="4 3"/>
+        <text class="t-ttl" x="426" y="202">readiness = blocked — a display state, not a state change</text>
+        <text class="t-xs" x="426" y="220">the item stays open at its bucket; policy re-derives readiness every run</text>
+        <path class="flow-dash" d="M489,98 L489,180" marker-end="url(#d4a)"/>
+
+        <!-- re-observation loop -->
+        <rect class="box" x="14" y="180" width="350" height="52" rx="4"/>
+        <text class="t-ttl" x="26" y="202">re-observation arrives</text>
+        <text class="t-xs" x="26" y="220">a new evidence row with the same finding key</text>
+        <path class="flow" d="M89,180 L89,110 L89,104" marker-end="url(#d4a)"/>
+        <text class="t-xs" x="96" y="160">matches the existing item — no new work is created</text>
+
+        <!-- the guard -->
+        <rect class="box" x="14" y="262" width="1152" height="112" rx="4"/>
+        <text class="t-ttl" x="30" y="286">Every transition goes through one service function</text>
+        <text class="t-sm" x="30" y="310">1 · look the transition up in the declared (from_state, to_state, required_role) data — refuse if it is not there</text>
+        <text class="t-sm" x="30" y="330">2 · lock the row with select_for_update, and check the expected prior state — refuse on mismatch, so two roles cannot clobber</text>
+        <text class="t-sm" x="30" y="350">3 · write the new state and append the audit row — actor, timestamp, prior state — in the same transaction, never on commit</text>
+        <text class="t-xs" x="30" y="368">the UI renders only the transitions your role holds; the service enforces them regardless of what the UI rendered</text>
+      </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ diagram 5 ═════════════════════════════════════════════════════════ -->
+<section class="band" id="boundary">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">D5</span><h2>What stays in the request, and what leaves it</h2></div>
+    <p class="sec-sub">The rule that keeps the application responsive: a view reads derived state
+      and may write workflow state or an override. Anything that makes an outbound call, runs a
+      collector or a policy pass, or exports beyond the row cap becomes a job — and the interface
+      says so rather than waiting.</p>
+
+    <div class="figure">
+      <div class="cap"><span class="id">D5</span><b>The request/task boundary, as the user experiences it</b>
+        <span>HTMX swaps on the left; Celery queues on the right.</span></div>
+      <div class="plate">
+      <svg viewBox="0 0 1180 400" role="img" aria-label="Diagram splitting synchronous request work from enqueued background work across three Celery queues">
+        <defs>
+          <marker id="d5a" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--muted)"/></marker>
+          <marker id="d5b" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" style="fill:var(--accent)"/></marker>
+        </defs>
+
+        <rect class="box-acc" x="450" y="14" width="280" height="46" rx="4"/>
+        <text class="t-ttl" x="466" y="34">A user does something</text>
+        <text class="t-xs" x="466" y="50">click, filter, form submit — always over HTMX</text>
+
+        <path class="flow" d="M520,60 L520,84 L250,84 L250,110" marker-end="url(#d5a)"/>
+        <path class="flow-acc" d="M660,60 L660,84 L900,84 L900,110" marker-end="url(#d5b)"/>
+        <text class="t-xs" x="264" y="78">reads derived state only</text>
+        <text class="t-xs" x="700" y="78">needs an outbound call, a pass, or a big export</text>
+
+        <rect class="lane" x="30" y="110" width="520" height="256" rx="4"/>
+        <rect x="30" y="110" width="520" height="256" rx="4" style="fill:none;stroke:var(--line)"/>
+        <text class="t-lbl" x="46" y="134">INSIDE THE REQUEST · answers immediately</text>
+
+        <rect class="box" x="46" y="146" width="234" height="46" rx="3"/>
+        <text class="t-sm" x="58" y="166">Filter, sort, paginate</text>
+        <text class="t-xs" x="58" y="182">swap the table partial · push the URL</text>
+        <rect class="box" x="300" y="146" width="234" height="46" rx="3"/>
+        <text class="t-sm" x="312" y="166">Open evidence rows</text>
+        <text class="t-xs" x="312" y="182">hx-get a partial · insert afterend</text>
+        <rect class="box" x="46" y="202" width="234" height="46" rx="3"/>
+        <text class="t-sm" x="58" y="222">Advance a queue item</text>
+        <text class="t-xs" x="58" y="238">locked, audited, one transaction</text>
+        <rect class="box" x="300" y="202" width="234" height="46" rx="3"/>
+        <text class="t-sm" x="312" y="222">Save an identity override</text>
+        <text class="t-xs" x="312" y="238">form re-renders on error</text>
+        <rect class="box" x="46" y="258" width="488" height="46" rx="3"/>
+        <text class="t-sm" x="58" y="278">Export under the row cap</text>
+        <text class="t-xs" x="58" y="294">streams straight back · the same cap constant every export path reads</text>
+        <text class="t-xs" x="46" y="330">No view in this column makes an outbound HTTP call. Not one.</text>
+        <text class="t-xs" x="46" y="348">No view in this column writes evidence or a derived status.</text>
+
+        <rect class="lane" x="600" y="110" width="566" height="256" rx="4"/>
+        <rect x="600" y="110" width="566" height="256" rx="4" style="fill:none;stroke:var(--line)"/>
+        <text class="t-lbl" x="616" y="134">ENQUEUED · the page returns 202 and polls</text>
+
+        <rect class="box-acc" x="616" y="146" width="170" height="76" rx="3"/>
+        <text class="t-ttl" x="628" y="166">collect</text>
+        <text class="t-xs" x="628" y="184">recollection on demand</text>
+        <text class="t-xs" x="628" y="200">rate-limited, retried</text>
+        <text class="t-xs" x="628" y="214">bypasses the window</text>
+
+        <rect class="box-acc" x="800" y="146" width="170" height="76" rx="3"/>
+        <text class="t-ttl" x="812" y="166">policy</text>
+        <text class="t-xs" x="812" y="184">a whole run, never</text>
+        <text class="t-xs" x="812" y="200">a single pass</text>
+        <text class="t-xs" x="812" y="214">scheduled by beat</text>
+
+        <rect class="box-acc" x="984" y="146" width="166" height="76" rx="3"/>
+        <text class="t-ttl" x="996" y="166">verify</text>
+        <text class="t-xs" x="996" y="184">python 3.14 builds</text>
+        <text class="t-xs" x="996" y="200">per package, on</text>
+        <text class="t-xs" x="996" y="214">demand only</text>
+
+        <rect class="box" x="616" y="238" width="534" height="66" rx="3"/>
+        <text class="t-sm" x="628" y="258">What the user sees: a banner carrying the job id and the trace id, polled by</text>
+        <text class="t-sm" x="628" y="276">hx-trigger="every 3s". It survives a reload, because the state is server-side.</text>
+        <text class="t-xs" x="628" y="294">screens 9 and 10</text>
+
+        <text class="t-xs" x="616" y="330">Three Celery queues by workload class, routed by configuration — a slow build never blocks a recollection.</text>
+        <text class="t-xs" x="616" y="348">Every task carries the request's correlation identifiers into the run ledger it writes.</text>
+      </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ assumptions ═══════════════════════════════════════════════════════ -->
+<section class="band alt" id="assumptions">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">§</span><h2>What is specified, and what this mockup invented</h2></div>
+    <p class="sec-sub">A mockup has to be concrete, and the planning artefacts deliberately leave
+      some things open. Everything invented here is listed so that nobody downstream mistakes a
+      drawing for a decision.</p>
+
+    <div class="two-col">
+      <div class="notebox" style="border-left-color:var(--ok)">
+        <h4>Taken directly from the brief, PRD and spine</h4>
+        <ul>
+          <li>The <b>three roles</b>, what each reads and what each acts on.</li>
+          <li>The <b>five outcome states</b>, their lowercase values, and the rule that no surface
+            collapses them.</li>
+          <li><b>Confidence</b> values and the gate they apply, distinct from <b>match confidence</b>.</li>
+          <li>The <b>rollup</b>: one row per package always, carrying <code>computed_at</code>, the
+            cut-off, and a per-domain version map.</li>
+          <li><b>Evidence tables</b> and their columns; the run ledgers as a separate class.</li>
+          <li><b>One workflow table</b>, three filtered queues, items keyed on a finding key,
+            transitions as <code>(from_state, to_state, required_role)</code> data.</li>
+          <li>The <b>override</b> as the only human write to governed reference data, with a
+            required reason and an audit row in the same transaction.</li>
+          <li>The <b>six recurring reports</b>, each stating its cut-off and policy version.</li>
+          <li><b>Structural pagination</b>, the request/task boundary, and the three Celery queues.</li>
+          <li>The <b>export column contract</b> — historical headings over snake_case stored fields.</li>
+          <li>The natural-language capability as <b>post-MVP</b> and read-only over governed views.</li>
+        </ul>
+      </div>
+
+      <div class="notebox" style="border-left-color:var(--warn)">
+        <h4>Invented for this mockup — not decisions</h4>
+        <ul>
+          <li><b>URL paths</b> (<code>/packages/</code>, <code>/queues/compliance/</code>). No route
+            table is specified anywhere.</li>
+          <li><b>Workflow state names</b> — open, triaged, routed, in_progress, resolved, accepted.
+            The spine fixes the mechanism; the vocabulary is open.</li>
+          <li><b>Priority rule names</b> (<code>kev_with_fix</code>, <code>no_feedstock_high_usage</code>)
+            and every bucket assignment shown. The rule set and score function are
+            <b>Open Question 8</b> and block <code>CPM-EP-PRIORITY</code>.</li>
+          <li><b>Freshness targets</b> — 24h, 7d, 30d. <b>Open Question 7</b>.</li>
+          <li>The <b>500-row synchronous export cap</b> and any latency figure. <b>Open Question 5</b>.</li>
+          <li><b>Advisory source names</b> and licence policy outcomes. <b>Open Questions 1 and 2</b>.</li>
+          <li><b>Channel names</b> (conda-forge/noarch, internal/linux-64). <b>Open Question 4</b>.</li>
+          <li>The <b>14-month feedstock inactivity threshold</b>. <b>Open Question 10</b>.</li>
+          <li>The <b>internal usage field values</b> — components, lines of business, downloads.
+            Their source is <b>Open Question 3</b>.</li>
+          <li>All <b>package names, CVE identifiers, versions, counts and timestamps</b>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="notebox">
+      <h4>Notes for whoever builds this</h4>
+      <ul>
+        <li><b>Bootstrap 5.2 is already in the base template.</b> The mockups above are drawn in a
+          neutral system, but every component shown maps onto what the platform already loads —
+          table, badge, form control, modal, offcanvas for the facet panel on narrow screens.</li>
+        <li><b>HTMX earns its place on four interactions</b>: facet swaps on the health view,
+          evidence disclosure on package detail, queue transitions posting a form and swapping a
+          row, and job polling. Everything else can be a plain page load.</li>
+        <li><b>Alpine holds view state only</b> — open panels, pending filter selections, bulk
+          checkboxes, modal focus. It never computes a status, a count, or a timestamp, because
+          derived state is read-only to the application.</li>
+        <li><b>Every partial is a template fragment the full page also renders</b>, so a swapped
+          table row and a freshly loaded page cannot disagree.</li>
+        <li><b>The freshness bar is a single inclusion tag</b> used by screens 2, 3, 4, 6, 8 and 9
+          and by the export header — one implementation, so a surface cannot forget it.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <p>Mockups for the Conda Package Supply Chain Monitor, drawn from the planning artefacts in
+      this repository. Nothing here is implemented; the screens exist to be argued with before
+      <code class="ref">CPM-EP-APP</code> is picked up.</p>
+    <div class="srcs">
+      brief-conda-package-supply-chain-monitor-2026-09-02/brief.md · addendum.md<br>
+      prd-conda-package-supply-chain-monitor-2026-09-02/prd.md<br>
+      architecture-conda-package-supply-chain-monitor-2026-09-02/ARCHITECTURE-SPINE.md<br>
+      implementation-artifacts/stories/cpm-app-s01 … s08 · cpm-identity-s04 · s05
+    </div>
+  </div>
+</footer>
+
+</div>
