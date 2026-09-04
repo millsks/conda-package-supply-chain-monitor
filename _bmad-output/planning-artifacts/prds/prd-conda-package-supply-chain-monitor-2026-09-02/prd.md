@@ -229,8 +229,10 @@ A check that does not apply to a package is never folded into clean or unknown.
 
 #### CPM-FR-42: Inventory ingestion
 
-The system acquires the package inventory from the organization's internal source, together
-with the internal usage signals that later rank and score it.
+The system acquires the package inventory from a declared inventory source, together with
+the internal usage signals that later rank and score it. The v1 source is a curated
+watchlist of tracked packages, versioned alongside the system and changed by review
+(Open Question 3a).
 
 **Consequences (testable):**
 - Ingestion is an observation: each run writes append-only rows and never updates a prior one.
@@ -238,15 +240,30 @@ with the internal usage signals that later rank and score it.
   confidence; ingestion never asserts a mapping (CPM-FR-1).
 - A package absent from a later run is recorded as absent with a timestamp; no package is
   deleted, and it keeps its row in the current-health rollup.
+- Every record carries `internal_component_count` and `internal_lob_count`. `apps`,
+  `platforms`, `downloads` and `versions` are optional and may be blank (Open Question 3b).
+- A blank signal means missing, not zero, and the two remain distinguishable in what is
+  stored (Appendix A.1 data rules).
+- A record missing a required field, carrying a non-numeric count, or repeating a source
+  package key fails the run. No run partially ingests a malformed source.
 - The internal usage signals are read at a stated evidence cut-off, so a policy replay
   reproduces identical results (CPM-FR-22).
-- The source location and its credentials come from the environment (CPM-NFR-10).
+- The source location is configuration; a source that requires credentials takes them from
+  the environment with no default (CPM-NFR-10).
 
 ### 4.2 Evidence collection
 
 **Description:** Independent collectors observe one surface each and write one evidence
 table each. They are separately schedulable, retryable, and rate-limited; one failing
 never blocks another. Realizes CPM-UJ-1, CPM-UJ-3.
+
+**A surface is not an inventory.** These collectors observe external surfaces — a source
+repository, PyPI, conda-forge, an advisory feed — *about packages the inventory already
+names*. None of the eight introduces a package. Only CPM-FR-42's inventory ingestion does,
+and only from the declared inventory source. conda-forge in particular is observed by
+CPM-FR-9 and CPM-FR-10 and is never an inventory source: a public channel carries none of
+the internal usage signals CPM-FR-4 ranks by and CPM-FR-20 scores with, and its package
+count exceeds CPM-NFR-1's 10,000-package collection sizing several times over.
 
 #### CPM-FR-7: Source release collector
 
@@ -757,13 +774,32 @@ them; it is sequenced first in delivery. `CPM-EP-NL` is post-MVP (§7).
 
 1. Which advisory and KEV data sources are available and licensed for use? Blocks `CPM-EP-SECURITY`.
 2. What license allow/deny policy seeds CPM-FR-18? Blocks `CPM-EP-SECURITY`.
-3. What is the source of the internal usage fields (`platforms`, `apps`, `downloads`,
-   `versions`, `internal_component_count`, `internal_lob_count`), and what is the inventory
-   source that carries them (CPM-FR-42)? Blocks `CPM-EP-PRIORITY`, whose score reads them;
-   also constrains `CPM-EP-IDENTITY`, whose review queue ranks by usage breadth (CPM-FR-4),
-   and `CPM-EP-APP`, whose identity queue inherits that ranking (CPM-FR-25). The mechanism
-   is buildable without the answer — `CPM-AD-25` fixes that these arrive as evidence and are
-   read at a cut-off — but no story may invent the field set or the source.
+3. **Resolved 2026-09-04.** Kept numbered rather than struck: downstream artifacts cite
+   "Open Question 3", and this list never reuses a number.
+
+   **3a — the inventory source.** *What inventory source carries the package inventory
+   (CPM-FR-42)?* **Answer:** a curated watchlist of tracked packages, versioned in this
+   repository and changed by pull request. A smaller subset of the same file shape serves
+   local development, selected by locality (CPM-AD-29). An internal-inventory-system
+   integration, should one arrive, is a second adapter behind the same contract rather
+   than a redesign.
+
+   conda-forge is **not** an inventory source. It is a surface the feedstock collector
+   (CPM-FR-9) and the published-package collector (CPM-FR-10) observe. A public channel
+   carries no internal usage signals, so an inventory sourced from it leaves CPM-FR-4's
+   usage-breadth ranking and CPM-FR-20's score with no input at all, and its package
+   count exceeds CPM-NFR-1's 10,000-package collection sizing several times over.
+   Recorded here so the question is not reopened by a later reader who reads "inventory"
+   as "channel".
+
+   **3b — the internal usage-signal field set.** *Which signals are observed per package?*
+   **Answer:** `internal_component_count` and `internal_lob_count` are required on every
+   inventory record — together they are the "internal usage breadth" CPM-FR-4 ranks by.
+   `apps`, `platforms`, `downloads` and `versions` are present in the schema and nullable:
+   they are score inputs for CPM-FR-20, whose score function is itself undecided (Open
+   Question 8), and no hand-authored watchlist can state them credibly. A source that can
+   supply them populates them. Blank means missing, per Appendix A.1's data rules, and is
+   never invented.
 4. Which conda channels and platforms are monitored (CPM-FR-10)? Blocks `CPM-EP-CURRENCY`.
 5. What is the p95 latency budget for CPM-NFR-5, and at what inventory size is it measured?
 6. Does the internal-data handling requirement force a private or self-hosted model
@@ -858,7 +894,7 @@ by resolution in the same transaction, never by the collector (`CPM-AD-25`).
 | `collection_runs` | Collector, package, status, error detail, start and finish times, correlation identifiers |
 | `policy_runs` | Policy version, run timestamp, evidence cut-off, status |
 | `identity_overrides` | Actor, timestamp, prior value, new value, reason (CPM-FR-3) |
-| `inventory_snapshots` | Source package key, internal usage signals as observed, presence or absence, observation time (CPM-FR-42) |
+| `inventory_snapshots` | Source package key; `internal_component_count` and `internal_lob_count`, required; `apps`, `platforms`, `downloads`, `versions`, nullable; presence or absence; observation time (CPM-FR-42, Open Question 3b) |
 
 ### A.3 Derived statuses
 

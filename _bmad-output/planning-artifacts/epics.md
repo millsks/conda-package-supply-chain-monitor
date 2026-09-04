@@ -152,7 +152,7 @@ the mechanism that reads them as versioned data, but must not fabricate their co
 |---|---|
 | OQ 1 | Advisory and KEV source selection |
 | OQ 2 | License allow/deny policy content |
-| OQ 3 | The inventory source and the internal usage-signal field set |
+| OQ 3 — resolved | Answered 2026-09-04. Residual rule: `apps`, `platforms`, `downloads` and `versions` stay blank until a source supplies them — blank means missing, never zero, and is never estimated |
 | OQ 5 | The p95 latency budget and the sync export row cap |
 | OQ 7 | Per-collector freshness targets and observation windows |
 | OQ 8 | The priority rule set and the score function |
@@ -774,7 +774,9 @@ So that the review surface has something correct to render before the surface ex
 **Governed by:** `CPM-AD-4`, `CPM-AD-1`
 **Note:** the worked queue surface that completes `CPM-FR-4` is `CPM-APP-S05`. Split because `identity` sits below `policies` in the layer order and cannot host a workflow table.
 **Constrained:** internal usage breadth is read from inventory evidence at a cut-off
-(`CPM-AD-25`); its field set and source are PRD Open Question 3 and are not chosen here.
+(`CPM-AD-25`). Open Question 3 is resolved: breadth is `internal_component_count` and
+`internal_lob_count`, required on every inventory record (`CPM-FR-42`), so the ranking
+always has an input.
 
 ### CPM-IDENTITY-S05: The one audited human write
 
@@ -852,10 +854,72 @@ timeout, retry, backoff and ledger row
 cut-off reproduces identical results
 
 **Satisfies:** `CPM-FR-42`, and the inventory prerequisite for `CPM-FR-1` – `CPM-FR-6`
-**Governed by:** `CPM-AD-25`, `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-14`, `CPM-AD-23`
-**Constrained:** the inventory source and the usage-signal field set are PRD Open Question 3.
-This story builds the collector, the model and the cut-off-bound read; it does not choose the
-source or invent the fields.
+**Governed by:** `CPM-AD-25`, `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-14`, `CPM-AD-23`, `CPM-AD-29`
+**Source and fields:** PRD Open Question 3 is resolved (2026-09-04). The source is the
+versioned watchlist, read through the inventory source adapter contract (`CPM-AD-29`);
+`internal_component_count` and `internal_lob_count` are required on every record, and
+`apps`, `platforms`, `downloads` and `versions` are nullable. This story builds the
+collector, the model and the cut-off-bound read; `CPM-IDENTITY-S07` supplies the adapter
+and the watchlist files.
+
+### CPM-IDENTITY-S07: The watchlist is the inventory source
+
+As a platform lead,
+I want the packages we track declared in a reviewed file and read by the ingestion collector,
+So that the inventory is something we own and change on the record, and a developer can run
+the product against a realistic subset.
+
+**Sequenced with `CPM-IDENTITY-S06`.** S06 owns the collector, the snapshot model and the
+cut-off-bound read; S07 owns the adapter contract, the files and the selection rule. Neither
+is useful alone, and S06's acceptance criteria cannot be exercised without a source.
+
+**Acceptance Criteria:**
+
+**Given** the inventory source adapter contract
+**When** ingestion runs
+**Then** it resolves exactly one declared adapter and calls it, and `CPM-IDENTITY-S06`'s
+collector carries no branch on which source is active
+**And** no adapter is discovered by entry point or by scanning (inherited `AD-8`)
+
+**Given** the versioned watchlist file
+**When** the adapter reads it
+**Then** each row yields a record carrying the source package key, the package name,
+`internal_component_count` and `internal_lob_count`
+**And** `apps`, `platforms`, `downloads` and `versions` are yielded as present when populated
+and as missing when blank, distinguishably from zero
+
+**Given** a watchlist carrying a column the contract does not define — a repository URL, a
+feedstock URL, a purl, a confidence
+**When** the adapter reads it
+**Then** the run is refused rather than the column ignored, because ingestion never asserts a
+mapping (`CPM-FR-42`, `CPM-FR-1`)
+
+**Given** a file that is unreadable, missing a required column, carrying a non-numeric count,
+or repeating a source package key
+**When** the adapter reads it
+**Then** `ImproperlyConfigured` is raised and the run fails before any row is written, leaving
+no package and no snapshot behind (inherited `CG-3`)
+
+**Given** a run where `config.locality.is_local()` is true
+**When** the adapter selects its file
+**Then** it reads the development subset
+
+**Given** a run where `COMPONENT_RUNTIME` is absent, empty, or set to an unrecognized value
+**When** the adapter selects its file
+**Then** it reads the production watchlist, because selection fails closed toward production
+(`CPM-AD-29`), and a test asserts all three of those cases separately
+
+**Given** the development subset
+**When** it is ingested into an empty database
+**Then** every row becomes a package at `unmapped` confidence carrying a snapshot with both
+required signals, so `CPM-IDENTITY-S04`'s queue and `CPM-EP-APP`'s surfaces have data to render
+
+**Satisfies:** `CPM-FR-42`, with `CPM-IDENTITY-S06`
+**Governed by:** `CPM-AD-29`, `CPM-AD-27`, `CPM-AD-25`, `CPM-AD-14`
+**Constrained:** the watchlist *content* — which packages are tracked, and their breadth
+counts — is an organizational decision and not this story's. The story ships the contract, the
+selection rule, the refusals, and a development subset sized for a developer machine (of the
+order of a hundred packages). The production watchlist is populated by review.
 
 ## CPM-EP-CURRENCY: Where a package sits across every surface
 
@@ -1237,7 +1301,7 @@ So that nobody has to read the rule set to understand why a package is P1.
 
 **Satisfies:** `CPM-FR-20`
 **Governed by:** `CPM-AD-8`, `CPM-AD-21`
-**Constrained:** the rule content and the score function are PRD Open Question 8; the internal usage signals they score are PRD Open Question 3, read from inventory evidence at the run's cut-off (`CPM-AD-25`). This story ships the engine, the schema and the explainability fields — not a seeded rule set.
+**Constrained:** the rule content and the score function are PRD Open Question 8. The internal usage signals they score are settled by Open Question 3's resolution and read from inventory evidence at the run's cut-off (`CPM-AD-25`): `internal_component_count` and `internal_lob_count` are always present, while `apps`, `platforms`, `downloads` and `versions` may be blank — and the score function must treat blank as missing, never as zero. This story ships the engine, the schema and the explainability fields — not a seeded rule set.
 
 ### CPM-PRIORITY-S02: Work type, derived independently of priority
 

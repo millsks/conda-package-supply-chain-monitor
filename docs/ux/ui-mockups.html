@@ -2863,7 +2863,11 @@ footer.pagefoot p{max-width:70ch}
           <li><b>Channel names</b> (conda-forge/noarch, internal/linux-64). <b>Open Question 4</b>.</li>
           <li>The <b>14-month feedstock inactivity threshold</b>. <b>Open Question 10</b>.</li>
           <li>The <b>internal usage field values</b> — components, lines of business, downloads.
-            Their source is <b>Open Question 3</b>.</li>
+            The field set is settled (<b>Open Question 3</b>, resolved 2026-09-04):
+            <code>internal_component_count</code> and <code>internal_lob_count</code> are
+            required on every inventory record, while <code>downloads</code> may be blank.
+            The <i>values</i> shown here are still invented, and a blank signal means
+            missing — never zero.</li>
           <li>All <b>package names, CVE identifiers, versions, counts and timestamps</b>.</li>
         </ul>
       </div>
