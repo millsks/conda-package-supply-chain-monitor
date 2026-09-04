@@ -59,6 +59,17 @@ declaration. Closing that gap needs the *type* to be reachable from the field,
 which is a change to how a status field is declared and belongs to
 `CPM-EVIDENCE-S02`, the story that declares the first one.
 
+**One field name is a derived status and one column is not, and the difference is
+recorded rather than assumed.** `CPM-EVIDENCE-S03`'s run ledger stores what
+happened to a *run* in a column called `status`, over `RunState` -- a separate
+vocabulary that carries none of the four sentinels and must never be composed
+from `outcome_type` (`core/runs.py` says why at length). The convention below
+recognises the name, so an unamended sweep would demand the sentinels on a column
+that must not hold one. `RECORDED_RUN_LEDGER_STATUS` is the amendment: the named
+fields leave the sentinel sweep and are checked against `RunState.choices`
+instead, and the table is reconciled in both directions. Excluded from one
+vocabulary, held to the other -- never simply unchecked.
+
 The failure list is not exhaustive by design. `max_length` shorter than the
 longest choice is a real defect and is not checked here, because Django's own
 system check `fields.E009` already rejects it; duplicating a framework check
@@ -81,10 +92,12 @@ from django.test.utils import isolate_apps
 from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.outcomes import outcome_type
+from conda_package_supply_chain_monitor.core.runs import RunState
 from tests.model_registry import A_THIRD_PARTY_APP_NAME
 from tests.model_registry import FIRST_PARTY_APP_NAMES
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
+from tests.model_registry import RUN_LEDGER_MODEL_LABELS
 from tests.model_registry import first_party_app_names
 from tests.model_registry import first_party_models
 from tests.model_registry import installed_app_names
@@ -117,6 +130,35 @@ CHOICE_ENTRY_LENGTH: Final[int] = 2
 #: the conforming fixture so that the fixture demonstrates the intended
 #: declaration rather than a hand-assembled approximation of it.
 FIXTURE_OUTCOME = outcome_type("WharfOutcome", [("MOORED", "moored"), ("ADRIFT", "adrift")])
+
+# The derived-status *names* that are not derived statuses, by model label and
+# field name.
+#
+# `CPM-EVIDENCE-S03`'s run ledger has a `status` column, and `status` is in
+# `DERIVED_STATUS_NAMES` above, so an unamended sweep demands the four outcome
+# sentinels on a column that must never hold one. That is a collision between a
+# convention and a rule the ledger is not bound by, and there were two ways out.
+# Renaming the column to `state` would dodge a marker, which
+# `tests/model_registry.py` names as the worse option in the same passage that
+# explains why the `not_evidence` escape exists at all. So the name stays and the
+# audit is amended here.
+#
+# **An exemption in this repository is a counted decision, never a hole.** The
+# entries below are excluded from the sentinel sweep and then checked against
+# `RunState.choices` instead -- excluded from one vocabulary and held to the
+# other. Two cases reconcile the table in both directions: every entry must name
+# a real field whose choices are exactly `RunState`'s, and no unrecorded field
+# anywhere may carry that vocabulary. `core/runs.py` says why the two
+# vocabularies are separate.
+RECORDED_RUN_LEDGER_STATUS: Final[dict[str, str]] = {
+    "core.CollectionRun": "status",
+    "core.PolicyRun": "status",
+}
+
+#: `RunState`'s values, for recognising a run-ledger status column that nobody
+#: recorded. Derived from the type rather than written out, so a sixth run state
+#: is covered the moment it is declared.
+RUN_LEDGER_VALUES: Final[frozenset[str]] = frozenset(RunState.values)
 
 
 def is_derived_status_name(name: str) -> bool:
@@ -249,6 +291,56 @@ def field_failures(field: models.Field[object, object]) -> list[str]:
     return failures
 
 
+def is_recorded_run_ledger_status(model: type[models.Model], field: models.Field[object, object]) -> bool:
+    """Report whether a field is the recorded run-ledger status of its model.
+
+    Args:
+        model: The model the field belongs to.
+        field: The field to classify.
+
+    Returns:
+        True only for an exact `(label, field name)` match in
+        `RECORDED_RUN_LEDGER_STATUS`. Keyed on both so that recording
+        `core.CollectionRun` does not exempt a second status field somebody adds
+        to the same model later.
+
+    """
+    label = str(model._meta.label)  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+    return RECORDED_RUN_LEDGER_STATUS.get(label) == field.name
+
+
+def carries_the_run_vocabulary(field: models.Field[object, object]) -> bool:
+    """Report whether a field's choices offer every run state.
+
+    Args:
+        field: The field to classify.
+
+    Returns:
+        True when all five of `RunState`'s values are among the field's choices.
+        A *superset* test rather than equality: a ledger status refined with an
+        extra verdict still belongs to the run vocabulary, and it is exactly the
+        field that would otherwise fall between the two reconciliations.
+
+    """
+    return {value for value, _ in choice_pairs(field.choices or ())} >= RUN_LEDGER_VALUES
+
+
+def audited_status_fields(model: type[models.Model]) -> list[models.Field[object, object]]:
+    """Return the derived-status fields the sentinel sweep still applies to.
+
+    Args:
+        model: The model to inspect.
+
+    Returns:
+        Every derived-status field except the recorded run-ledger ones, which are
+        checked against `RunState.choices` by the cases below instead. See
+        `RECORDED_RUN_LEDGER_STATUS` for why the exclusion exists and what
+        replaces it.
+
+    """
+    return [field for field in derived_status_fields(model) if not is_recorded_run_ledger_status(model, field)]
+
+
 def model_failures(model: type[models.Model]) -> dict[str, list[str]]:
     """Return every derived-status failure on one model, keyed by field name.
 
@@ -257,10 +349,12 @@ def model_failures(model: type[models.Model]) -> dict[str, list[str]]:
 
     Returns:
         Field name to its failures. Empty when the model declares no derived
-        status, or declares them all correctly.
+        status, or declares them all correctly. Recorded run-ledger status fields
+        are not reported here; they are checked against the run vocabulary
+        instead.
 
     """
-    return {field.name: failures for field in derived_status_fields(model) if (failures := field_failures(field))}
+    return {field.name: failures for field in audited_status_fields(model) if (failures := field_failures(field))}
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +422,123 @@ def test_no_first_party_model_declares_a_boolean_named_like_a_status() -> None:
     ]
 
     assert booleans == []
+
+
+# ---------------------------------------------------------------------------
+# The run-ledger amendment, reconciled in both directions.
+# ---------------------------------------------------------------------------
+
+
+def test_the_run_ledger_status_table_has_entries_to_check() -> None:
+    """The two cases below mean nothing if the table they read is empty.
+
+    The same guard `RECORDED_EXEMPTIONS` gets in the source scans: a table that
+    had been emptied would make both reconciliations pass by iterating over
+    nothing, and the exclusion they exist to police would be unpoliced.
+
+    Its keys are also tied to `RUN_LEDGER_MODEL_LABELS`, which is where the
+    `CPM-AD-2` exemption is recorded once for the three modules that need it.
+    The table stays a literal because the *field name* is per-model information
+    that a shared set of labels cannot carry -- but a third ledger model recorded
+    as not-evidence and forgotten here fails on this line rather than three cases
+    later with a message about outcome sentinels.
+    """
+    assert RECORDED_RUN_LEDGER_STATUS != {}
+    assert set(RECORDED_RUN_LEDGER_STATUS) == RUN_LEDGER_MODEL_LABELS
+
+
+def test_every_recorded_run_ledger_status_is_checked_against_the_run_vocabulary() -> None:
+    """The first direction: an excluded field is checked, not skipped.
+
+    Each entry has to name a model this repository declares, a derived-status
+    field on it, and choices that are *exactly* `RunState.choices` -- values and
+    labels both, so a hand-rolled table carrying the five run values under
+    different labels fails here the same way a hand-rolled outcome table fails
+    the sentinel sweep.
+
+    Without this the exclusion would be a hole: a field removed from one
+    vocabulary's audit and held to nothing at all, which is worse than the
+    collision the exclusion was written to resolve.
+    """
+    by_label = {
+        str(model._meta.label): model  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        for model in first_party_models()
+    }
+    expected = {f"{label}.{name}": list(RunState.choices) for label, name in RECORDED_RUN_LEDGER_STATUS.items()}
+    found: dict[str, list[tuple[str, str]]] = {}
+
+    for label, field_name in sorted(RECORDED_RUN_LEDGER_STATUS.items()):
+        assert label in by_label, f"{label} is recorded as a run-ledger status but declares no such model"
+        fields = {field.name: field for field in derived_status_fields(by_label[label])}
+        assert field_name in fields, f"{label} declares no derived-status field named {field_name}"
+        found[f"{label}.{field_name}"] = choice_pairs(fields[field_name].choices or ())
+
+    assert found == expected
+
+
+def test_no_unrecorded_status_field_carries_the_run_ledger_vocabulary() -> None:
+    """The second direction: a new ledger status cannot arrive unrecorded.
+
+    A third run-ledger model added without an entry above would be swept for the
+    four outcome sentinels and fail with a message about a vocabulary it is not
+    bound by. This case fails first, and says what is actually wrong: the field
+    carries `RunState`'s values and nobody recorded the decision.
+
+    **A superset, not an exact match.** A field offering the five run states
+    *plus* one more is the likeliest next ledger column -- `RunState` refined the
+    way `outcome_type` refines `ok` -- and exact equality would let it through
+    both directions: not recorded, so not excluded; not an exact match, so not
+    reported here. It would then fail the sentinel sweep with precisely the
+    confusing message this case exists to pre-empt.
+    """
+    unrecorded = [
+        f"{model._meta.label}.{field.name}"  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        for model in first_party_models()
+        for field in derived_status_fields(model)
+        if not is_recorded_run_ledger_status(model, field) and carries_the_run_vocabulary(field)
+    ]
+
+    assert unrecorded == []
+
+
+def test_the_run_vocabulary_detector_sees_a_refined_run_status_too() -> None:
+    """The superset rule, exercised rather than only argued.
+
+    The sweep above passes over an empty set today -- every run-ledger status
+    there is is recorded -- so without this the widening from equality to a
+    superset would be a change no case can tell from the version before it.
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class Refined(models.Model):  # noqa: DJ008 - a fixture in an isolated registry; nothing renders it
+            status = models.CharField(max_length=16, choices=[*RunState.choices, ("retrying", "Retrying")])
+            unrelated_status = models.CharField(max_length=32, choices=OutcomeState.choices)
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+
+        fields = {field.name: field for field in derived_status_fields(Refined)}
+
+        assert carries_the_run_vocabulary(fields["status"]) is True
+        assert carries_the_run_vocabulary(fields["unrelated_status"]) is False
+
+
+def test_a_run_ledger_status_that_is_not_recorded_is_still_swept() -> None:
+    """The exclusion is keyed on the model, not on the vocabulary it happens to use.
+
+    A field carrying `RunState.choices` on a model nobody recorded is still
+    reported by the sentinel sweep, which is what stops the amendment from being
+    a general licence for the run vocabulary anywhere it turns up.
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class Unrecorded(models.Model):  # noqa: DJ008 - a fixture in an isolated registry; nothing renders it
+            status = models.CharField(max_length=16, choices=RunState.choices)
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+
+        assert "status" in model_failures(Unrecorded)
 
 
 # ---------------------------------------------------------------------------

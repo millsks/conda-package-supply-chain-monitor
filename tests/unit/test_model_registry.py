@@ -55,6 +55,7 @@ from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 from tests.model_registry import NOT_EVIDENCE_ATTRIBUTE
 from tests.model_registry import OBSERVED_AT_FIELD
+from tests.model_registry import RUN_LEDGER_MODEL_LABELS
 from tests.model_registry import declares_not_evidence
 from tests.model_registry import evidence_marks
 from tests.model_registry import evidence_models
@@ -257,18 +258,35 @@ def test_a_model_declaring_nothing_is_not_exempt() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_registry_holds_no_evidence_model_and_none_taking_the_escape() -> None:
+def test_the_registry_holds_no_evidence_model_and_exactly_the_run_ledger_escapes() -> None:
     """The state today, asserted rather than assumed by three audits at once.
 
-    `CPM-EVIDENCE-S02` is forbidden to create a concrete evidence model and
-    `CPM-EVIDENCE-S03` brings the first user of the escape, so both sets are
-    empty. Pinning that here is what makes "the sweep passed over nothing" a
-    statement somebody checked rather than an inference from three audits that
-    each assumed it.
+    Both halves are pinned so that "the sweep passed over nothing" and "the sweep
+    passed over exactly these two" are statements somebody checked, rather than
+    inferences from three audits that each assumed them.
 
-    The day either stops being empty this fails, and the fix is to delete this
-    case -- which is a deliberate edit, and the point.
+    `evidence_models()` is still empty: `CPM-EVIDENCE-S02` is forbidden to create
+    a concrete evidence model and `CPM-AD-7` puts the first with
+    `CPM-EP-CURRENCY`. `exempt_models()` is no longer empty -- `CPM-EVIDENCE-S03`
+    brought the first users of the escape, and the two are the run-ledger tables
+    `CPM-AD-2` exempts by name. That neither of them is *also* returned as
+    evidence is the property that matters: `evidence_marks` returns nothing for a
+    model declaring the escape, so the two sets are disjoint by construction and
+    a change that broke that would put the ledger under the append-only sweep.
+
+    The day either set changes again this fails, and the fix is a deliberate edit
+    here -- which is the point.
     """
+    exempt = {
+        model._meta.label  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        for model in exempt_models()
+    }
+
     assert evidence_models() == []
-    assert exempt_models() == []
+    assert exempt == RUN_LEDGER_MODEL_LABELS
+    assert set(exempt_models()) & set(evidence_models()) == set()
+    assert set(exempt_models()) <= set(first_party_models())
+    # Trivially true while `evidence_models()` is empty, and kept for the day it
+    # is not: both derived sweeps must stay inside the first-party scope, or an
+    # audit is reporting on models whose rules are not this product's to dictate.
     assert set(evidence_models()) <= set(first_party_models())

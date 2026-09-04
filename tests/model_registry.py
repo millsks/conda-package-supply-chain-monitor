@@ -108,6 +108,20 @@ OBSERVED_AT_FIELD: Final[str] = "observed_at"
 #: every user of it.
 NOT_EVIDENCE_ATTRIBUTE: Final[str] = "not_evidence"
 
+#: The models `CPM-AD-2` exempts from the evidence rules, by `app_label.Model`.
+#:
+#: One home for a pair that three modules need: the recorded table in
+#: `tests/unit/django_apps/test_evidence_inheritance_audit.py`, the state
+#: assertion in `tests/unit/test_model_registry.py`, and the status-field
+#: amendment in `tests/unit/django_apps/test_outcome_field_audit.py`. Two
+#: hand-written copies of a list that can disagree look exactly like two passing
+#: tests -- which is this module's own argument for existing, applied to itself.
+#:
+#: It is still a hand-written table, and that is the point: `CPM-AD-2` exempts
+#: these two by name, and a third model taking the escape must be recorded here
+#: by somebody who decided to, not discovered by a predicate.
+RUN_LEDGER_MODEL_LABELS: Final[frozenset[str]] = frozenset({"core.CollectionRun", "core.PolicyRun"})
+
 #: Two applications that must be in scope, so a scope that had narrowed to
 #: nothing is caught. `core` is where the base lives and where evidence models
 #: will land; `users` is inherited platform and is still this repository's own
