@@ -717,6 +717,61 @@ So that a daily sweep over ten thousand packages does not spend its rate limit r
 **Governed by:** `CPM-AD-20`, `CPM-AD-27`, `CPM-AD-7`
 **Note:** authored after `CPM-EVIDENCE-S05` rather than inside it. S05 delivered rate limiting, retry with backoff and timeouts and recorded the caching clause as unmet; the header affordance and the conditional request are one piece of work with it, because a conditional request *is* a header. Widening `Transport` after eight collectors depend on it is the expensive version of this change, which is why it lands before `CPM-EP-CURRENCY`.
 
+### CPM-EVIDENCE-S09: The run ledger references the package it names
+
+As a platform lead,
+I want a collection run's package reference to be a real foreign key,
+So that a run cannot be recorded against a package that does not exist, and `CPM-AD-3` is met by
+every table rather than by all but one.
+
+**Sequenced after `CPM-IDENTITY-S06`, which inverts this epic's usual order and is deliberate.**
+`core/models.py` has said since `CPM-EVIDENCE-S03` that `CPM-EP-IDENTITY` converts this column
+"when the model lands". The model landed in `CPM-IDENTITY-S01` and packages first existed in
+`CPM-IDENTITY-S06`; both stories declined the conversion for the same sound reason, that it is not
+a field swap but a change to `core/ledger.py`'s recorder contract. Two hand-offs is where a
+deferral stops being one, so it is a story rather than a third nomination. It belongs to
+`CPM-EP-EVIDENCE` because the run ledger is `core`'s, not identity's.
+
+**Acceptance Criteria:**
+
+**Given** `core.CollectionRun`
+**When** its package reference is inspected
+**Then** it is a `ForeignKey` to `identity.Package` with `on_delete=PROTECT`, still nullable, and
+the database column is still named `package_id`
+
+**Given** an existing `collection_runs` table carrying rows
+**When** the migration is applied
+**Then** no row is lost and the column is preserved rather than dropped and re-added
+
+**Given** the `collection_run` recorder
+**When** a run is recorded against a package key that names no package
+**Then** the write is refused rather than stored, and the refusal names the key
+
+**Given** a sweep that is not scoped to one package
+**When** its run is recorded
+**Then** the reference is NULL, and that remains an ordinary state rather than a refused one
+
+**Given** a package with collection runs against it
+**When** it is deleted
+**Then** the delete is refused, because `CPM-AD-25` says no package row is ever deleted and
+`PROTECT` is what makes that true rather than merely intended
+
+**Given** `core/models.py`, `tests/collectors.py` and every other place recording this conversion
+as owed
+**When** they are read after this story
+**Then** none of them claims it is still outstanding
+
+**Satisfies:** completes `CPM-AD-3` for the run ledger
+**Governed by:** `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-23`
+**Depends on:** `CPM-IDENTITY-S01` for the model, `CPM-IDENTITY-S06` for packages to point at
+**Constrained:** the cost is the recorder's contract, not the column. `core/ledger.py`'s
+`_require_package_key` rejects only negatives today, and every existing `core` integration case
+passes a literal key for a package no test creates -- those cases must create packages. The
+conversion is also not a single `AlterField`: the attribute is named `package_id`, so a
+`ForeignKey` named `package` reads to the autodetector as a remove-and-add, and preserving the
+column needs a hand-written `RenameField` plus `AlterField` pair. `PolicyRun` carries no package
+reference and this story does not give it one.
+
 ## CPM-EP-IDENTITY: Every package resolved, or visibly not
 
 Delivers the package identity layer and the one audited human write in the product.
@@ -772,8 +827,23 @@ So that I can tell a verified mapping from an inferred one.
 **When** a lower-confidence resolution runs
 **Then** it does not overwrite it
 
+**Given** a package the inventory created and resolution has since renamed
+**When** the next ingestion sweep runs over the same source record
+**Then** it finds the same package row, and no second shell is created
+**And** the package goes on receiving snapshots on the row it already had
+
 **Satisfies:** `CPM-FR-1`, `CPM-FR-2`, `CPM-FR-6`
-**Governed by:** `CPM-AD-1`, `CPM-AD-4`
+**Governed by:** `CPM-AD-1`, `CPM-AD-4`, `CPM-AD-3`, `CPM-AD-14`
+**Constrained:** `CPM-IDENTITY-S06`'s review surfaced a trap this story must close, and the last
+criterion above is it. S06 writes the inventory's source package key into `canonical_name` as a
+placeholder at `unmapped` confidence, and resolution finds an existing shell *by* `canonical_name`
+— so the moment this story corrects one, the next sweep creates a second shell and the corrected
+package silently stops receiving inventory evidence. Correction is the expected outcome for every
+package this story resolves, so it fires for all of them rather than rarely. Closing it means
+joining on `(identity_source, associator_key)` rather than the correctable name, making that pair
+a `UniqueConstraint` (permitted — `Package` is not evidence), forbidding resolution and
+`CPM-IDENTITY-S05`'s override from touching either field while correcting a name, and a regression
+test that ingests, resolves and ingests again.
 
 ### CPM-IDENTITY-S03: Confidence gates what the system will claim
 
@@ -1749,12 +1819,16 @@ them, and the stories that satisfy them are authored once the spike reports.
 | Epic | Stories | Acceptance criteria |
 |---|---|---|
 | `CPM-EP-PLATFORM` | 2 | 6 |
-| `CPM-EP-EVIDENCE` | 8 | 37 |
-| `CPM-EP-IDENTITY` | 6 | 24 |
+| `CPM-EP-EVIDENCE` | 9 | 43 |
+| `CPM-EP-IDENTITY` | 7 | 32 |
 | `CPM-EP-CURRENCY` | 7 | 18 |
 | `CPM-EP-SECURITY` | 6 | 13 |
 | `CPM-EP-PY314` | 3 | 7 |
 | `CPM-EP-PRIORITY` | 3 | 8 |
 | `CPM-EP-APP` | 8 | 32 |
 | `CPM-EP-NL` | 1 | 5 |
-| **Total** | **44** | **150** |
+| **Total** | **46** | **164** |
+
+Counted from this document's own headings and `**Given**` lines rather than maintained by hand.
+The evidence and identity rows had drifted: identity's was never updated when `CPM-IDENTITY-S07`
+was authored, and evidence's moves here with `CPM-EVIDENCE-S09`. Every other row already agreed.
