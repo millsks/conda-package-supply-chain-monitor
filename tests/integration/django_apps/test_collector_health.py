@@ -45,6 +45,7 @@ import pytest
 from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.runs import RunState
 from tests.clocks import FIXED_INSTANT
+from tests.packages import packages_fixture
 
 #: The collector the cases record against. A real-looking name rather than a
 #: fixture prefix: `collector` is a plain `CharField` the ledger never validates,
@@ -56,9 +57,10 @@ A_COLLECTOR: Final[str] = "pypi"
 #: narrowing to a collector is the caller's `filter()`, not this method's.
 ANOTHER_COLLECTOR: Final[str] = "conda-forge"
 
-#: The package a scoped run names. An integer, because `CPM-AD-3`'s package
-#: table does not exist yet and `core/models.py` records why the column is not a
-#: `ForeignKey`.
+#: The package a scoped run names. `CPM-EVIDENCE-S09` made the column a real
+#: `ForeignKey`, so the key has to name a row -- `_monitored_package` below
+#: creates it at exactly this primary key, which is what keeps the constant the
+#: authority rather than whatever a sequence issued.
 A_PACKAGE_ID: Final[int] = 4269
 
 #: What a failed run's `detail` says. The transport's own failure shape, so the
@@ -81,6 +83,16 @@ NO_TRACE_ID: Final[str] = ""
 
 #: How many failures the ordering case writes.
 THREE_FAILURES: Final[int] = 3
+
+
+#: The package `A_PACKAGE_ID` names, created inside each case's own transaction.
+#:
+#: `_record` writes its rows straight past `core/ledger.py`'s recorder, so the
+#: recorder's own refusal never sees them -- but the foreign key does, at
+#: teardown on SQLite and at commit on PostgreSQL, and a case that failed there
+#: would report as an error in a fixture rather than as anything to do with
+#: `failed()`.
+monitored_packages = packages_fixture(A_PACKAGE_ID)
 
 
 def _record(
