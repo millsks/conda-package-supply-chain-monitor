@@ -1,4 +1,4 @@
-"""The collector base's rate limiter, and the one module that touches the cache.
+"""The collector base's rate limiter, and one of the two modules that touch the cache.
 
 `CPM-AD-20`: "rate limiting, retry with backoff, timeouts and caching live in a
 shared collector base in `core`, not per collector". This is the rate-limiting
@@ -6,6 +6,16 @@ half. A collector *declares* a `RateLimit` and implements nothing; the base
 consults this limiter before every outbound call, and a call with no token left
 is refused rather than issued (`core/collection.py` says what the refusal then
 writes: a `failed` ledger row and an evidence row carrying `error`).
+
+`core/response_cache.py` is the other module that reaches the cache, and it owns
+the caching clause of the same `CPM-AD-20` sentence. The split is by *what is
+stored* rather than by size: this module owns **how many requests may be
+issued**, that one owns **what a request need not ask for again**. They share a
+backend and share nothing else -- different key namespaces (`cpm:rate-limit`
+against `cpm:response`), different lifetimes, and different failure modes: an
+expired counter here is a fresh window, while an unusable entry there is one
+extra fetch. Folding them together would put a counter and a body under one
+`clear()`.
 
 **The allowance counts requests, not collections.** `acquire` takes a `cost`, and
 the base charges `1 + retries` for one collection because a mounted retry policy
@@ -25,7 +35,9 @@ code path that local runs never exercise." So this module calls `add`, `incr`,
 `set` and nothing that would tell it what is underneath: no `settings.CACHES`, no
 backend class, no `isinstance`. `tests/unit/django_apps/test_rate_limit.py`
 asserts the call set, and `tests/unit/django_apps/test_collector_base_audit.py`
-asserts that no other module under `src/` reaches the cache at all.
+asserts that the only modules under `src/` reaching the cache at all are this one
+and `core/response_cache.py` -- recorded per module and per call, so a third one
+fails that file exactly as a second one would have.
 
 **The consequence of that rule, stated rather than discovered.** Under LocMem the
 counter lives in one process, so a local run with two workers rate-limits twice

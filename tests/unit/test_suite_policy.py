@@ -129,8 +129,37 @@ DB_MARKER = "pytest.mark.django_db"
 # scan reached only `test_*.py` and `conftest.py`, which is the door this scan no
 # longer leaves open: the decision is recorded here instead, where a second skip
 # in that module fails the gate like anywhere else.
+# integration/django_apps/test_shared_allowance.py -- CPM-EVIDENCE-S08, AC 4.
+# The one claim in this repository that the in-process cache substitution cannot
+# even attempt: core/rate_limit.py writes add-then-incr so two worker
+# *processes* racing a new window increment one counter rather than one of them
+# resetting the other, and under LocMemCache each process holds its own counter,
+# so the property cannot fail and every unit case passes against a limiter that
+# loses the race. The case starts two real interpreters against a real Redis.
+# The form is `@pytest.mark.skipif` on a *capability* rather than a
+# `pytest.skip` inside the case, on the same terms as
+# integration/test_image_payload.py: the whole module needs the service and
+# there is no per-case decision to take. It is not a dodged gate failure for the
+# same reason that entry is not one -- .github/workflows/ci.yml declares a
+# `redis:7` on the gate job and sets CPM_TEST_REDIS_URL at job level, so the case
+# runs on every pull request, and `pixi run gate-redis` runs it locally in one
+# command. What the guard accommodates is a developer machine with no Redis.
+# tests/unit/test_gate_contract.py pins the service, its health gate and the
+# variable, so deleting any of them fails the gate rather than turning these
+# cases silently back into skips.
+#
+# One occurrence, and the occurrence is the *condition* rather than the test.
+# The module binds its `pytest.mark.skipif(...)` to a name and applies that name
+# to both of its cases, which the detector below counts once because it counts
+# expressions -- and that is the right unit: the decision recorded here is "this
+# module needs a Redis", taken once, and a further case needing the same service
+# is that decision being used again rather than a new one. What the count still
+# prevents is a second *condition* -- a skip on another capability, or on this
+# one spelled a second way -- which is a second expression and fails the gate
+# until somebody records why.
 RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
     "coverage_policy.py": {"pytest.skip(...)": 1},
+    "integration/django_apps/test_shared_allowance.py": {"@pytest.mark.skipif": 1},
     "integration/test_image_payload.py": {"@pytest.mark.skipif": 1},
     "integration/test_import_resolution.py": {"pytest.skip(...)": 1},
     "spikes/spike_django_storages_fitness.py": {"pytest.skip(...)": 1},

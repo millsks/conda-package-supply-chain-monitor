@@ -29,9 +29,11 @@ tier.
 from __future__ import annotations
 
 import dataclasses
+from http import HTTPStatus
 from math import inf
 from math import nan
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Final
 from typing import get_type_hints
 
@@ -47,6 +49,7 @@ from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRY_STAT
 from conda_package_supply_chain_monitor.core.transport import FOLLOW_REDIRECTS
 from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
 from conda_package_supply_chain_monitor.core.transport import MOUNTED_PREFIXES
+from conda_package_supply_chain_monitor.core.transport import NOT_MODIFIED_STATUS
 from conda_package_supply_chain_monitor.core.transport import RETRIED_METHODS
 from conda_package_supply_chain_monitor.core.transport import Payload
 from conda_package_supply_chain_monitor.core.transport import RequestsTransport
@@ -72,8 +75,24 @@ NOT_FOUND: Final[int] = 404
 GONE: Final[int] = 410
 
 #: A source locator. Unreachable by construction -- `.invalid` is reserved --
-#: which is a second guarantee beside "no case here calls `fetch`".
+#: which is a second guarantee beside "no case here opens a socket".
 A_SOURCE: Final[str] = "https://fixture.invalid/packages/1"
+
+#: The two validators, written as a source sends them: an entity tag is quoted
+#: and an HTTP date is RFC 7231's format. Asserted verbatim, because a validator
+#: this transport re-spelled would stop matching the next time it was sent.
+AN_ETAG: Final[str] = '"a1b2c3d4"'
+A_DATE: Final[str] = "Wed, 03 Sep 2026 12:00:00 GMT"
+
+#: A declared request header, of the kind conda-forge, PyPI and GitHub all
+#: expect and some enforce.
+AN_AGENT: Final[str] = "cpm-collector/1.0"
+
+#: Bytes that are valid ISO-8859-1 and are not valid UTF-8. Served with no
+#: charset declared, they are what a `304` must never try to read: decoding them
+#: raises, so a transport that reached the decoder would turn a perfectly good
+#: answer into an `error` row.
+UNDECODABLE_BODY: Final[bytes] = b"\xff\xfe maintainer"
 
 
 @pytest.fixture
@@ -269,9 +288,32 @@ def test_a_payload_is_a_frozen_record_of_plain_data() -> None:
     payload = Payload(source=A_SOURCE, found=True, body="{}", status_code=200)
 
     assert dataclasses.is_dataclass(payload)
-    assert [field.name for field in dataclasses.fields(payload)] == ["source", "found", "body", "status_code"]
+    assert [field.name for field in dataclasses.fields(payload)] == [
+        "source",
+        "found",
+        "body",
+        "status_code",
+        "not_modified",
+        "etag",
+        "last_modified",
+    ]
     with pytest.raises(dataclasses.FrozenInstanceError):
         payload.body = "rewritten"  # type: ignore[misc]
+
+
+def test_a_payload_records_an_ordinary_answer_by_default() -> None:
+    """The three caching fields default to "the source said nothing about it".
+
+    Every case written before `CPM-EVIDENCE-S08` builds a `Payload` from four
+    arguments, and each of them must still describe an ordinary answer:
+    `not_modified` defaulting to anything but `False` would make every one of
+    them a replay of a cache entry that does not exist.
+    """
+    payload = Payload(source=A_SOURCE, found=True, body="{}")
+
+    assert payload.not_modified is False
+    assert payload.etag is None
+    assert payload.last_modified is None
 
 
 def test_fetch_is_declared_to_return_a_recorded_payload() -> None:
@@ -401,6 +443,210 @@ def test_closing_releases_the_session(monkeypatch: pytest.MonkeyPatch, transport
     transport.close()
 
     assert closed == [True]
+
+
+def test_retrying_the_not_modified_status_is_refused() -> None:
+    """`304` is an answer, exactly as `404` is, and retrying it spends the allowance.
+
+    The whole point of a conditional request is to *save* a request; a retry
+    policy that replayed the answer would spend three more asking a question the
+    source has already answered, which is caching costing traffic. Refused on
+    the same terms and at the same moment as an absent status, because the two
+    mistakes are one mistake.
+    """
+    with pytest.raises(ValueError, match="cannot be retried"):
+        RequestsTransport(timeout=A_TIMEOUT, retry_statuses=(*DEFAULT_RETRY_STATUSES, NOT_MODIFIED_STATUS))
+
+
+def test_the_default_retry_set_contains_no_answer_at_all() -> None:
+    """The two refusals above, asserted against the set this module actually ships.
+
+    Each guards a caller who passes their own statuses; this is the check that
+    the default set -- the one every collector gets by declaring nothing -- has
+    neither an absence nor a confirmation in it.
+    """
+    assert not set(DEFAULT_RETRY_STATUSES) & (ABSENT_STATUSES | {NOT_MODIFIED_STATUS})
+
+
+def test_the_declared_headers_reach_the_request_unaltered(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """The base composes headers and this module applies them, adding nothing.
+
+    Read off the call rather than off a socket: what the integration tier proves
+    is that a header survives the wire, and what this proves is that the mapping
+    the collector base handed over is the mapping `requests` was given. A
+    transport that quietly merged a default set of its own would be a second
+    composition point, which is exactly what `CPM-AD-20` puts every external-call
+    rule in one base to prevent.
+    """
+    sent = _capture_request(monkeypatch, transport, _answer(HTTPStatus.OK, body=b"{}"))
+
+    transport.fetch(A_SOURCE, headers={"User-Agent": AN_AGENT})
+
+    assert sent[0]["headers"] == {"User-Agent": AN_AGENT}
+
+
+def test_a_call_with_no_headers_sends_none_rather_than_an_empty_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """The unconditional call `CPM-EVIDENCE-S05` issued, unchanged by this story.
+
+    `requests` merges a per-request mapping over its session defaults, and an
+    empty mapping is not the same instruction as no mapping -- it is the shape
+    that would, with one refactor toward `headers.setdefault`, start deleting
+    session defaults. The seam widened; the default call did not change.
+    """
+    sent = _capture_request(monkeypatch, transport, _answer(HTTPStatus.OK, body=b"{}"))
+
+    transport.fetch(A_SOURCE)
+
+    assert sent[0]["headers"] is None
+
+
+def test_a_not_modified_answer_is_recorded_rather_than_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """`304` is neither a failure nor an absence, and the payload says which it is.
+
+    It is the third answer: the source was asked whether its validator still
+    held, and said yes. `found` stays `True` -- the resource exists, that is
+    what was confirmed -- and `not_modified` is what tells the collector base to
+    replay what it cached rather than to parse an empty body.
+    """
+    answer = _answer(HTTPStatus.NOT_MODIFIED, headers={"ETag": AN_ETAG, "Last-Modified": A_DATE})
+    _capture_request(monkeypatch, transport, answer)
+
+    payload = transport.fetch(A_SOURCE, headers={"If-None-Match": AN_ETAG})
+
+    assert payload.not_modified is True
+    assert payload.found is True
+    assert payload.body == ""
+    assert payload.status_code == NOT_MODIFIED_STATUS
+    assert payload.etag == AN_ETAG
+    assert payload.last_modified == A_DATE
+
+
+def test_a_not_modified_body_is_never_decoded(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """The rule stated as the failure it prevents, not as a call that is not made.
+
+    A `304` carries no body -- that saving is the whole point -- so anything in
+    the buffer is not an observation. These bytes are undecodable, so a
+    transport that read them would raise `TransportError` and the run would
+    record an `error` for a source that had answered perfectly. The assertion is
+    that it does not: the status is checked before anything can reach `_decoded`.
+    """
+    answer = _answer(HTTPStatus.NOT_MODIFIED, body=UNDECODABLE_BODY, headers={"ETag": AN_ETAG})
+    _capture_request(monkeypatch, transport, answer)
+
+    payload = transport.fetch(A_SOURCE)
+
+    assert payload.body == ""
+
+
+def test_a_successful_answer_records_the_validators_the_source_declared(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """Captured on the `200`, because that is the only moment they are offered.
+
+    A validator recorded nowhere is a conditional request that can never be
+    made, so caching would be built and would save nothing: every run would
+    fetch a whole body and every source would answer `200` forever.
+    """
+    answer = _answer(HTTPStatus.OK, body=b"{}", headers={"ETag": AN_ETAG, "Last-Modified": A_DATE})
+    _capture_request(monkeypatch, transport, answer)
+
+    payload = transport.fetch(A_SOURCE)
+
+    assert payload.etag == AN_ETAG
+    assert payload.last_modified == A_DATE
+
+
+def test_a_source_that_offers_no_validator_records_none(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+) -> None:
+    """Absent is `None`, not an empty string, and the difference decides a write.
+
+    `core/response_cache.py` refuses an entry carrying no validator, and it
+    tells the two apart by truthiness -- so a transport that recorded `""` for a
+    header the source never sent would be handing the cache something that looks
+    like a validator and would produce conditional requests carrying nothing.
+    """
+    _capture_request(monkeypatch, transport, _answer(HTTPStatus.OK, body=b"{}"))
+
+    payload = transport.fetch(A_SOURCE)
+
+    assert payload.etag is None
+    assert payload.last_modified is None
+
+
+def _answer(
+    status: HTTPStatus,
+    *,
+    body: bytes = b"",
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
+    """Build the response a patched session hands back.
+
+    A real `requests.Response` rather than a stub: `fetch` reads `is_redirect`,
+    `ok` and `headers` off it, and a stub that answered those three would be a
+    second implementation of the class under test.
+
+    Args:
+        status: The status the source answered with.
+        body: The bytes in the buffer, which for a `304` is what must never be
+            read.
+        headers: The response headers.
+
+    Returns:
+        A response carrying exactly that, with no connection behind it.
+
+    """
+    answered = requests.Response()
+    answered.status_code = int(status)
+    answered.url = A_SOURCE
+    answered.headers.update(headers or {})
+    answered._content = body  # noqa: SLF001 - `requests` offers no public way to build a response
+    return answered
+
+
+def _capture_request(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: RequestsTransport,
+    answer: requests.Response,
+) -> list[dict[str, Any]]:
+    """Answer this transport's next calls from a literal, recording what was asked.
+
+    No socket is opened: the session's `get` is replaced, which is the same
+    substitution the rest of this module makes at the `Transport` seam, one
+    layer lower -- here because the subject *is* what this class asks
+    `requests` for.
+
+    Args:
+        monkeypatch: pytest's patcher, which restores the session afterwards.
+        transport: The transport whose session is patched.
+        answer: What every call is answered with.
+
+    Returns:
+        The keyword arguments of each call, in order.
+
+    """
+    sent: list[dict[str, Any]] = []
+
+    def _get(source: str, **kwargs: Any) -> requests.Response:
+        sent.append({"source": source, **kwargs})
+        return answer
+
+    monkeypatch.setattr(transport._session, "get", _get)  # noqa: SLF001 - the session is the thing being substituted
+    return sent
 
 
 def _mounted_retry(transport: RequestsTransport) -> Retry:

@@ -106,6 +106,39 @@ POSTGRES_URL_SCHEMES = frozenset({"postgres", "postgresql", "psql", "pgsql", "po
 # sqlite leg while still counting as one.
 DATABASE_SELECTOR_VARS = frozenset({"DATABASE_URL", "POSTGRES_DB"})
 
+# CPM-EVIDENCE-S08 AC 4: the gate runs the shared-allowance proof against a real
+# Redis. Only the family is asserted, not the tag, for the reason the PostgreSQL
+# block above gives -- and matched on the repository segment so a mirrored image
+# is not rejected for being mirrored.
+REDIS_IMAGE_NAMES = frozenset({"redis", "valkey", "redis-stack", "redis-stack-server"})
+
+# URL schemes that select Redis over TCP, as `urlsplit().scheme` reports them.
+# `config/settings/test.py` branches on the variable being truthy, so an empty
+# value would revert the gate to the LocMem substitution while every other
+# assertion here passed.
+#
+# `unix://` is deliberately absent although `django-redis` accepts it: a socket
+# URL has no hostname and no port, so the two assertions beside this one --
+# `hostname == "localhost"` and a port matching the service's published one --
+# would both be comparing against `None`, and a URL that named no service at all
+# would pass every one of them. A service container is reached over TCP from the
+# runner and cannot be reached over a socket, so admitting the scheme would
+# widen what passes and never what works.
+REDIS_URL_SCHEMES = frozenset({"redis", "rediss", "valkey"})
+
+# The variable that moves the suite off the in-process cache substitution.
+# One variable, read in one place (`config/settings/test.py`), and it both
+# selects the backend and arms the case that needs it.
+REDIS_URL_VARIABLE = "CPM_TEST_REDIS_URL"
+
+# The port a Redis service is reached on inside the runner's network.
+REDIS_PORT = "6379"
+
+# The task that reproduces that service locally, in the shape `gate-postgres`
+# already has. Neither is a gate step: AD-18 keeps `pixi run ci` the one
+# sequence CI runs, and neither script's container is declared by a job.
+REDIS_GATE_TASK = "gate-redis"
+
 
 @pytest.fixture(scope="module")
 def manifest() -> dict[str, Any]:
@@ -469,19 +502,35 @@ def test_the_gate_declares_a_postgresql_service(workflows: Workflows) -> None:
     )
 
 
-def _published_host_port(service: dict[str, Any]) -> str:
-    """Return the host side of the service's port mapping for 5432.
+def _published_port(service: dict[str, Any], *, container: str) -> str:
+    """Return the host side of the service's mapping for one container port.
 
     Docker accepts `container`, `host:container` and `ip:host:container`, so
     the host side is the second field from the right rather than the first
     field from the left. A bare `container` mapping publishes an ephemeral
     port and so names no host port at all.
+
+    Args:
+        service: The service definition.
+        container: The port inside the container, as a string.
+
+    Returns:
+        The host port, or `""` when the service publishes none for it.
     """
     for port in service.get("ports", []):
-        head, _, container = str(port).rpartition(":")
-        if container == "5432" and head:
+        head, _, published = str(port).rpartition(":")
+        if published == container and head:
             return head.rsplit(":", 1)[-1]
     return ""
+
+
+def _published_host_port(service: dict[str, Any]) -> str:
+    """Return the host side of the service's port mapping for 5432.
+
+    Kept as its own name because the PostgreSQL assertions read better for it;
+    the logic is shared with the Redis service below rather than written twice.
+    """
+    return _published_port(service, container="5432")
 
 
 def test_the_postgresql_service_is_health_gated_and_reachable(workflows: Workflows) -> None:
@@ -664,6 +713,142 @@ def test_some_job_still_exercises_the_sqlite_substitution(workflows: Workflows) 
         if any(_invokes(step.get("run", ""), "test-integration") for step in job.get("steps", []) if step.get("run"))
     ]
     assert qualifying != [], "no CI job runs pixi run test-integration without a database; sqlite is untested"
+
+
+def _redis_service(workflows: Workflows) -> dict[str, Any]:
+    """Return the gate job's Redis service definition.
+
+    Matched on the image's repository segment, exactly as the PostgreSQL lookup
+    is and for the same reason: a registry-qualified mirror is the ordinary
+    remedy for Docker Hub's unauthenticated pull limit on shared runners, and
+    nothing about AC 4 cares where the image came from.
+
+    Args:
+        workflows: Every parsed workflow file.
+
+    Returns:
+        The service definition, or an empty mapping when the gate declares none.
+    """
+    services = workflows["ci.yml"]["jobs"]["gate"].get("services", {})
+    for service in services.values():
+        if _image_repository(str(service.get("image", ""))) in REDIS_IMAGE_NAMES:
+            return service
+    return {}
+
+
+def test_the_gate_declares_a_redis_service(workflows: Workflows) -> None:
+    """`CPM-EVIDENCE-S08` AC 4: the gate runs the one case LocMem cannot fail.
+
+    `core/rate_limit.py`'s `add`-then-`incr` exists so two worker *processes*
+    racing a new window increment one counter rather than one of them resetting
+    the other. Under the in-process substitution each process holds its own
+    counter, so the property cannot fail and every unit case passes against a
+    limiter that loses the race.
+    `tests/integration/django_apps/test_shared_allowance.py` is the case that
+    can fail, and it needs this service to run at all.
+
+    Pinned here because deleting the service would not fail anything else:
+    the case would go back to skipping, the suite would stay green, and AC 4's
+    proof would quietly become a recorded exemption for a test nobody runs.
+    """
+    services = workflows["ci.yml"]["jobs"]["gate"].get("services", {})
+    images = [str(service.get("image", "")) for service in services.values()]
+
+    assert any(_image_repository(image) in REDIS_IMAGE_NAMES for image in images), (
+        f"the gate job declares no redis service, got images {images}"
+    )
+
+
+def test_the_redis_service_is_health_gated_and_reachable(workflows: Workflows) -> None:
+    """The service must accept commands before a step runs, and be published to the runner.
+
+    Without the health check the gate starts `pixi run ci` against a Redis still
+    coming up, and the two workers fail to connect -- which reads as "the
+    counter is not shared" and points at the limiter rather than at the runner.
+    Without the port mapping the URL below resolves to nothing on `localhost`.
+
+    `redis-cli ping` rather than a container-is-running check, for the same
+    reason the PostgreSQL health command probes TCP: a container that has
+    started is not a server that answers.
+    """
+    service = _redis_service(workflows)
+    options = str(service.get("options", ""))
+
+    assert "redis-cli ping" in options, f"the redis service must health-check with redis-cli ping, got {options!r}"
+
+    ports = [str(port) for port in service.get("ports", [])]
+    assert any(port.endswith(f":{REDIS_PORT}") for port in ports), (
+        f"the redis service must publish {REDIS_PORT}, got {ports}"
+    )
+
+
+def test_the_redis_url_names_the_declared_redis_service(workflows: Workflows) -> None:
+    """The URL's *value* is the mechanism, so the value is what must be asserted.
+
+    `config/settings/test.py` reads `CPM_TEST_REDIS_URL` for truthiness, exactly
+    as `base.py` reads `DATABASE_URL`, so an empty value would revert the gate to
+    the in-process substitution and turn AC 4's proof back into a skip while
+    every other assertion here passed. The host and port are parsed rather than
+    substring-searched, because they are the halves that decide whether the URL
+    reaches the declared service at all.
+
+    Job level, not step level: `pixi run ci` fans out into five steps and the
+    one that runs the suite must not depend on which step declares the variable.
+    """
+    gate = workflows["ci.yml"]["jobs"]["gate"]
+
+    assert REDIS_URL_VARIABLE in gate.get("env", {}), f"{REDIS_URL_VARIABLE} must be set at job level on the gate"
+
+    parsed = urlsplit(str(gate["env"][REDIS_URL_VARIABLE]))
+    assert parsed.scheme in REDIS_URL_SCHEMES, f"the gate's {REDIS_URL_VARIABLE} must name Redis, got {parsed!r}"
+    assert parsed.hostname == "localhost", f"a service container is reached on localhost, got {parsed!r}"
+    published = _published_port(_redis_service(workflows), container=REDIS_PORT)
+    assert str(parsed.port) == published, (
+        f"the gate's {REDIS_URL_VARIABLE} port {parsed.port} is not the service's published port {published!r}"
+    )
+
+
+def test_no_gate_step_overrides_the_gate_redis_url(workflows: Workflows) -> None:
+    """The gate's own steps must not shadow the job-level `CPM_TEST_REDIS_URL`.
+
+    The sibling of `test_no_gate_step_overrides_the_gate_database_url`, and it
+    guards a quieter failure: a step-level `CPM_TEST_REDIS_URL: ""` would leave
+    every assertion above reading the correct job-level value while the case it
+    arms skipped, and a skipped case reports nothing at all.
+    """
+    gate = workflows["ci.yml"]["jobs"]["gate"]
+    offenders = [
+        step.get("name", step.get("run", "<unnamed step>"))
+        for step in gate.get("steps", [])
+        if REDIS_URL_VARIABLE in step.get("env", {})
+    ]
+
+    assert offenders == [], f"the gate's {REDIS_URL_VARIABLE} must not be shadowed at step level: {offenders}"
+
+
+def test_the_redis_gate_script_is_runnable_as_a_task(manifest: dict[str, Any]) -> None:
+    """The local counterpart of the service above, reachable the way its sibling is.
+
+    `gate-postgres` and `gate-redis` are the two commands that reproduce what
+    the gate job's services provide, and both must stay outside `pixi run ci` --
+    the gate is one sequence (AD-18) and neither script's container is declared
+    by any job that runs it.
+
+    The script path is reconciled with the tree rather than merely written down,
+    for the reason `test_the_spike_task_names_a_file_that_exists` gives: a
+    renamed script leaves the task failing with "file not found" and the gate
+    green.
+    """
+    tasks = _all_tasks(manifest)
+
+    assert REDIS_GATE_TASK in tasks, f"{REDIS_GATE_TASK} must stay runnable as a task of its own"
+    assert tasks[REDIS_GATE_TASK].get("default-environment") == "dev"
+    assert REDIS_GATE_TASK not in tasks[GATE_TASK]["depends-on"], f"{REDIS_GATE_TASK} must not be a gate step"
+
+    named = [token for token in tasks[REDIS_GATE_TASK]["cmd"].split() if token.endswith(".sh")]
+    assert named, f"the {REDIS_GATE_TASK} task names no script: {tasks[REDIS_GATE_TASK]['cmd']!r}"
+    missing = sorted(token for token in named if not (REPO_ROOT / token).is_file())
+    assert missing == [], f"the {REDIS_GATE_TASK} task runs scripts that do not exist: {missing}"
 
 
 def test_reference_application_keeps_its_three_os_matrix(workflows: Workflows) -> None:

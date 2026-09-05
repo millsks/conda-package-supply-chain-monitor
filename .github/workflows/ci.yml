@@ -62,13 +62,49 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # CPM-EVIDENCE-S08's AC 4, which is the one claim in this repository that
+      # a run on the in-process cache substitution cannot even attempt.
+      # core/rate_limit.py writes add-then-incr so that two worker *processes*
+      # racing a new window both increment one counter rather than one of them
+      # resetting the other. Under LocMemCache each process holds its own
+      # counter, so that property cannot fail however the limiter is written --
+      # every unit case passes against a limiter that loses the race.
+      # tests/integration/django_apps/test_shared_allowance.py starts two real
+      # interpreters against this container, and skips without it.
+      #
+      # Not a database, deliberately: test_no_other_job_declares_a_database_
+      # service in tests/unit/test_gate_contract.py bans a database on any other
+      # job because GitHub Actions `services:` containers are Linux-only, and
+      # its docstring already sanctions "a future non-database service -- a
+      # Redis ... say" here.
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        # `redis-cli ping` answers PONG only once the server accepts commands,
+        # which is the state the suite needs; a container that is merely running
+        # is not it. The same reasoning as the `-h localhost` on the PostgreSQL
+        # check above: a health gate that opens early is barely better than none.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     # Job level rather than step level: `pixi run ci` fans out into five steps
     # and the database-touching ones must not depend on which step declares the
     # variable. config/settings/base.py:57 reads DATABASE_URL first and hands it
     # to env.db(), so this URL is the whole mechanism that selects PostgreSQL --
     # no settings change is involved.
+    #
+    # CPM_TEST_REDIS_URL is the same arrangement for the cache:
+    # config/settings/test.py selects django_redis.cache.RedisCache when it is
+    # set and the LocMem substitution when it is not, and it is what arms the
+    # shared-allowance case. It is here rather than on a step for the same
+    # reason -- and because a variable set on one step would make AC 4's proof
+    # quietly become a skip the day the steps were reordered.
     env:
       DATABASE_URL: postgres://gateuser:gatepass@localhost:5432/gatedb
+      CPM_TEST_REDIS_URL: redis://localhost:6379/0
 
     steps:
     - uses: actions/checkout@v6

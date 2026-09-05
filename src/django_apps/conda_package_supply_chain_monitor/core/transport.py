@@ -53,6 +53,35 @@ clean result", so the third possibility -- a non-`2xx` response returned as a
 payload for a collector to parse -- is closed here rather than left to eight
 collectors to each close the same way.
 
+**A `304` is a third answer, and it is the reason this module carries headers at
+all.** `CPM-NFR-3`'s fourth clause is caching, and the whole of HTTP caching is
+one request header carrying a validator and one response status saying the
+validator still holds. So `fetch` takes `headers`, records the `ETag` and
+`Last-Modified` a source hands back, and reads `304` as an *answer*: the payload
+says `not_modified` and carries no body, because there is no body -- that is the
+saving. It is emphatically not a failure and not an absence
+(`CPM-AD-5`, `R-01`); `core/collection.py` replays the body it already has
+through the collector's ordinary `translate` and writes the same evidence a `200`
+would have. The status is refused in `retry_statuses` on the same terms
+`ABSENT_STATUSES` are: retrying an answer spends the allowance re-asking a
+question the source has answered.
+
+**The body of a `304` is never decoded, and that is a rule rather than an
+optimization.** There is no body to decode -- an origin answering `304` sends
+none -- so a `_decoded` call on that path would read an empty byte string as
+though the source had served one, and a collector would be handed an empty
+payload wearing a successful status. Every branch that could reach `_decoded`
+therefore sits after the `304` check.
+
+**Headers travel through this seam and are built by nobody else.** `CPM-AD-20`
+and `CPM-AD-27` put every external-call rule in the collector base, so a
+collector *declares* the `User-Agent` or `Authorization` its source expects and
+the base composes the conditional headers on top; this module applies whatever
+mapping it is handed to the request and nothing more. There is no per-call
+session, no default header set assembled here, and no collector reaching a socket
+of its own -- `tests/unit/django_apps/test_collector_base_audit.py` sweeps for
+the second module that tries.
+
 **Where a request may be aimed, and where it may be redirected to.** The scheme
 is checked against `ALLOWED_SCHEMES` and the locator must name a host, so a
 `file://` locator built from configuration cannot read the filesystem through a
@@ -80,6 +109,14 @@ carries the `CPM-` prefix.
 
 from __future__ import annotations
 
+# Imported at run time rather than under `TYPE_CHECKING`, which is what the
+# `noqa` is for. `fetch`'s annotations are read back by `get_type_hints` --
+# `tests/unit/django_apps/test_transport.py` pins the return type that way,
+# because a `fetch` typed to answer a live response would defeat `CPM-AD-27`
+# whatever it returned today -- and that call evaluates every annotation in the
+# signature against this module's globals. Under `TYPE_CHECKING` the name is
+# absent at run time and the pin becomes a `NameError` instead of an assertion.
+from collections.abc import Mapping  # noqa: TC003 - see above
 from dataclasses import dataclass
 from math import isfinite
 from typing import TYPE_CHECKING
@@ -102,7 +139,6 @@ from requests.adapters import Retry  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     from collections.abc import Collection
-    from collections.abc import Mapping
 
 __all__ = [
     "ABSENT_STATUSES",
@@ -111,9 +147,14 @@ __all__ = [
     "DEFAULT_ENCODING",
     "DEFAULT_RETRIES",
     "DEFAULT_RETRY_STATUSES",
+    "ETAG_HEADER",
     "FOLLOW_REDIRECTS",
+    "IF_MODIFIED_SINCE_HEADER",
+    "IF_NONE_MATCH_HEADER",
+    "LAST_MODIFIED_HEADER",
     "MAX_TIMEOUT",
     "MOUNTED_PREFIXES",
+    "NOT_MODIFIED_STATUS",
     "RETRIED_METHODS",
     "Payload",
     "RequestsTransport",
@@ -129,6 +170,27 @@ __all__ = [
 #: negative, while `error` is "looking failed". Folding them together would
 #: destroy the difference `CPM-FR-6` exists to preserve.
 ABSENT_STATUSES: Final[frozenset[int]] = frozenset({404, 410})
+
+#: The status that means "the source answered, and nothing has changed".
+#:
+#: `304`, and it is an *answer* rather than a failure or an absence: the
+#: validator this process sent still holds, so the source deliberately sent no
+#: body. `core/collection.py` replays the body it already has and writes the
+#: evidence a `200` would have written (`CPM-AD-5`, `R-01`). It is the whole of
+#: `CPM-NFR-3`'s caching clause on the wire, which is why the constant lives
+#: beside `ABSENT_STATUSES` rather than inside a branch.
+NOT_MODIFIED_STATUS: Final[int] = 304
+
+#: The two validators a source may hand back, and the two conditional headers
+#: they are sent in. Named rather than spelled at the call site so the module
+#: that composes a conditional request (`core/response_cache.py`) and the module
+#: that issues it cannot come to disagree about capitalisation or spelling --
+#: HTTP header names are case-insensitive on the wire and are exact dictionary
+#: keys here.
+ETAG_HEADER: Final[str] = "ETag"
+LAST_MODIFIED_HEADER: Final[str] = "Last-Modified"
+IF_NONE_MATCH_HEADER: Final[str] = "If-None-Match"
+IF_MODIFIED_SINCE_HEADER: Final[str] = "If-Modified-Since"
 
 #: The statuses worth trying again, in the order a reader meets them: rate
 #: limiting, then the four gateway and availability faults. Each is a statement
@@ -262,6 +324,25 @@ class Payload:
         status_code: The HTTP status, where the source speaks HTTP. `None` for a
             transport substituted at this seam that does not -- the inventory
             file adapter `CPM-AD-29` describes is the first of those.
+        not_modified: Whether the source answered that the validator this
+            process sent still holds. `True` means `body` is empty *because
+            there was nothing to send*, not because the source served nothing:
+            the collector base replays the body it cached and writes the
+            evidence a `200` would have. It is a third answer beside `found`,
+            never a failure and never an absence.
+        etag: The `ETag` the source declared, where it declared one. Recorded so
+            the next request for this locator can carry it and be answered
+            `304`; `None` where the source offers no entity tag. Read off a
+            `304` as well as a `200`, because an origin is entitled to hand back
+            a *new* entity tag when it revalidates, and `core/collection.py`
+            refreshes the remembered entry with it -- a base that kept the old
+            one would go on asking a question the source had already moved past.
+        last_modified: The `Last-Modified` the source declared, where it
+            declared one. The weaker of the two validators and the fallback when
+            there is no `ETag`, kept as the source's own string rather than
+            parsed: it is sent back verbatim, and re-formatting a date is how a
+            conditional request quietly stops matching. Recorded off a `304` on
+            the same terms as `etag`.
 
     """
 
@@ -269,6 +350,9 @@ class Payload:
     found: bool
     body: str
     status_code: int | None = None
+    not_modified: bool = False
+    etag: str | None = None
+    last_modified: str | None = None
 
 
 @runtime_checkable
@@ -291,7 +375,7 @@ class Transport(Protocol):
     the entire point of the seam.
     """
 
-    def fetch(self, source: str) -> Payload:
+    def fetch(self, source: str, *, headers: Mapping[str, str] | None = None) -> Payload:
         """Read one source and record its answer.
 
         The docstring is the whole body, for the reason `core/clock.py`'s
@@ -302,15 +386,22 @@ class Transport(Protocol):
 
         Args:
             source: The URL, path or other locator to read.
+            headers: The request headers to send, composed by the collector base
+                from what the collector declared and from the conditional
+                request the response cache asks for. Keyword only and defaulted,
+                so a substituted transport that speaks no HTTP -- `CPM-AD-29`'s
+                inventory file adapter -- can accept and ignore them without the
+                seam growing a second method.
 
         Returns:
             A `Payload` recording what the source said, including the case where
-            it said the resource does not exist.
+            it said the resource does not exist and the case where it said
+            nothing has changed.
 
         Raises:
             TransportError: When the call produced no answer this product can
                 record -- a timeout, a refused connection, an exhausted retry,
-                or a status that is neither success nor absence.
+                or a status that is neither success, absence nor unchanged.
 
         """
 
@@ -398,6 +489,14 @@ class RequestsTransport:
                 f"been answered (CPM-AD-5)."
             )
             raise ValueError(message)
+        if NOT_MODIFIED_STATUS in retried:
+            message = (
+                f"{NOT_MODIFIED_STATUS} cannot be retried: it is the source answering that the validator this "
+                f"transport sent still holds, which is an answer and not a fault of the moment. Retrying it "
+                f"spends the allowance re-asking a question that has been answered, and caching exists to save "
+                f"exactly those requests (CPM-NFR-3)."
+            )
+            raise ValueError(message)
 
         self._timeout = timeout
         self._retry = Retry(
@@ -423,31 +522,43 @@ class RequestsTransport:
         """
         return self._timeout
 
-    def fetch(self, source: str) -> Payload:
+    def fetch(self, source: str, *, headers: Mapping[str, str] | None = None) -> Payload:
         """Read one source, retrying per the mounted policy, and record the answer.
 
         Args:
             source: The URL to read. Its scheme must be one of
                 `ALLOWED_SCHEMES` and it must name a host.
+            headers: The request headers to send, or `None` to send only what
+                `requests` sends by default. They are applied as given: this
+                module composes nothing, because `CPM-AD-20` puts that decision
+                in the collector base and one composition point is the whole
+                arrangement.
 
         Returns:
-            A `Payload` carrying the decoded body for a successful call, or
-            `found=False` for a source that answered one of `ABSENT_STATUSES`.
+            A `Payload` carrying the decoded body for a successful call,
+            `found=False` for a source that answered one of `ABSENT_STATUSES`,
+            or `not_modified=True` with no body for a source that answered
+            `NOT_MODIFIED_STATUS`.
 
         Raises:
             TransportError: When the locator is one this transport will not
                 issue; when `requests` raised -- a timeout, a refused
                 connection, an exhausted retry; when the source redirected; when
-                the status is neither a success nor an absence; or when the body
-                will not decode. Never returns a payload for any of them:
-                `CPM-NFR-3` requires degrading to `error`, and a body handed to
-                a collector alongside a `500` is exactly the clean-looking
-                result it forbids.
+                the status is neither a success, an absence nor unchanged; or
+                when the body will not decode. Never returns a payload for any
+                of them: `CPM-NFR-3` requires degrading to `error`, and a body
+                handed to a collector alongside a `500` is exactly the
+                clean-looking result it forbids.
 
         """
         self._require_fetchable(source)
         try:
-            response = self._session.get(source, timeout=self._timeout, allow_redirects=FOLLOW_REDIRECTS)
+            response = self._session.get(
+                source,
+                timeout=self._timeout,
+                allow_redirects=FOLLOW_REDIRECTS,
+                headers=dict(headers) if headers else None,
+            )
         except requests.RequestException as failure:
             message = (
                 f"the call to {source} produced no answer after {self._retry.total} retries: "
@@ -456,6 +567,21 @@ class RequestsTransport:
             raise TransportError(message, source=source) from failure
 
         status: int = response.status_code
+        # First, and before anything that could read the body. A `304` carries
+        # none -- that saving is the whole point of asking conditionally -- so a
+        # decode here would hand a collector an empty string wearing a
+        # successful status, which is the clean-looking result `CPM-NFR-3`
+        # forbids arriving through the mechanism meant to prevent traffic.
+        if status == NOT_MODIFIED_STATUS:
+            return Payload(
+                source=source,
+                found=True,
+                body="",
+                status_code=status,
+                not_modified=True,
+                etag=response.headers.get(ETAG_HEADER),
+                last_modified=response.headers.get(LAST_MODIFIED_HEADER),
+            )
         if status in ABSENT_STATUSES:
             return Payload(source=source, found=False, body="", status_code=status)
         if response.is_redirect or response.is_permanent_redirect:
@@ -473,7 +599,14 @@ class RequestsTransport:
                 f"broken comes to look clean (CPM-NFR-3)."
             )
             raise TransportError(message, source=source, status_code=status)
-        return Payload(source=source, found=True, body=self._decoded(response), status_code=status)
+        return Payload(
+            source=source,
+            found=True,
+            body=self._decoded(response),
+            status_code=status,
+            etag=response.headers.get(ETAG_HEADER),
+            last_modified=response.headers.get(LAST_MODIFIED_HEADER),
+        )
 
     def close(self) -> None:
         """Release the session's pooled connections.

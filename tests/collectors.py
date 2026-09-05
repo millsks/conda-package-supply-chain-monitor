@@ -31,6 +31,16 @@ expressed as a test helper: the base hands it a locator and it hands back a
 reachable without a socket. `calls` is what proves the *negative* assertions --
 the window case is only meaningful if the transport can say it was never asked.
 
+**The response cache is a fake that remembers, not a mock that asserts.**
+`RecordingResponseCache` holds one entry per `(collector, source)` in a dict and
+records every read, write and forget in order. Both halves are load bearing: the
+entry is what makes a `304` replay reachable without arranging a real cache key,
+and the *order* is what proves `CPM-EVIDENCE-S08`'s central ordering claim --
+that nothing is remembered until the evidence for it is written. A mock asserting
+"write was called" could not tell the correct order from the dangerous one.
+`tests/unit/django_apps/test_response_cache.py` is where the real cache-backed
+implementation is proved against a real cache.
+
 **The limiter is one method and is not a mock.** A rate-limit refusal is a
 boolean, and arranging one through the cache would mean writing a counter into a
 window whose boundary the case then has to reason about. Substituting the
@@ -68,6 +78,7 @@ from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
 from functools import cache as memoized
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Final
@@ -79,6 +90,7 @@ from django.test.utils import isolate_apps
 from conda_package_supply_chain_monitor.core.collection import Collector
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
+from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
 from conda_package_supply_chain_monitor.core.transport import Payload
 from tests.model_registry import FIXTURE_APP
@@ -86,11 +98,13 @@ from tests.model_registry import FIXTURE_LABEL
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from collections.abc import Mapping
     from collections.abc import Sequence
 
     from conda_package_supply_chain_monitor.core.clock import Clock
     from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
     from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
+    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
     from conda_package_supply_chain_monitor.core.transport import Transport
     from conda_package_supply_chain_monitor.core.transport import TransportError
 
@@ -149,6 +163,40 @@ DETERMINATE_VALUE: Final[str] = "ok"
 #: (`Collector.request_cost`). Derived rather than written out, so a case that
 #: exhausts an allowance stays correct if the default retry count changes.
 FIXTURE_REQUEST_COST: Final[int] = 1 + DEFAULT_RETRIES
+
+#: The headers the fixture collectors declare. One, and it is the one every
+#: source in `CPM-EP-CURRENCY` expects: a `User-Agent` naming the caller. A
+#: non-empty default so the composition with the base's conditional headers is
+#: exercised by every case rather than only by the case that is about it.
+FIXTURE_USER_AGENT_HEADER: Final[str] = "User-Agent"
+FIXTURE_USER_AGENT: Final[str] = "cpm-fixture-collector/1.0"
+#:
+#: Read-only, and in this module that is not a formality. One mapping is handed
+#: to every collector `collector_class` builds, so a plain `dict` would be a
+#: shared mutable declaration -- exactly what `_require_headers` returns a
+#: `MappingProxyType` to prevent, undone by the fixtures that measure it. A case
+#: that mutated it would change the declarations of every collector built after
+#: it, in whatever order the suite happened to run that day.
+FIXTURE_HEADERS: Final[Mapping[str, str]] = MappingProxyType({FIXTURE_USER_AGENT_HEADER: FIXTURE_USER_AGENT})
+
+#: How long the fixture collectors may replay a remembered response. A day,
+#: which is longer than `FIXTURE_WINDOW` for the reason a real one would be: an
+#: entry that expired inside the observation window would make every second run
+#: unconditional and the cache would save nothing.
+FIXTURE_CACHE_TTL: Final[timedelta] = timedelta(days=1)
+
+#: The two validators the fixtures use. Written as a source would send them --
+#: an entity tag is quoted, and an HTTP date is RFC 7231's format -- so a case
+#: asserting that a validator travels verbatim is asserting it about the shape a
+#: real source produces.
+AN_ETAG: Final[str] = '"a1b2c3d4"'
+A_LAST_MODIFIED: Final[str] = "Wed, 03 Sep 2026 12:00:00 GMT"
+
+#: What a remembered response holds when a case does not care. Distinct from
+#: `A_PAYLOAD_BODY`, so a case that replays the cache can tell the replayed body
+#: from a freshly fetched one -- which is the assertion, and it would be vacuous
+#: if the two strings were equal.
+A_CACHED_BODY: Final[str] = '{"version": "2.3.0"}'
 
 #: A naive instant, for the collector that ignores the one it was handed.
 #:
@@ -231,18 +279,28 @@ class RecordedTransport:
         calls: Every locator `fetch` was handed, in order. The window cases
             assert this stays empty, which is the only way to show the transport
             was *not* called.
+        sent_headers: The header mapping each call carried, in the same order.
+            Recorded separately from `calls` rather than as a pair, so the
+            dozens of existing assertions about *which locator* was asked stay
+            about that -- and so a case about the composed header set reads as
+            one list rather than as a tuple index.
 
     """
 
     payload: Payload | None = None
     failure: TransportError | None = None
     calls: list[str] = field(default_factory=list)
+    sent_headers: list[Mapping[str, str] | None] = field(default_factory=list)
 
-    def fetch(self, source: str) -> Payload:
+    def fetch(self, source: str, *, headers: Mapping[str, str] | None = None) -> Payload:
         """Record the request and answer from the script.
 
         Args:
             source: The locator the base asked for.
+            headers: The headers the base composed for it. Recorded rather than
+                discarded: the conditional request *is* the caching mechanism,
+                and an argument nothing reads is an argument nothing would
+                notice going missing.
 
         Returns:
             The scripted payload.
@@ -259,6 +317,7 @@ class RecordedTransport:
 
         """
         self.calls.append(source)
+        self.sent_headers.append(headers)
         if self.failure is not None:
             raise self.failure
         if self.payload is None:
@@ -267,7 +326,15 @@ class RecordedTransport:
         return self.payload
 
 
-def recorded_payload(*, source: str = A_SOURCE, found: bool = True, body: str = A_PAYLOAD_BODY) -> Payload:
+def recorded_payload(  # noqa: PLR0913 - one parameter per `Payload` field; a bundle would hide the field under test
+    *,
+    source: str = A_SOURCE,
+    found: bool = True,
+    body: str = A_PAYLOAD_BODY,
+    not_modified: bool = False,
+    etag: str | None = None,
+    last_modified: str | None = None,
+) -> Payload:
     """Build a payload a case can hand to the fake transport.
 
     Args:
@@ -277,6 +344,11 @@ def recorded_payload(*, source: str = A_SOURCE, found: bool = True, body: str = 
             real payload would carry.
         found: Whether the source says the resource exists.
         body: What the source said.
+        not_modified: Whether the source answered that the validator this
+            process sent still holds. Defaults to `False`, so every case written
+            before caching existed still describes an ordinary answer.
+        etag: The entity tag the source declared, or `None`.
+        last_modified: The modification date the source declared, or `None`.
 
     Returns:
         A `Payload` carrying no status code, because a transport substituted at
@@ -284,7 +356,102 @@ def recorded_payload(*, source: str = A_SOURCE, found: bool = True, body: str = 
         adapter in miniature.
 
     """
-    return Payload(source=source, found=found, body=body)
+    return Payload(
+        source=source,
+        found=found,
+        body=body,
+        not_modified=not_modified,
+        etag=etag,
+        last_modified=last_modified,
+    )
+
+
+def cached_response(
+    *,
+    body: str = A_CACHED_BODY,
+    etag: str | None = AN_ETAG,
+    last_modified: str | None = None,
+) -> CachedResponse:
+    """Build the entry a case seeds the response cache with.
+
+    Args:
+        body: What the source last served, defaulting to a body distinguishable
+            from the one a fresh fetch produces.
+        etag: The entity tag remembered beside it.
+        last_modified: The modification date remembered beside it.
+
+    Returns:
+        A `CachedResponse` carrying at least one validator, which is the only
+        kind that can exist.
+
+    """
+    return CachedResponse(body=body, etag=etag, last_modified=last_modified)
+
+
+@dataclass(slots=True)
+class RecordingResponseCache:
+    """A response cache that remembers in a dictionary and records what it was asked.
+
+    The seam `CPM-EVIDENCE-S08` opens, expressed as a test helper: the base's
+    caching behaviour is exercisable without computing a cache key, and -- more
+    importantly -- the *order* of its calls is observable. The story's central
+    ordering claim is that nothing is written until the evidence for it is, and
+    the only way to see that from outside is to have the cache say when it was
+    written relative to everything else.
+
+    Attributes:
+        entries: What is remembered, keyed by `(collector, source)`. Seeded by a
+            case to arrange a hit; read back to assert what a run left behind.
+        reads: Every `(collector, source)` `read` was asked about, in order.
+            The `NO_CACHE` case asserts this stays empty, which is the only way
+            to show the cache was not consulted.
+        writes: Every `(collector, source, response, ttl_seconds)` written.
+        forgets: Every `(collector, source)` dropped.
+
+    """
+
+    entries: dict[tuple[str, str], CachedResponse] = field(default_factory=dict)
+    reads: list[tuple[str, str]] = field(default_factory=list)
+    writes: list[tuple[str, str, CachedResponse, int]] = field(default_factory=list)
+    forgets: list[tuple[str, str]] = field(default_factory=list)
+
+    def read(self, *, collector: str, source: str) -> CachedResponse | None:
+        """Record the question and answer from what is remembered.
+
+        Args:
+            collector: The collector's declared name.
+            source: The locator about to be read.
+
+        Returns:
+            The seeded entry, or `None`.
+
+        """
+        self.reads.append((collector, source))
+        return self.entries.get((collector, source))
+
+    def write(self, *, collector: str, source: str, response: CachedResponse, ttl_seconds: int) -> None:
+        """Remember an answer and record that it was remembered.
+
+        Args:
+            collector: The collector's declared name.
+            source: The locator that was read.
+            response: The body and its validators.
+            ttl_seconds: How long the entry may live.
+
+        """
+        self.writes.append((collector, source, response, ttl_seconds))
+        self.entries[(collector, source)] = response
+
+    def forget(self, *, collector: str, source: str) -> None:
+        """Drop an entry and record that it was dropped.
+
+        Args:
+            collector: The collector's declared name.
+            source: The locator to forget.
+
+        """
+        self.forgets.append((collector, source))
+        self.entries.pop((collector, source), None)
 
 
 @dataclass(slots=True)
@@ -333,6 +500,8 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
     declared_timeout: float | None = FIXTURE_TIMEOUT,
     declared_retries: int = DEFAULT_RETRIES,
     declared_rate_limit: RateLimit | None = FIXTURE_RATE_LIMIT,
+    declared_headers: Mapping[str, str] = FIXTURE_HEADERS,
+    declared_cache_ttl: timedelta | None = FIXTURE_CACHE_TTL,
 ) -> type[Collector]:
     """Build a collector subclass with exactly the declarations a case wants.
 
@@ -360,6 +529,12 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
         declared_retries: The retry count, which is also what the rate limiter is
             charged per collection.
         declared_rate_limit: The allowance, or `None`.
+        declared_headers: What the collector says its source expects. Defaults to
+            one `User-Agent`, so every case exercises the composition with the
+            base's conditional headers rather than only the case about it.
+        declared_cache_ttl: How long a remembered response may be replayed, or
+            `NO_CACHE` for a collector that caches nothing, or `None` for the
+            case that declares none at all.
 
     Returns:
         A concrete `Collector` subclass. Constructing it is what applies the
@@ -377,6 +552,8 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
         timeout: ClassVar[float | None] = declared_timeout
         retries: ClassVar[int] = declared_retries
         rate_limit: ClassVar[RateLimit | None] = declared_rate_limit
+        headers: ClassVar[Mapping[str, str]] = declared_headers
+        response_cache_ttl: ClassVar[timedelta | None] = declared_cache_ttl
 
         def source_for(self, *, package_id: int) -> str:
             """Return the fixture locator for one package.
@@ -497,6 +674,7 @@ def working_collector(
     clock: Clock,
     transport: Transport,
     limiter: RateLimiter | None = None,
+    response_cache: ResponseCache | None = None,
 ) -> Collector:
     """Build a fully declared fixture collector over the fixture evidence model.
 
@@ -509,13 +687,15 @@ def working_collector(
             every case but the one that proves the real one.
         limiter: A substituted limiter, or `None` to leave the collector with the
             real cache-backed one.
+        response_cache: A substituted response cache, or `None` to leave the
+            collector with the real cache-backed one.
 
     Returns:
         A constructed collector, ready to `collect`.
 
     """
     built = collector_class(declared_model=fixture_evidence_model())
-    return built(clock=clock, transport=transport, limiter=limiter)
+    return built(clock=clock, transport=transport, limiter=limiter, response_cache=response_cache)
 
 
 def empty_translation_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
@@ -778,10 +958,13 @@ def cleared_cache() -> Iterator[None]:
     as well, so a case leaves the cache as it found it for the rest of the
     session.
 
-    It lives here rather than being written twice because this module's own
-    docstring argues that a second copy of a fixture is the failure
+    It lives here rather than being written once per suite because this module's
+    own docstring argues that a second copy of a fixture is the failure
     `tests/source_scan.py` and `tests/model_registry.py` were extracted to
-    prevent -- and two `autouse` fixtures that can drift apart are exactly that.
+    prevent -- and every module that needs this guard holding its own `autouse`
+    copy is exactly that. How many such modules there are is deliberately not
+    written down: the number has already grown twice, and a count in prose is a
+    fact maintained by whoever has least reason to look for it.
     It is a context manager rather than a fixture because the two suites that
     need it sit under different `conftest.py` files, and a fixture in
     `tests/conftest.py` would either be autouse for the whole suite -- clearing

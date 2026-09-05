@@ -112,9 +112,11 @@ _CAPTURE_CONTROL: Final[str] = "rate_limit.capture_control"
 def _empty_cache() -> Iterator[None]:
     """Start and end every case with no counters in the cache.
 
-    Autouse, and the body lives in `tests/collectors.py` because the integration
-    tier needs the identical guard: two `autouse` fixtures that can drift apart
-    are exactly the duplication that module's own docstring argues against.
+    Autouse, and the body lives in `tests/collectors.py` because every module
+    that touches the cache needs the identical guard: `autouse` fixtures that
+    can drift apart are exactly the duplication that module's own docstring
+    argues against. How many there are is deliberately not stated -- it has
+    grown twice already.
 
     Yields:
         Nothing; the fixture is entirely its two side effects.

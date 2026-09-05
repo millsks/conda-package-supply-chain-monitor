@@ -46,6 +46,7 @@ import dataclasses
 import inspect
 from datetime import timedelta
 from math import inf
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
 
@@ -53,11 +54,14 @@ import pytest
 from django.apps import apps
 
 from conda_package_supply_chain_monitor.core.clock import FixedClock
+from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
+from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
 from conda_package_supply_chain_monitor.core.collection import SUPPRESSING_STATES
 from conda_package_supply_chain_monitor.core.collection import CollectionResult
 from conda_package_supply_chain_monitor.core.collection import Collector
 from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
+from conda_package_supply_chain_monitor.core.collection import request_headers
 from conda_package_supply_chain_monitor.core.collection import window_query
 from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
@@ -66,15 +70,23 @@ from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
 from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from tests.clocks import FIXED_INSTANT
+from tests.collectors import A_LAST_MODIFIED
+from tests.collectors import AN_ETAG
+from tests.collectors import FIXTURE_CACHE_TTL
 from tests.collectors import FIXTURE_COLLECTOR
+from tests.collectors import FIXTURE_HEADERS
 from tests.collectors import FIXTURE_REQUEST_COST
 from tests.collectors import FIXTURE_TABLE
 from tests.collectors import FIXTURE_TIMEOUT
 from tests.collectors import FIXTURE_WINDOW
 from tests.collectors import RecordedTransport
+from tests.collectors import cached_response
 from tests.collectors import collector_class
 from tests.collectors import fixture_evidence_model
 from tests.collectors import recorded_payload
+
+if TYPE_CHECKING:
+    from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
 
 #: The package every case names. One arbitrary primary key; nothing here depends
 #: on its value.
@@ -94,6 +106,11 @@ EXPECTED_WINDOW_CONDITIONS: Final[frozenset[str]] = frozenset(
 #: A retry count that is neither the default nor zero, so a case asserting the
 #: cost is asserting arithmetic rather than a coincidence.
 A_RETRY_COUNT: Final[int] = 5
+
+#: A cache lifetime that is positive and truncates to zero whole seconds. The
+#: value that looks the most generous and switches caching off, which is why it
+#: is refused rather than accepted and rounded.
+A_SUB_SECOND_LIFETIME: Final[timedelta] = timedelta(milliseconds=500)
 
 
 def _clock() -> FixedClock:
@@ -478,6 +495,230 @@ def test_a_rate_limit_still_refuses_its_own_bad_values() -> None:
     """
     with pytest.raises(RateLimitError):
         RateLimit(calls=0, per=timedelta(minutes=1))
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [None, -FIXTURE_CACHE_TTL, 3600, "a day", A_SUB_SECOND_LIFETIME],
+    ids=["absent", "negative", "a-bare-number", "a-string", "sub-second"],
+)
+def test_a_collector_without_a_usable_response_cache_ttl_is_refused(declared: object) -> None:
+    """The eighth declaration, refused on the same terms as the observation window.
+
+    `NO_CACHE` says "read a body every run" and a reader can see it; `None` says
+    nothing at all, and a base that read the two as the same thing would make
+    "this collector deliberately does not cache" and "somebody forgot" identical
+    in the source. `3600` is the one worth naming for the same reason it is
+    named for the window: a perfectly good number of unstated units, which is
+    what somebody writes when they are thinking in seconds.
+
+    The sub-second case is `RateLimit.per`'s refusal arriving at the other value
+    handed to the same API, and it fails the opposite way round. The lifetime is
+    truncated to whole seconds, so half a second becomes `0`, which Django reads
+    as *do not cache* -- a collector that declared caching, passed every check,
+    and quietly remembers nothing. The value that looks the most generous is the
+    one that switches the feature off.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_cache_ttl=declared)  # type: ignore[arg-type]
+
+    with pytest.raises(CollectorConfigurationError, match="response_cache_ttl="):
+        built(clock=_clock())
+
+
+def test_the_shortest_usable_lifetime_is_accepted() -> None:
+    """The boundary belongs to the permitted side, so the refusal above is exact.
+
+    One second is the smallest lifetime the cache can actually count, and a
+    guard written as "anything under a minute is a mistake" would refuse a
+    perfectly expressible declaration. The pair to the sub-second case: the
+    refusal is about truncating to zero, not about the value being small.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_cache_ttl=timedelta(seconds=1))
+
+    assert built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload())) is not None
+
+
+def test_a_collector_that_caches_nothing_is_accepted() -> None:
+    """The declared "fetch a body every run", which must stay expressible.
+
+    The pair to the refusals above. A source that offers no validator, or whose
+    body must be re-read whatever it says, is a real collector and says so with
+    `NO_CACHE` rather than by omitting the value.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_cache_ttl=NO_CACHE)
+
+    assert built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload())) is not None
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        {"If-None-Match": '"a1b2c3d4"'},
+        {"If-Modified-Since": "Wed, 03 Sep 2026 12:00:00 GMT"},
+        {"if-none-match": '"a1b2c3d4"'},
+    ],
+    ids=["entity-tag", "date", "lowercased"],
+)
+def test_a_collector_that_forges_a_validator_is_refused(declared: dict[str, str]) -> None:
+    """The base owns conditional headers, and owning them means refusing them elsewhere.
+
+    A collector sending its own `If-None-Match` asks a source about a body this
+    process does not hold. The source answers `304`, the base has no entry to
+    replay, and the run fails -- a self-inflicted failure that would look
+    exactly like a misbehaving source. Refused at construction, where the answer
+    already exists.
+
+    The lowercased spelling is the case a set membership test would miss: HTTP
+    header names are case-insensitive on the wire, so `if-none-match` is the
+    same header and the same mistake.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_headers=declared)
+
+    with pytest.raises(CollectorConfigurationError, match="conditional header"):
+        built(clock=_clock())
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [None, "User-Agent: cpm", {"User-Agent": 7}, {7: "cpm"}],
+    ids=["absent", "a-string", "a-numeric-value", "a-numeric-name"],
+)
+def test_headers_that_are_not_a_mapping_of_strings_are_refused(declared: object) -> None:
+    """Refused for their *type* as well as their content, as every declaration here is.
+
+    A header set that is not a mapping of strings surfaces as a `TypeError` from
+    inside `requests` in a worker, with a `running` ledger row already written
+    and a source already chosen -- which is the failure every construction-time
+    refusal in this module exists to move earlier.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_headers=declared)  # type: ignore[arg-type]
+
+    with pytest.raises(CollectorConfigurationError, match="headers="):
+        built(clock=_clock())
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        {"Authorization": "Bearer token\r\nX-Injected: yes"},
+        {"Authorization": "Bearer token\nX-Injected: yes"},
+        {"User-Agent\r\nX-Injected": "yes"},
+    ],
+    ids=["crlf-in-value", "lf-in-value", "break-in-name"],
+)
+def test_a_header_carrying_a_line_break_is_refused(declared: dict[str, str]) -> None:
+    """A header is terminated by CRLF, so a line break inside one is another header.
+
+    This is the refusal that is about somebody else's input rather than about a
+    typo. Header values are assembled from configuration --
+    `Authorization: Bearer $TOKEN` is the shape every one of the named sources
+    wants -- so a value carrying a newline is an attacker-influenced string
+    becoming a second header on a request this process makes. `requests` refuses
+    some of these at call time and not all of them, and a refusal in a worker
+    halfway through a sweep is not the same as a refusal where the collector is
+    written.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_headers=declared)
+
+    with pytest.raises(CollectorConfigurationError, match="line feed"):
+        built(clock=_clock())
+
+
+def test_two_header_names_differing_only_in_case_are_refused() -> None:
+    """One header to every origin, two keys to Python, and one of them is discarded.
+
+    Which one survives depends on the order a merge happens to run in, which is
+    not something the declaring collector can see and is not stable across a
+    refactor. The collector said two things and the source will be told one, so
+    the declaration is refused rather than silently halved.
+    """
+    built = collector_class(
+        declared_model=fixture_evidence_model(),
+        declared_headers={"User-Agent": "one", "user-agent": "two"},
+    )
+
+    with pytest.raises(CollectorConfigurationError, match="more than once"):
+        built(clock=_clock())
+
+
+def test_declared_headers_cannot_be_widened_after_construction() -> None:
+    """A collector must not be able to grow its own header set at run time.
+
+    The same property `RateLimit` gets from being frozen: what a collector
+    declares is checked once, at construction, and a mutable class attribute
+    would make that check a snapshot of a set somebody could add an
+    `Authorization` to later -- past the refusal that exists to see it.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    carried = collector._headers  # noqa: SLF001 - the checked copy is not otherwise observable
+    assert carried == FIXTURE_HEADERS
+    with pytest.raises(TypeError):
+        carried["If-None-Match"] = "forged"  # type: ignore[index]
+
+
+def test_the_conditional_headers_are_exactly_the_two_a_validator_is_sent_in() -> None:
+    """The set the refusal is measured against, stated rather than inferred.
+
+    Two, and no more: a set that had grown a third would refuse a collector for
+    declaring a header the base does not in fact compose, and one that had lost
+    one would let a forged validator through.
+    """
+    assert {"If-None-Match", "If-Modified-Since"} == CONDITIONAL_HEADERS
+
+
+def test_a_request_with_nothing_remembered_carries_only_what_was_declared() -> None:
+    """The first observation, and the request `CPM-EVIDENCE-S05` already issued.
+
+    Nothing is remembered, so nothing conditional can be asked, so the call is
+    the unconditional one -- carrying the collector's own headers and no more.
+    A base that sent a conditional header on a cache miss would be asking about
+    a body it does not have.
+    """
+    assert request_headers(declared=FIXTURE_HEADERS, entry=None) == FIXTURE_HEADERS
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        (cached_response(etag=AN_ETAG), {"If-None-Match": AN_ETAG}),
+        (cached_response(etag=None, last_modified=A_LAST_MODIFIED), {"If-Modified-Since": A_LAST_MODIFIED}),
+        (
+            cached_response(etag=AN_ETAG, last_modified=A_LAST_MODIFIED),
+            {"If-None-Match": AN_ETAG, "If-Modified-Since": A_LAST_MODIFIED},
+        ),
+    ],
+    ids=["entity-tag", "date-only", "both"],
+)
+def test_a_remembered_entry_adds_the_conditional_header_its_validator_supports(
+    entry: CachedResponse,
+    expected: dict[str, str],
+) -> None:
+    """Both validators, and the date-only case is the one the matrix names.
+
+    A source offering no `ETag` is common -- a static file server is the usual
+    one -- and a base that only ever sent `If-None-Match` would cache those
+    sources' bodies and never once revalidate them, transferring every body
+    forever while looking like it had caching.
+    """
+    composed = request_headers(declared=FIXTURE_HEADERS, entry=entry)
+
+    assert composed == {**FIXTURE_HEADERS, **expected}
+
+
+def test_the_conditional_request_is_composed_over_the_declared_headers() -> None:
+    """The order, asserted rather than left to a dictionary literal's shape.
+
+    The base's conditional headers go on top of the collector's declared ones.
+    A collector cannot reach this state today -- `_require_headers` refuses a
+    declared validator at construction -- and the order is the second line of
+    defence: were that refusal ever bypassed, a forged validator still would not
+    reach a source.
+    """
+    composed = request_headers(declared={"If-None-Match": "forged"}, entry=cached_response(etag=AN_ETAG))
+
+    assert composed == {"If-None-Match": AN_ETAG}
 
 
 def test_the_fixture_evidence_model_is_invisible_to_the_registry_sweeps() -> None:
