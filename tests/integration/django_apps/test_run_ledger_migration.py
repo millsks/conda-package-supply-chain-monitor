@@ -58,8 +58,8 @@ things stop it here, and both are needed:
 
 The rows are removed by hand rather than rolled back, and the fixture removes
 them *before* it migrates forward: with the orphan gone the restoring migration
-cannot fail, so a failed case leaves the schema at `0004` rather than stranding a
-`--reuse-db` database at `0003` for every later run. It also clears any rows a
+cannot fail, so a failed case leaves the schema at `core`'s leaf rather than
+stranding a `--reuse-db` database at `0003` for every later run. It also clears any rows a
 previous run left, for the reason `evidence_table` drops a stale table rather
 than colliding with it -- a run killed mid-fixture is what leaves them.
 """
@@ -147,6 +147,39 @@ def _refuse_a_database_the_test_runner_did_not_prepare() -> None:
             f"removed or renamed."
         )
         raise RuntimeError(message)
+
+
+def _the_state_the_session_must_be_returned_to() -> tuple[str, str]:
+    """Return `core`'s current leaf migration, which is where the teardown restores to.
+
+    Resolved from the graph rather than named as a constant, and the distinction
+    is the whole of this function. `AFTER` is the conversion this module is
+    *about*, and it was also `core`'s leaf on the day the module was written --
+    but `MigrationExecutor.migrate` unapplies everything after its target, so
+    restoring to a fixed name undoes every migration added to `core` since. It
+    leaves them undone for the rest of the session, because nothing re-applies
+    them, and the symptom lands nowhere near here: the cases asserting on
+    `stage_two`'s unapplied-migration refusal start reporting
+    `DATABASES['default']` instead of the alias they configured.
+    `CPM-IDENTITY-S05` is where that happened.
+
+    Returns:
+        The `(app_label, name)` of `core`'s single leaf migration.
+
+    Raises:
+        RuntimeError: When `core` has more than one leaf. That is a graph
+            `migrate` itself cannot order, and picking one of them here would
+            restore to a state the application never has.
+
+    """
+    leaves = MigrationExecutor(connection).loader.graph.leaf_nodes("core")
+    if len(leaves) != 1:
+        message = (
+            f"`core` has {len(leaves)} leaf migrations ({sorted(leaves)}), so there is no single state to "
+            f"restore the session's database to"
+        )
+        raise RuntimeError(message)
+    return leaves[0]
 
 
 def _migrate_to(target: tuple[str, str]) -> None:
@@ -261,7 +294,7 @@ def a_populated_ledger_before_the_conversion(
             yield
         finally:
             _remove_the_rows(historical)
-            _migrate_to(AFTER)
+            _migrate_to(_the_state_the_session_must_be_returned_to())
 
 
 @pytest.mark.django_db
@@ -285,6 +318,45 @@ def test_the_conversion_is_recorded_as_applied_before_anything_unapplies_it() ->
 
     assert AFTER in applied
     assert BEFORE in applied
+
+
+def test_the_module_restores_every_migration_it_unapplies(
+    django_db_setup: None,
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
+    """Rolling `core` back and restoring it leaves nothing unapplied for later cases.
+
+    Everything else in this module unapplies `core.0004` and puts it back, and
+    none of it can tell the difference between a teardown that restores the
+    application's current state and one that restores the state of the day it was
+    written. Only the rest of the session can, and it reports the difference as
+    its own failure: `tests/integration/test_release_stage.py` and
+    `tests/integration/startup/test_stage_two_database_conditions.py` configure an
+    unmigrated alias, and if `default` is unmigrated too the refusal names
+    `default` first -- so their cases fail naming a fault this module left behind.
+
+    Asserted as an empty plan rather than by comparing migration names, because
+    the claim is "nothing is left unapplied" -- a name comparison would need
+    updating by exactly the person this case exists to protect, which is how the
+    pinned restore got there.
+
+    A failure here strands the schema at `BEFORE`, which the next run of the
+    fixture above repairs: its first action is to migrate there.
+
+    Args:
+        django_db_setup: pytest-django's session-scoped setup, so the test
+            database exists and is fully migrated before anything is undone.
+        django_db_blocker: Unblocked for the reason the fixture unblocks --
+            SQLite's schema editor refuses to open inside a transaction.
+
+    """
+    with django_db_blocker.unblock():
+        _refuse_a_database_the_test_runner_did_not_prepare()
+        _migrate_to(BEFORE)
+        _migrate_to(_the_state_the_session_must_be_returned_to())
+
+        executor = MigrationExecutor(connection)
+        assert executor.migration_plan(executor.loader.graph.leaf_nodes()) == []
 
 
 @pytest.mark.usefixtures("a_populated_ledger_before_the_conversion")
