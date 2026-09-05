@@ -688,6 +688,35 @@ So that every later policy has something correct to plug into rather than invent
 **Satisfies:** `CPM-FR-37`, and the orchestration half of `CPM-FR-22`
 **Governed by:** `CPM-AD-8`, `CPM-AD-11`, `CPM-AD-21`, `CPM-AD-23`, `CPM-AD-4`
 **Note:** built here, not in `CPM-EP-PRIORITY`, because the currency, feedstock, vulnerability, licence and readiness policies all run as passes and all land before priority does. The rollup composes whatever derived tables exist, so it grows as passes are added.
+### CPM-EVIDENCE-S08: Conditional requests, cached responses, and one shared allowance
+
+As a platform lead,
+I want the collector base to ask sources what changed rather than re-fetching what did not, and one allowance shared across workers,
+So that a daily sweep over ten thousand packages does not spend its rate limit re-reading bodies it already has.
+
+**Acceptance Criteria:**
+
+**Given** a source that answered before with a validator
+**When** the collector runs again and the source still holds that validator
+**Then** the request is conditional, the source answers "not modified", and no body is transferred
+**And** the run still records evidence and a ledger row, because a confirmed-unchanged fact is an observation
+
+**Given** a transport that must send a `User-Agent`, an `Authorization` header or a conditional-request header
+**When** a collector declares what it needs
+**Then** the header travels with the request through the base, and no collector opens a connection to send it
+
+**Given** the response cache
+**When** it is read or written
+**Then** it goes through `django.core.cache`'s public API and no call site branches on the backend, exactly as the rate limiter does
+
+**Given** two worker processes sharing one allowance
+**When** both collect for the same collector inside one window
+**Then** the counter is shared and the allowance is spent once, proven against a real Redis rather than the in-process substitution
+
+**Satisfies:** the caching half of `CPM-NFR-3`, and completes it
+**Governed by:** `CPM-AD-20`, `CPM-AD-27`, `CPM-AD-7`
+**Note:** authored after `CPM-EVIDENCE-S05` rather than inside it. S05 delivered rate limiting, retry with backoff and timeouts and recorded the caching clause as unmet; the header affordance and the conditional request are one piece of work with it, because a conditional request *is* a header. Widening `Transport` after eight collectors depend on it is the expensive version of this change, which is why it lands before `CPM-EP-CURRENCY`.
+
 ## CPM-EP-IDENTITY: Every package resolved, or visibly not
 
 Delivers the package identity layer and the one audited human write in the product.
@@ -1720,7 +1749,7 @@ them, and the stories that satisfy them are authored once the spike reports.
 | Epic | Stories | Acceptance criteria |
 |---|---|---|
 | `CPM-EP-PLATFORM` | 2 | 6 |
-| `CPM-EP-EVIDENCE` | 7 | 33 |
+| `CPM-EP-EVIDENCE` | 8 | 37 |
 | `CPM-EP-IDENTITY` | 6 | 24 |
 | `CPM-EP-CURRENCY` | 7 | 18 |
 | `CPM-EP-SECURITY` | 6 | 13 |
@@ -1728,4 +1757,4 @@ them, and the stories that satisfy them are authored once the spike reports.
 | `CPM-EP-PRIORITY` | 3 | 8 |
 | `CPM-EP-APP` | 8 | 32 |
 | `CPM-EP-NL` | 1 | 5 |
-| **Total** | **43** | **146** |
+| **Total** | **44** | **150** |
