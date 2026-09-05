@@ -17,11 +17,19 @@
 # in the script, and editing it there would be overwritten by the next BMad update.
 #
 # Epic order is the build-order graph in epics.md, not the document's listing order.
-# Within CPM-EP-IDENTITY, S06 leads: it is numbered last because story keys are never
-# reused, and built first because every later story assumes packages exist. S07 follows
-# it immediately and completes the pair -- S06 owns the ingestion collector and the
-# snapshot model, S07 the adapter contract and the watchlist files -- and neither is
-# exercisable alone.
+# Within CPM-EP-IDENTITY, S01 leads and S06 follows it. S06 and S07 are numbered last
+# because story keys are never reused, and epics.md sequences S06 "built before
+# CPM-IDENTITY-S02 because every story after it assumes packages exist" -- before S02,
+# not before S01. S06 creates package shells through identity's resolution service, so
+# it cannot precede S01, which is what defines the Package model those shells are rows
+# of. S07 follows S06 immediately and completes the pair -- S06 owns the ingestion
+# collector and the snapshot model, S07 the adapter contract and the watchlist files --
+# and neither is exercisable alone. The order below is therefore S01, S06, S07, then
+# S02 through S05.
+#
+# An earlier revision of this comment read "S06 leads" and listed S06 and S07 ahead of
+# S01. That contradicted epics.md and pointed whoever read the list in order at S02 as
+# the successor to S01, which skips the ingestion path every later story assumes.
 #
 # Status vocabulary: epics backlog|in-progress|done; stories backlog|ready-for-dev|
 # in-progress|review|done; retrospectives optional|done.
@@ -52,16 +60,16 @@ development_status:
   cpm-evidence-s03-run-ledger-survives-killed-worker: done
   cpm-evidence-s04-three-queues-cadence-as-data: done
   cpm-evidence-s05-collector-base-carrying-external-call: done
-  cpm-evidence-s06-stale-failed-evidence-read-as: ready-for-dev
+  cpm-evidence-s06-stale-failed-evidence-read-as: done
   cpm-evidence-s07-policy-run-writer-rollup: ready-for-dev
   cpm-evidence-s08-conditional-requests-and-caching: done
   epic-evidence-retrospective: optional
 
   # CPM-EP-IDENTITY: Every package resolved, or visibly not
   epic-identity: in-progress
+  cpm-identity-s01-package-identity-model: done
   cpm-identity-s06-inventory-arrives-arrives-as-evidence: ready-for-dev
   cpm-identity-s07-watchlist-inventory-source: ready-for-dev
-  cpm-identity-s01-package-identity-model: done
   cpm-identity-s02-resolution-records-where-came-from: ready-for-dev
   cpm-identity-s03-confidence-gates-what-system-will: ready-for-dev
   cpm-identity-s04-unresolved-packages-selectable-ranked: ready-for-dev

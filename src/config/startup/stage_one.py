@@ -23,8 +23,8 @@ over *every* configured alias (AD-9), the four local credential paths, the
 OpenTelemetry kill switch, the JWKS trust anchor, and the unconfigured claims
 contract. Two are feature-scoped: conditions 8 and 9, an in-process cache
 backend where the Redis feature is selected and eager task execution where
-background task processing is selected. That is ten of the fourteen forbidden
-states; conditions 6 and 7 and the stage-2 half of 5 are `stage_two.py`.
+background task processing is selected. That is ten of the fifteen forbidden
+states; conditions 6, 7 and 10 and the stage-2 half of 5 are `stage_two.py`.
 
 The two feature-scoped conditions are the only code in this module that is not
 present in every combination, and the *only* mechanism that removes them is
@@ -78,8 +78,8 @@ describing what the region holds, and rewriting it breaks nothing.
   the record naming condition 9's state, for the same reason.
 * path `tests/unit/startup/test_refusal_coverage_audit.py`, feature `redis`. It
   contains the `redis` entries in that module's conditional-state and
-  conditional-condition expectations, which are what fix the total at fourteen
-  and the conditions at nine without either literal: both shrink with the
+  conditional-condition expectations, which are what fix the total at fifteen
+  and the conditions at ten without either literal: both shrink with the
   declaration they audit.
 * path `tests/unit/startup/test_refusal_coverage_audit.py`, feature `celery`.
   It contains the `celery` entries in the same two mappings, for the same
@@ -908,9 +908,9 @@ def _refuse_in_process_cache(settings_module: ModuleType) -> None:
             # Skipped, and deliberately not converted into a refusal. This
             # condition's message describes *an in-process backend in a component
             # that selected Redis*, which is not what a backend that will not load
-            # is; refusing here would add a fifteenth forbidden state to a count
-            # the architecture settled at fourteen, under a message that would
-            # send the reader to the wrong line. Django already owns the defect
+            # is; refusing here would add another forbidden state to a settled
+            # count, under a message that would send the reader to the wrong
+            # line. Django already owns the defect
             # and raises `InvalidCacheBackendError` -- itself an
             # `ImproperlyConfigured` -- at the first cache access.
             #

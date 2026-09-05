@@ -37,9 +37,9 @@ stage-2 half at all takes a migrated database, so its pair of cases run against
 one a child of their own migrated first.
 
 **CG-3 for the two database states.** `tests/unit/startup/test_no_softening.py`
-asserts that a refusal raises rather than warning or logging, for the twelve
+asserts that a refusal raises rather than warning or logging, for the thirteen
 states reachable without a connection. The two that need one are asserted here,
-by the same measurements, so the CG-3 claim covers all fourteen. The cases are
+by the same measurements, so the CG-3 claim covers all fifteen. The cases are
 parametrized straight off `DELEGATED_TO_THE_INTEGRATION_SUITE`, which is what
 makes that sentence true by measurement: a state delegated here with no case
 fails here.
@@ -994,7 +994,7 @@ class TestTheTwoDatabaseStatesAreNotSoftened:
     """CG-3 for the two states `tests/unit/startup/test_no_softening.py` cannot reach.
 
     Both of them, and both by the same three measurements the unit module makes
-    over the other twelve: the refusal raises, warns about nothing, logs nothing
+    over the other thirteen: the refusal raises, warns about nothing, logs nothing
     in place of the raise, and is exactly `ImproperlyConfigured`. The migrations
     half was missing until Story 4.5's review -- three docstrings claimed the CG-3
     assertions covered all fourteen states while thirteen were measured.

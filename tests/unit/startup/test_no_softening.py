@@ -24,10 +24,10 @@ that test was written loosely enough. Four assertions, from four directions:
   Consistency Conventions fix the type: "Every forbidden or missing configuration
   raises `ImproperlyConfigured` at one of the two refusal stages."
 
-**Which states this module reaches.** Twelve of the fourteen, plus FR-12's escape
-route. The two it does not are the stage-2 database states -- unapplied migrations
-and an absent designated group -- which need a live connection and are therefore
-covered by the same measurements in
+**Which states this module reaches.** Thirteen of the fifteen, plus FR-12's
+escape route. The two it does not are the stage-2 database states -- unapplied
+migrations and an absent designated group -- which need a live connection and are
+therefore covered by the same measurements in
 `tests/integration/startup/test_stage_two_served_path.py`, whose cases are
 parametrized from `DELEGATED_TO_THE_INTEGRATION_SUITE` so that a state named there
 and not covered fails on that side. Splitting them that way is what keeps this
@@ -68,6 +68,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.urls import path
 from rest_framework.authtoken.views import obtain_auth_token
 
+from conda_package_supply_chain_monitor.core import registry
 from config.authorization.claims import ClaimsContract
 from config.local_dev import views as local_dev_views
 from config.locality import PROCESS_ENV_VAR
@@ -77,6 +78,9 @@ from config.startup import run_stage_one
 from config.startup import run_stage_two
 from config.startup import stage_one
 from config.startup.stage_one import LOCAL_SETTINGS_MODULE
+from tests.collectors import collector_class
+from tests.collectors import fixture_evidence_model
+from tests.conftest import deployed_url_patterns
 from tests.conftest import temporary_root_urlconf
 from tests.conftest import valid_deployed_settings_namespace
 from tests.unit.startup.forbidden_states import DELEGATED_TO_THE_INTEGRATION_SUITE
@@ -221,6 +225,31 @@ def _refuse_local_sign_in_route(_monkeypatch: pytest.MonkeyPatch) -> None:
         run_stage_two()
 
 
+def _refuse_a_collector_without_a_freshness_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Condition 10: a registered collector whose evidence would never go stale.
+
+    The registry is replaced wholesale rather than written to, which is what
+    keeps this a unit case with no cleanup of its own: `monkeypatch.setattr` puts
+    the module's mapping back however the condition exits, and a registration
+    that leaked out of a case asserting a *refusal* would refuse every case that
+    ran after it.
+
+    A stand-in URL configuration goes on for the reason the two URLconf builders
+    above install theirs: `run_stage_two` evaluates its roster in order, and this
+    process built the *local* configuration, which mounts the persona sign-in
+    route condition 6 exists to refuse. Without the substitution this case would
+    be measuring that condition instead, which the `says` assertion would catch
+    but only after sending its reader to the wrong file.
+    """
+    built = collector_class(
+        declared_model=fixture_evidence_model(),
+        declared_freshness_target=None,
+    )
+    monkeypatch.setattr(registry, "_REGISTERED", {built.name: built})
+    with temporary_root_urlconf(*deployed_url_patterns()):
+        run_stage_two()
+
+
 def _refuse_the_local_settings_module(_monkeypatch: pytest.MonkeyPatch) -> None:
     """FR-12's escape route, driven through the roster rather than through an import.
 
@@ -300,6 +329,10 @@ REFUSALS: Final[dict[str, _Refusal]] = {
     "unconfigured-claims-contract": _Refusal(_refuse_unconfigured_claims, "The claims contract is unconfigured"),
     "credential-minting-route": _Refusal(_refuse_credential_minting_route, "rest_framework.authtoken"),
     "local-sign-in-route": _Refusal(_refuse_local_sign_in_route, "config.local_dev"),
+    "collector-without-freshness-target": _Refusal(
+        _refuse_a_collector_without_a_freshness_target,
+        "freshness_target=None",
+    ),
     # feature:redis
     "in-process-cache-backend": _Refusal(_refuse_in_process_cache, "CACHES['default']"),
     # /feature:redis

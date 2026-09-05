@@ -73,6 +73,7 @@ is not a helper library.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
@@ -90,6 +91,9 @@ from django.test.utils import isolate_apps
 from conda_package_supply_chain_monitor.core.collection import Collector
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
+from conda_package_supply_chain_monitor.core.registry import CollectorRegistryError
+from conda_package_supply_chain_monitor.core.registry import register
+from conda_package_supply_chain_monitor.core.registry import unregister
 from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
 from conda_package_supply_chain_monitor.core.transport import Payload
@@ -130,6 +134,15 @@ FIXTURE_TABLE: Final[str] = "cpm_fixture_collected_fact"
 #: by naming a fraction or a multiple of this value, rather than by writing an
 #: interval at the call site that nothing reconciles against the declaration.
 FIXTURE_WINDOW: Final[timedelta] = timedelta(hours=1)
+
+#: The freshness target the fixture collectors declare (`CPM-AD-28`). A day,
+#: which is comfortably longer than `FIXTURE_WINDOW` for the reason a real one
+#: would be: a target shorter than the window would declare evidence stale before
+#: the window let anything re-observe it. Named rather than spelled at the call
+#: site so a staleness case can place an observation inside it or past it by a
+#: fraction or a multiple of the declaration, rather than by an interval nothing
+#: reconciles against it.
+FIXTURE_FRESHNESS_TARGET: Final[timedelta] = timedelta(days=1)
 
 #: The timeout the fixture collectors declare. A real number rather than a
 #: sentinel: the base builds a `RequestsTransport` from it whenever a case does
@@ -499,6 +512,7 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
     declared_model: type[AppendOnlyModel] | None,
     declared_name: str = FIXTURE_COLLECTOR,
     declared_window: timedelta | None = FIXTURE_WINDOW,
+    declared_freshness_target: timedelta | None = FIXTURE_FRESHNESS_TARGET,
     declared_timeout: float | None = FIXTURE_TIMEOUT,
     declared_retries: int = DEFAULT_RETRIES,
     declared_rate_limit: RateLimit | None = FIXTURE_RATE_LIMIT,
@@ -527,6 +541,10 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
         declared_name: The collector's name, or `""` for the case that declares
             none.
         declared_window: The observation window, or `None`.
+        declared_freshness_target: How long this collector's evidence may be read
+            as current, or `None` for the case that declares none -- which is
+            `CPM-AD-28`'s named failure and is refused at construction and again
+            at boot.
         declared_timeout: The timeout in seconds, or `None`.
         declared_retries: The retry count, which is also what the rate limiter is
             charged per collection.
@@ -551,6 +569,7 @@ def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
         name: ClassVar[str] = declared_name
         evidence_model: ClassVar[type[AppendOnlyModel] | None] = declared_model
         observation_window: ClassVar[timedelta | None] = declared_window
+        freshness_target: ClassVar[timedelta | None] = declared_freshness_target
         timeout: ClassVar[float | None] = declared_timeout
         retries: ClassVar[int] = declared_retries
         rate_limit: ClassVar[RateLimit | None] = declared_rate_limit
@@ -948,6 +967,45 @@ def unwritable_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]
             )
 
     return _UnwritableSentinelCollector
+
+
+@contextmanager
+def registered_collector(collector: type[Collector]) -> Iterator[type[Collector]]:
+    """Adopt one collector for the duration of a case, and withdraw it after.
+
+    The registry is process-global and the suite is not: a registration left
+    behind by one case is a collector every later case's boot sweep refuses over,
+    and the failure lands in whichever case happened to run next. So the
+    withdrawal is in a `finally` -- the cases that use this are the ones asserting
+    a *refusal*, which means the block is left by an exception every time.
+
+    It lives here rather than being written once per suite for the reason
+    `cleared_cache` above does, and it is a context manager rather than a fixture
+    for the same one: the two suites that need it sit under different
+    `conftest.py` files.
+
+    Args:
+        collector: The collector class to register, under the name it declares.
+
+    Yields:
+        The same class, so a case can name it in the refusal message it asserts
+        without binding it twice.
+
+    """
+    register(collector)
+    try:
+        yield collector
+    finally:
+        # `suppress`, because this runs while an exception is usually already in
+        # flight: every case using this helper asserts a *refusal*, so the block
+        # is left by an exception nearly every time. `unregister` raises when the
+        # name is already gone -- a case that withdrew it itself, or one that
+        # re-registered under another name -- and an exception raised in a
+        # `finally` replaces the one being propagated. That would swap the
+        # assertion the case was making for a registry error about the cleanup,
+        # which is the failure that takes longest to read backwards.
+        with suppress(CollectorRegistryError):
+            unregister(collector.name)
 
 
 @contextmanager

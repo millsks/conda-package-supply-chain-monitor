@@ -79,6 +79,7 @@ if TYPE_CHECKING:
 EXPECTED_EVALUATION_ORDER = (
     "_refuse_credential_minting_route",
     "_refuse_local_sign_in_route",
+    "_refuse_collector_without_freshness_target",
     "_refuse_unapplied_migrations",
     "_refuse_missing_designated_groups",
 )

@@ -1,4 +1,4 @@
-"""The fourteen forbidden states, named -- FR-16's index, not a second contract.
+"""The fifteen forbidden states, named -- FR-16's index, not a second contract.
 
 **This module names states. It does not decide them.** Every predicate lives
 once, in `src/config/startup/` (AD-26, AD-1), and nothing here reads a setting,
@@ -8,17 +8,29 @@ can reconcile "every state has a test that configures it and asserts the raise"
 in both directions. The moment a record here starts carrying a predicate, the
 contract has two copies and this file is the wrong one.
 
-**Why fourteen and why the number is not re-derived.** The planning sources are
-arithmetically inconsistent -- PRD §4.3 and FR-16 say nine conditions, FR-13 says
-seven and lists eight bullets, and AD-27 adds a stage-2 refusal that appears in
-no bullet at all. The settled reading, recorded in the epic context and in this
-story, is **nine conditions -- seven unconditional and two feature-scoped --
-across fourteen distinct forbidden states**, applying FR-16's own rule that one
-condition may cover several states each tested separately. Conditions 2, 5 and 6
-are the three that do. Do not re-open the arithmetic here; the audit asserts
-against this table.
+**Why the inherited count is fourteen and why that number is not re-derived.**
+The planning sources are arithmetically inconsistent -- PRD §4.3 and FR-16 say
+nine conditions, FR-13 says seven and lists eight bullets, and AD-27 adds a
+stage-2 refusal that appears in no bullet at all. The settled reading, recorded
+in the epic context and in the inherited platform's Story 1.5, is **nine conditions -- seven
+unconditional and two feature-scoped -- across fourteen distinct forbidden
+states**, applying FR-16's own rule that one condition may cover several states
+each tested separately. Conditions 2, 5 and 6 are the three that do. Do not
+re-open that arithmetic here; the audit asserts against this table.
 
-**Two of the fourteen are feature-scoped and leave with their features.** States
+**And why this product adds a tenth condition rather than folding into one.**
+`CPM-EVIDENCE-S06` brings `CPM-AD-28`: a registered collector that declares no
+freshness target refuses to start, because an unset target behaves as "fresh
+forever" and six-month-old evidence then reads as current. It belongs to none of
+the inherited nine -- those are about credential surfaces, telemetry, the trust
+anchor, the claims contract, routed views and schema state -- so filing it under
+one of them would make FR-16's "each of the conditions has at least one test that
+configures the forbidden state" a sentence about a condition that now covers two
+unrelated rules. It is condition 10, unconditional and stage 2, and the settled
+count for *this repository* is therefore **ten conditions across fifteen
+states**: the inherited fourteen plus one.
+
+**Two of the fifteen are feature-scoped and leave with their features.** States
 8 and 9 are Redis's and Celery's, so their records sit inside AD-24 marker pairs
 exactly as the conditions themselves do in `src/config/startup/stage_one.py`: a
 combination materialized without Redis has no `_refuse_in_process_cache` and must
@@ -30,8 +42,8 @@ materializer, and only the markers are a removal mechanism.
 that loaded `config.settings.local` is the failure the whole contract is built
 around, but it is not one of the nine numbered conditions -- so it gets its own
 record outside `FORBIDDEN_STATES`, asserted by its own case in the audit. Folded
-into the tuple it would be tradeable against the fourteen: drop it, add a
-fifteenth, and a count-based check would still pass.
+into the tuple it would be tradeable against the rest: drop it, add one more, and
+a count-based check would still pass.
 
 Not a test module. `tests/coverage_policy.py` and `tests/factories.py` are the
 existing precedent for a helper that lives under `tests/` and is imported rather
@@ -79,7 +91,7 @@ class ForbiddenState:
     feature: str | None = None
 
 
-#: The fourteen. Ordered by condition and, within a condition, by the order the
+#: The fifteen. Ordered by condition and, within a condition, by the order the
 #: states are listed in the refusal table -- which is also the order
 #: `src/config/startup/stage_one.py` and `stage_two.py` evaluate them in, so a
 #: reader following a refusal back from a log line meets them here in the same
@@ -156,6 +168,12 @@ FORBIDDEN_STATES: Final[tuple[ForbiddenState, ...]] = (
         condition=7,
         stage=2,
         description="a serving process would start against a schema with migrations pending",
+    ),
+    ForbiddenState(
+        state_id="collector-without-freshness-target",
+        condition=10,
+        stage=2,
+        description="a registered collector declares no freshness target, so its evidence never goes stale",
     ),
     # feature:redis
     ForbiddenState(
