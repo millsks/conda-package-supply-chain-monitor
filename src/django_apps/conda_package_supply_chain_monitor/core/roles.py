@@ -132,7 +132,7 @@ IDENTITY_OVERRIDE_PERMISSION: Final = f"{IDENTITY_APP_LABEL}.{IDENTITY_OVERRIDE_
 #: taking `IDENTITY_OVERRIDE_PERMISSION` off leadership below leaves every
 #: already-provisioned deployment holding it, and the person who wants it gone
 #: writes a migration that detaches it -- the shape
-#: `core/0004_grant_identity_override`'s `reverse` already has.
+#: `core/0005_grant_identity_override`'s `reverse` already has.
 #: `tests/integration/django_apps/test_role_groups.py` pins this in both
 #: directions, so it is a property somebody demonstrated rather than a caveat in
 #: a comment.

@@ -51,7 +51,7 @@ EXPECTED_DEPENDENCIES = [
 # the one above: a data migration that has already run against a deployed
 # database is not re-run by editing it, so a grant added to `0001` would reach no
 # environment that had migrated before it.
-GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0004_grant_identity_override"
+GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0005_grant_identity_override"
 
 # Five entries, and the shape of the graph rather than decoration. See
 # `test_the_grant_migration_runs_after_the_model_and_after_the_role_groups`.
@@ -59,7 +59,7 @@ EXPECTED_GRANT_DEPENDENCIES = [
     ("auth", "0012_alter_user_first_name_max_length"),
     ("contenttypes", "0002_remove_content_type_name"),
     ("core", "0001_provision_role_groups"),
-    ("core", "0003_package_health"),
+    ("core", "0004_collection_run_package"),
     ("identity", "0003_identity_override"),
 ]
 
@@ -178,7 +178,7 @@ def test_the_migration_names_no_group(migration_source: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# `core/0004_grant_identity_override`: the first real grant, and its rollback.
+# `core/0005_grant_identity_override`: the first real grant, and its rollback.
 # ---------------------------------------------------------------------------
 
 
@@ -243,7 +243,7 @@ def test_the_grant_migration_runs_after_the_model_and_after_the_role_groups(
     all: `create_permissions` in `forward` needs the model in the historical
     state, and without the dependency it can run against a state that has never
     heard of `identity_overrides`. `core.0001_provision_role_groups` is what
-    created the rows this attaches a permission to. `core.0003_package_health` is
+    created the rows this attaches a permission to. `core.0004_collection_run_package` is
     this application's own latest, so `core`'s migrations stay a single line
     rather than two leaves the graph cannot order -- which is a `migrate` that
     refuses to run at all rather than a subtle fault.

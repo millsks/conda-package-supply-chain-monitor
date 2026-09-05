@@ -159,7 +159,10 @@ class Migration(migrations.Migration):
     dependencies = [
         # The product's own latest, so this application's migrations stay a single
         # line rather than two leaves the graph cannot order.
-        ("core", "0003_package_health"),
+        # `CPM-EVIDENCE-S09` landed `0004_collection_run_package` while this story
+        # was in review, so this depends on that rather than on `0003` -- one line
+        # per application, never two leaves the graph cannot order.
+        ("core", "0004_collection_run_package"),
         # The migration whose docstring specified this one, and the one that
         # created the group rows this pass attaches a permission to.
         ("core", "0001_provision_role_groups"),

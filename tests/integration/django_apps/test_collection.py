@@ -139,6 +139,7 @@ from tests.collectors import unstamped_sweep_collector_class
 from tests.collectors import unwritable_collector_class
 from tests.collectors import unwritable_sentinel_collector_class
 from tests.collectors import working_collector
+from tests.packages import packages_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -150,7 +151,9 @@ if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
     from conda_package_supply_chain_monitor.core.transport import Payload
 
-#: The package every case collects. One arbitrary primary key.
+#: The package every case collects. One arbitrary primary key -- and, since
+#: `CPM-EVIDENCE-S09` made `CollectionRun.package` a real relation, a key that
+#: must name a real row: `_monitored_packages` below creates it.
 A_PACKAGE: Final[int] = 7
 
 #: A second package, for the rows where another package is involved.
@@ -439,6 +442,19 @@ def _empty_cache() -> Iterator[None]:
     """
     with cleared_cache():
         yield
+
+
+#: The two packages this module's constants name, created inside each case's own
+#: transaction. Every case here either collects a package or writes a prior run
+#: for one, so the rows are arranged once rather than requested by forty-odd
+#: cases that are not about identity at all.
+#:
+#: Depending on `db` makes every case in this module a database case, the
+#: transport ones included. That is the deliberate trade: `tests/packages.py`
+#: says why the dependency is declared rather than assumed, and a handful of
+#: transport cases opening a transaction they do not use costs less than an
+#: autouse fixture whose rows land outside the one that rolls them back.
+monitored_packages = packages_fixture(A_PACKAGE, ANOTHER_PACKAGE)
 
 
 @pytest.fixture

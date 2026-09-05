@@ -71,7 +71,7 @@ MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0001_prov
 
 # `CPM-IDENTITY-S05`'s grant. `tests/unit/django_apps/test_role_migration.py`
 # holds its shape; what is here is the half only a run can show.
-GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0004_grant_identity_override"
+GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0005_grant_identity_override"
 
 # The leadership group the suite is configured with, bound once so the
 # unconfigured-contract case can still name the row after it has replaced the
@@ -225,7 +225,7 @@ def test_the_migration_grants_the_override_permission_to_leadership_and_to_nobod
     unit case in `tests/unit/django_apps/test_roles.py` still passing, and every
     override refused as forbidden. This is the case that catches all three.
 
-    Nothing here provisions anything. `core/0004_grant_identity_override` ran when
+    Nothing here provisions anything. `core/0005_grant_identity_override` ran when
     the test database was built, and what is read back is its output -- which is
     the only way to show that the migration is what guarantees the grant, rather
     than some later call that happens to run first in production too.
@@ -613,7 +613,7 @@ def test_a_group_claim_asserting_no_groups_syncs_to_no_roles(role_holder: User) 
 
 
 # ---------------------------------------------------------------------------
-# `core/0004_grant_identity_override`, run rather than only read.
+# `core/0005_grant_identity_override`, run rather than only read.
 # ---------------------------------------------------------------------------
 
 

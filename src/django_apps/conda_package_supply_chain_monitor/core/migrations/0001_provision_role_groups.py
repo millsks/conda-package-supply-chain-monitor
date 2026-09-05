@@ -57,7 +57,7 @@ def forward(apps, schema_editor):
     and now there never will be one here. This docstring used to say that when the
     first real codename was attached, that call would have to be added here the
     way it was added there. It was attached, and the call is not here:
-    `core/0004_grant_identity_override` creates the permission rows and attaches
+    `core/0005_grant_identity_override` creates the permission rows and attaches
     the grant, because a data migration that has already run against a deployed
     database is not re-run by editing it -- so a grant added to this file would
     reach no database that had migrated before it.

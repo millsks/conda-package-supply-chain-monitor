@@ -234,9 +234,24 @@ CONNECTION_SOURCES: Final[dict[str, frozenset[str]]] = {"django.db": frozenset({
 # operation for the product's three role groups, and
 # `tests/integration/django_apps/test_role_groups.py` asserts that its reverse
 # removes exactly those rows and no designated one.
+# django_apps/.../core/migrations/0004_collection_run_package.py -- the data step
+# that clears package references naming no package, so the foreign key
+# `CPM-EVIDENCE-S09` adds can be applied to a table written under the old
+# contract. `collection_runs` is a **run-ledger** table, which `CPM-AD-2` exempts
+# from the append-only rule in so many words: a run row is created before the
+# first outbound call and finalized afterwards, so it is mutable by construction
+# and this audit's rule was never about it. Row-by-row `save()` would evade the
+# scan while doing the same thing more slowly, which is the evasion
+# `tests/unit/test_suite_policy.py` exists to keep out of the suite; the
+# exemption is recorded instead, and
+# `tests/integration/django_apps/test_run_ledger_migration.py` asserts what the
+# step does to a populated table.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/migrations/0001_provision_role_groups.py": {
         "objects.delete(...)": 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/core/migrations/0004_collection_run_package.py": {
+        "objects.update(...)": 1,
     },
     "django_service/users/migrations/0003_provision_designated_groups.py": {"objects.delete(...)": 1},
 }

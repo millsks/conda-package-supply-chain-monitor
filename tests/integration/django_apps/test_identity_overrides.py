@@ -184,7 +184,7 @@ def a_leader(db: None) -> User:
     """A user who holds the override permission, by membership and by nothing else.
 
     Put in the group `settings.ROLE_CONTRACT` names for the leadership slot, which
-    `core/0004_grant_identity_override` attached the permission to when the test
+    `core/0005_grant_identity_override` attached the permission to when the test
     database was built. Nothing here grants a permission directly: the whole point
     is that a *membership* is what confers it, which is `CPM-FR-30`'s contract and
     is the path a real person arrives by.

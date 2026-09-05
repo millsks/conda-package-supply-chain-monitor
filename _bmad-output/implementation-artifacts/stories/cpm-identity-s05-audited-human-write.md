@@ -429,7 +429,7 @@ first real grant in a table that had been empty by design.
   cycle; re-exported from `identity/models.py` so no existing importer changed.
 - `core/models.py` — `PackageHealth.package` switched to Django's lazy `"identity.Package"`, the
   other half of the cycle break. Deconstructs identically; `makemigrations --check` reports nothing.
-- `core/roles.py`, `core/migrations/0004_grant_identity_override.py`,
+- `core/roles.py`, `core/migrations/0005_grant_identity_override.py`,
   `identity/migrations/0003_identity_override.py` — the permission and its provisioning.
 - Two new test modules, plus rewrites of the two tests that pinned the empty-permission state.
 

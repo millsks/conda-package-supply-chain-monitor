@@ -107,11 +107,11 @@ length; the short version is that the vocabulary is the half of the pair that
 depends on nothing, so it is the half that moves.
 
 **What is still deliberately absent, and whose it is.** Admin, serializers, views,
-URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package_id` stays the
-integer `CPM-AD-3` specifies and is not converted to a `ForeignKey` here -- see
-`CPM-IDENTITY-S01`'s design notes: the conversion changes `core/ledger.py`'s
-recorder contract, and it belongs to the story that first makes packages exist to
-point at.
+URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package` is a real
+`ForeignKey` onto this row and is owed by nobody: the conversion changed
+`core/ledger.py`'s recorder contract rather than swapping a field, which is why it
+was declined by `CPM-IDENTITY-S01` and again by `CPM-IDENTITY-S06` before landing
+as `CPM-EVIDENCE-S09`, in the epic that owns the run ledger.
 """
 
 from __future__ import annotations

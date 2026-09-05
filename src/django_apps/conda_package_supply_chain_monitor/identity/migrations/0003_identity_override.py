@@ -12,7 +12,7 @@
 #
 # The custom permission in `options` is the other half of the story. Creating the
 # `auth_permission` row for it is `post_migrate`'s work and attaching it to the
-# leadership role group is `core/0004_grant_identity_override.py`'s, which depends
+# leadership role group is `core/0005_grant_identity_override.py`'s, which depends
 # on this migration and calls `create_permissions` first for exactly that reason.
 
 import django.db.models.deletion
