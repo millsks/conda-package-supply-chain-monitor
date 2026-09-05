@@ -179,9 +179,29 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: assignment, and that is the shape the entry should record when it arrives.
 #: Routing a real status column through the mapping *to stay out of this table*
 #: would be the `**kwargs` dodge that constant names.
+#
+#: `identity/services.py` -- `CPM-IDENTITY-S02`'s resolution recorder, and the
+#: second collision of the same kind. `PackageMapping.outcome` is *not* current
+#: package health: it records which of `CPM-FR-6`'s five states a single
+#: cross-ecosystem mapping is in, on a table `CPM-AD-11` says nothing about and
+#: that carries no `computed_at`, so `derived_state_models()` correctly does not
+#: find it. `CPM-AD-14` names its one writer -- "package identity is mutated by
+#: resolution, or by the override path" -- and this module is that resolution.
+#: The name is what collides; the rollup rule does not reach it.
+#:
+#: One entry, and it is the *re*-resolution branch: `get_or_create` writes the
+#: first outcome through a `defaults` mapping this scan does not read, and the
+#: assignment is what a later resolution reaching a different conclusion
+#: rewrites. Recorded rather than spelled through the mapping as well, because
+#: routing a real status column through `defaults` to stay out of this table is
+#: the `**kwargs` dodge `ORM_WRITE_METHODS` already names -- the honest form is
+#: the visible one plus an entry somebody had to write.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/identity/services.py": {
+        ASSIGNMENT_FORM.format(name="outcome"): 1,
     },
 }
 

@@ -34,9 +34,18 @@ from django.db import models
 from django.test.utils import isolate_apps
 
 from conda_package_supply_chain_monitor.core.models import PackageHealth
+from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
+from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
+from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
+from conda_package_supply_chain_monitor.identity.models import MAPPED_FIELDS
+from conda_package_supply_chain_monitor.identity.models import UNKNOWN
 from conda_package_supply_chain_monitor.identity.models import Feedstock
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_package_supply_chain_monitor.identity.models import MappingKind
+from conda_package_supply_chain_monitor.identity.models import MappingOutcome
 from conda_package_supply_chain_monitor.identity.models import Package
+from conda_package_supply_chain_monitor.identity.models import PackageMapping
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 from tests.model_registry import OBSERVED_AT_FIELD
@@ -170,8 +179,47 @@ DERIVED_STATUS_SUFFIXES: Final[tuple[str, ...]] = ("_outcome", "_status")
 #: `CPM-IDENTITY-S03`'s gate from translating between two spellings.
 EXPECTED_CONFIDENCE_VALUES: Final[tuple[str, ...]] = ("verified", "inventory-derived", "unmapped")
 
-#: The two models this story adds, for the cases that hold for both.
-IDENTITY_MODELS: Final[tuple[type[models.Model], ...]] = (Package, Feedstock)
+#: Exactly what `PackageMapping` holds. One row per `(package, kind)` carrying
+#: why a value is absent, and nothing the package row already holds --
+#: `CPM-IDENTITY-S02` added the table rather than a column, which is what AC #5
+#: below is about.
+EXPECTED_MAPPING_FIELDS: Final[tuple[str, ...]] = (
+    "id",
+    "package",
+    "kind",
+    "outcome",
+    "resolved_at",
+)
+
+#: The mapping kinds `CPM-FR-1` lists, in the order `MappingKind` declares them.
+#: Written out rather than read off the type, because the *closure* is the claim:
+#: a sixth kind is a decision somebody makes here as well as there.
+EXPECTED_MAPPING_KINDS: Final[tuple[str, ...]] = (
+    "source_repository",
+    "release_ecosystem",
+    "conda_artifact",
+    "feedstock",
+    "cross_ecosystem",
+)
+
+#: Every table the `identity` application owns. One tuple rather than two,
+#: because every case below sweeps all three: dropping a model from a sweep to
+#: make it pass is how a table stops being covered by a rule it is still bound by.
+IDENTITY_TABLES: Final[tuple[type[models.Model], ...]] = (Package, Feedstock, PackageMapping)
+
+#: The derived-status columns this application declares on purpose, by model.
+#:
+#: Exactly one, and it is the point of the story: `CPM-FR-1` needs a mapping that
+#: does not apply to be distinguishable from one that failed and from a
+#: successful empty result, `CPM-AD-1` keeps that off the package row, so it
+#: lives on `PackageMapping`. Recorded here rather than dropping the model from
+#: the sweep, so a `review_status` added to that table later is still caught --
+#: keyed on model *and* field for the reason
+#: `tests/unit/django_apps/test_outcome_field_audit.py` keys its own amendment
+#: both ways: recording one column must not exempt a second.
+RECORDED_STATUS_COLUMNS: Final[dict[type[models.Model], frozenset[str]]] = {
+    PackageMapping: frozenset({"outcome"}),
+}
 
 
 def _field_names(model: type[models.Model]) -> tuple[str, ...]:
@@ -268,8 +316,8 @@ def test_the_feedstock_row_holds_exactly_the_mapping_fields() -> None:
     assert _field_names(Feedstock) == EXPECTED_FEEDSTOCK_FIELDS
 
 
-@pytest.mark.parametrize("model", IDENTITY_MODELS, ids=lambda model: model.__name__)
-def test_no_projected_or_observed_name_reaches_either_row(model: type[models.Model]) -> None:
+@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
+def test_no_projected_or_observed_name_reaches_any_identity_row(model: type[models.Model]) -> None:
     """The **Never** list, asserted as a disjointness rather than field by field.
 
     Each of these is projected by `reporting` at read time -- from the rollup
@@ -282,25 +330,51 @@ def test_no_projected_or_observed_name_reaches_either_row(model: type[models.Mod
     assert trespassers == set(), f"{model.__name__} holds projected or observed fields: {sorted(trespassers)}"
 
 
-@pytest.mark.parametrize("model", IDENTITY_MODELS, ids=lambda model: model.__name__)
-def test_neither_row_declares_a_derived_status(model: type[models.Model]) -> None:
-    """`CPM-AD-1`: no derived status on the package row, by any spelling.
+@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
+def test_no_identity_row_declares_an_unrecorded_derived_status(model: type[models.Model]) -> None:
+    """`CPM-AD-1`: no derived status on these rows, by any spelling, bar one recorded column.
 
-    A column named `*_status` would also be swept into the derived-status
-    vocabulary by `tests/unit/django_apps/test_outcome_field_audit.py` and held
-    to `OutcomeState`'s four sentinels -- so the per-mapping `not_applicable`
-    that `CPM-FR-1` needs cannot arrive as a status column here. It is
-    `CPM-IDENTITY-S02`'s, with the semantics that story defines.
+    A column named `*_status` is swept into the derived-status vocabulary by
+    `tests/unit/django_apps/test_outcome_field_audit.py` and held to
+    `OutcomeState`'s four sentinels -- so the per-mapping `not_applicable` that
+    `CPM-FR-1` needs could not arrive as a status column on `Package`.
+    `CPM-IDENTITY-S02` put it on `PackageMapping` instead.
+
+    **`PackageMapping` stays in the sweep, and the exemption is one field name.**
+    Dropping the model from the parameters would have been the easy way to make
+    this pass, and it would have left a future `review_status` or
+    `currency_outcome` on that table unswept forever. The exemption is
+    `RECORDED_STATUS_COLUMNS` -- keyed on model *and* field, so recording
+    `PackageMapping.outcome` exempts nothing else on it -- and the cases further
+    down are what hold that one column to the vocabulary instead of to nothing.
     """
+    recorded = RECORDED_STATUS_COLUMNS.get(model, frozenset())
     offenders = [
-        name for name in _field_names(model) if name in DERIVED_STATUS_NAMES or name.endswith(DERIVED_STATUS_SUFFIXES)
+        name
+        for name in _field_names(model)
+        if (name in DERIVED_STATUS_NAMES or name.endswith(DERIVED_STATUS_SUFFIXES)) and name not in recorded
     ]
 
     assert offenders == [], f"{model.__name__} declares derived-status fields: {offenders}"
 
 
-@pytest.mark.parametrize("model", IDENTITY_MODELS, ids=lambda model: model.__name__)
-def test_neither_model_is_evidence_and_neither_takes_the_escape(model: type[models.Model]) -> None:
+def test_the_recorded_status_column_table_still_describes_the_models() -> None:
+    """The exemption above is a counted decision, reconciled in both directions.
+
+    An entry naming a field that no longer exists is a licence nobody meant to
+    leave open, and an emptied table would make the sweep above pass by exempting
+    everything it was pointed at. Both fail here.
+    """
+    assert RECORDED_STATUS_COLUMNS != {}
+    for model, names in RECORDED_STATUS_COLUMNS.items():
+        assert names, model.__name__
+        assert names <= set(_field_names(model)), model.__name__
+    assert Package not in RECORDED_STATUS_COLUMNS, "CPM-AD-1 permits no derived status on the package row at all"
+    assert Feedstock not in RECORDED_STATUS_COLUMNS
+
+
+@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
+def test_no_identity_model_is_evidence_and_none_takes_the_escape(model: type[models.Model]) -> None:
     """AC #6, stated where the models are declared rather than only in the registry guard.
 
     Neither carries any of the three marks `tests/model_registry.py` reads -- no
@@ -322,7 +396,7 @@ def test_neither_model_is_evidence_and_neither_takes_the_escape(model: type[mode
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model", IDENTITY_MODELS, ids=lambda model: model.__name__)
+@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
 def test_every_field_name_is_a_snake_case_identifier(model: type[models.Model]) -> None:
     """PRD Appendix A.1, "Two contracts": stored fields are valid snake_case identifiers."""
     malformed = [name for name in _field_names(model) if not STORED_FIELD_NAME.match(name)]
@@ -330,7 +404,7 @@ def test_every_field_name_is_a_snake_case_identifier(model: type[models.Model]) 
     assert malformed == [], f"{model.__name__} declares non-identifier field names: {malformed}"
 
 
-@pytest.mark.parametrize("model", IDENTITY_MODELS, ids=lambda model: model.__name__)
+@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
 def test_no_field_is_named_for_an_export_column_heading(model: type[models.Model]) -> None:
     """The headings belong to the reporting layer's projection, never to a field.
 
@@ -712,3 +786,238 @@ def test_the_package_row_points_at_nothing() -> None:
     workflow state or a derived status by another name.
     """
     assert _relation_fields(Package) == []
+
+
+# ---------------------------------------------------------------------------
+# AC #5 and AC #6: the pair is unique, and the outcome went to a table.
+# ---------------------------------------------------------------------------
+
+
+def test_the_join_key_is_unique_only_where_a_source_claims_the_package() -> None:
+    """AC #6's declaration: a partial `UniqueConstraint`, and partial on purpose.
+
+    `identity_source` and `associator_key` are both `blank=True, default=""`, so
+    an unconditional constraint would make `("", "")` a single permissible row
+    for the whole product -- and `CPM-IDENTITY-S05`'s override path, or any
+    creator that is not ingestion, would collide with it for no reason. The
+    condition is what says the rule that is meant: a package some source claims
+    is unique to that source's key, and a package no source claims is not
+    constrained at all.
+
+    The refusal itself is proven against a real table in
+    `tests/integration/django_apps/test_identity_resolution.py`; a constraint
+    declared and never migrated satisfies this case and refuses nothing.
+    """
+    constraints = {
+        constraint.name: constraint
+        for constraint in Package._meta.constraints  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        if isinstance(constraint, models.UniqueConstraint)
+    }
+
+    assert list(constraints) == ["one_package_per_source_key"]
+    pair = constraints["one_package_per_source_key"]
+    assert pair.fields == ("identity_source", "associator_key")
+    assert pair.condition == ~models.Q(associator_key="")
+
+
+def test_the_mapping_row_holds_exactly_the_outcome_and_its_subject() -> None:
+    """AC #5's other half: `CPM-IDENTITY-S02` added a table, not a column.
+
+    Order included, for the reason the package case gives. What the row must
+    *not* hold is anything `Package` already does: a second `canonical_name` or a
+    copy of a purl here would make "where is this package's source repository"
+    have two answers, which is the failure a child table is usually introduced to
+    cause.
+    """
+    assert _field_names(PackageMapping) == EXPECTED_MAPPING_FIELDS
+
+
+def test_the_package_field_set_is_unchanged_by_this_story() -> None:
+    """AC #5 stated as the thing that must *not* have happened.
+
+    `test_the_package_row_holds_exactly_the_identity_fields` above already pins
+    the set; this says why the pinning matters here. `CPM-FR-1` needed three
+    states per mapping and the cheapest-looking way to get them is a column per
+    mapping on the row that already holds the values. The set is the same as
+    `CPM-IDENTITY-S01` left it, and the outcome went somewhere else.
+    """
+    assert _field_names(Package) == EXPECTED_PACKAGE_FIELDS
+    assert set(_field_names(Package)) & set(EXPECTED_MAPPING_FIELDS) == {"id", "resolved_at"}
+
+
+def test_the_mapping_kinds_are_closed_and_cover_every_mapping_column() -> None:
+    """`MAPPED_FIELDS` partitions `Package`'s mapping columns, exactly once each.
+
+    This is what makes "a value is written only when its outcome is
+    `established`" a rule rather than a habit: resolution reads the table instead
+    of naming columns one at a time, so a mapping column with no kind would be a
+    value no resolution could record an outcome for, and a kind with no column
+    would be an outcome about nothing.
+
+    The feedstock kind maps to no column deliberately -- its value is the
+    `Feedstock` child rows -- which is asserted here so the empty tuple reads as
+    a decision rather than as the omission it looks like.
+    """
+    mapped = [name for names in MAPPED_FIELDS.values() for name in names]
+
+    assert tuple(MappingKind.values) == EXPECTED_MAPPING_KINDS
+    assert tuple(MAPPED_FIELDS) == EXPECTED_MAPPING_KINDS
+    assert MAPPED_FIELDS[MappingKind.FEEDSTOCK.value] == ()
+    assert len(mapped) == len(set(mapped)), f"a column is claimed by two kinds: {mapped}"
+    assert set(mapped) == {
+        "source_repository_url",
+        "primary_purl",
+        "primary_type",
+        "conda_purl",
+        "alternative_purls",
+        "cpes",
+    }
+    assert set(mapped) <= set(_field_names(Package))
+
+
+def test_the_mapping_outcome_was_composed_by_core_rather_than_written_out() -> None:
+    """AC #4: the four sentinels by name *and* value, plus one determinate verdict.
+
+    `verify_sentinels` is `core`'s own post-condition, called here rather than
+    re-derived: a type that spelled `NOT_APPLICABLE` but valued it `n/a` would
+    satisfy every `hasattr` check and still write a value no other policy
+    recognises.
+
+    `established` rather than `ok` is the refinement `CPM-AD-5` sanctions, and
+    `ESTABLISHED` is asserted to be the value the type actually offers -- the
+    service branches on that constant, so a drift between the two would make
+    every mapping look unestablished and silently write no values at all.
+    """
+    offered = dict(MappingOutcome.choices)
+
+    assert verify_sentinels(MappingOutcome) is None
+    assert [value for value, _label in MappingOutcome.choices] == [
+        *(value for _name, value in SENTINEL_MEMBERS),
+        ESTABLISHED,
+    ]
+    assert ESTABLISHED in offered
+    assert OutcomeState.OK.value not in offered, "the determinate value is refined, not inherited (CPM-AD-5)"
+
+
+def test_the_outcome_column_satisfies_the_derived_status_rules() -> None:
+    """AC #4 at the column, which is where `tests/.../test_outcome_field_audit.py` sweeps.
+
+    Restated here rather than left to that audit for the reason the audit's own
+    fixture half exists: a sweep that had stopped reaching `identity` would
+    report a clean repository, and this fails instead. The four checks are the
+    ones `field_failures` makes -- a `CharField`, not nullable, not blank, and a
+    default that is one of its own choices -- plus the label check that is how a
+    registry-level audit tells a composed table from a hand-rolled one.
+
+    `unknown` is the default because it is the honest value for a mapping no
+    resolution has reached: `NULL` and `""` would each be a fifth non-answer with
+    no name and no place in the precedence order.
+    """
+    field = PackageMapping._meta.get_field("outcome")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert isinstance(field, models.CharField)
+    assert field.null is False
+    assert field.blank is False
+    assert field.choices is not None
+    offered = dict(field.choices)
+    assert {value for _name, value in SENTINEL_MEMBERS} <= set(offered)
+    assert all(offered[value] == OutcomeState(value).label for _name, value in SENTINEL_MEMBERS)
+    assert str(field.default) in offered
+    assert str(field.default) == UNKNOWN
+    assert OutcomeState.UNKNOWN.value == UNKNOWN, "verify_sentinels guarantees the two spell it identically"
+    assert field.max_length is not None
+    assert max(len(value) for value in offered) <= field.max_length
+
+
+def test_the_kind_column_is_closed_and_carries_no_sentinel() -> None:
+    """A kind names which question was asked; the answer is the column beside it.
+
+    Asserted because the two columns sit together and are both fixed-token
+    vocabularies, which makes "give `kind` the sentinels too" a plausible next
+    edit -- and a `not_applicable` *kind* would be a mapping about nothing rather
+    than a mapping that does not apply.
+    """
+    field = PackageMapping._meta.get_field("kind")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert isinstance(field, models.CharField)
+    assert field.null is False
+    assert field.blank is False
+    assert field.choices is not None
+    offered = {value for value, _label in field.choices}
+    assert offered == set(EXPECTED_MAPPING_KINDS)
+    assert offered.isdisjoint({value for _name, value in SENTINEL_MEMBERS})
+    assert field.max_length is not None
+    assert max(len(value) for value in offered) <= field.max_length
+
+
+def test_one_outcome_per_package_mapping_is_declared_as_a_constraint() -> None:
+    """One answer per question, guaranteed by the table.
+
+    Without it a second resolution appends a second row and "what did we conclude
+    about this package's feedstocks" has two answers with nothing to choose
+    between them -- and `CPM-AD-2`'s ordering is not available as a tie-break,
+    because this is not evidence and carries no `observed_at`.
+    """
+    constraints = [
+        constraint
+        for constraint in PackageMapping._meta.constraints  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        if isinstance(constraint, models.UniqueConstraint)
+    ]
+
+    assert [constraint.name for constraint in constraints] == ["one_outcome_per_package_mapping"]
+    assert constraints[0].fields == ("package", "kind")
+
+
+def test_the_mapping_relation_cascades_and_points_at_the_surrogate_key() -> None:
+    """An outcome about a package that has gone describes nothing.
+
+    `CASCADE` on the same terms as `Feedstock.package`: `EVIDENCE.02-AUDIT-001`'s
+    `PROTECT`/`RESTRICT` rule reaches relations touching *evidence* models, and
+    neither end of this one is evidence. By the integer primary key `CPM-AD-3`
+    fixes, never by `canonical_name`, which is what keeps a name correction
+    cascading nowhere.
+    """
+    field = PackageMapping._meta.get_field("package")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert isinstance(field, models.ForeignKey)
+    assert field.related_model is Package
+    assert field.remote_field.on_delete is models.CASCADE
+    assert field.remote_field.related_name == "mappings"
+    assert field.target_field.name == "id"
+
+
+def test_the_mapping_resolution_instant_is_required_and_reads_no_wall_clock() -> None:
+    """`CPM-AD-26` on the third table, for the reason it binds the first two.
+
+    Held per mapping rather than read off the package, because a later resolution
+    may settle one mapping and leave another as it found it -- so "when was this
+    concluded" is a question about the row, not about the package.
+    """
+    field = PackageMapping._meta.get_field("resolved_at")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert isinstance(field, models.DateTimeField)
+    assert field.null is False
+    assert field.has_default() is False
+    assert field.auto_now_add is False
+    assert field.auto_now is False
+
+
+@pytest.mark.parametrize(
+    ("instance", "expected"),
+    [
+        pytest.param(PackageMapping(), "(no kind) is unknown for no package", id="unsaved"),
+        pytest.param(
+            PackageMapping(kind=MappingKind.FEEDSTOCK, outcome=ESTABLISHED, package_id=1),
+            "feedstock is established for package 1",
+            id="populated",
+        ),
+    ],
+)
+def test_a_mapping_renders_the_question_and_its_answer(instance: PackageMapping, expected: str) -> None:
+    """The literals are pinned, on the same terms as the other two `__str__` cases.
+
+    The unsaved instance carries the column's `unknown` default rather than a
+    placeholder, which is exactly right and worth pinning: `unknown` is a real
+    answer -- nobody has looked -- while the absent kind is not an answer at all.
+    """
+    assert str(instance) == expected

@@ -54,7 +54,8 @@ both read the process wall clock where the row is written, which
 enforces. The instant comes from an injected `Clock` (`CPM-AD-26`), exactly as
 `RunLedgerModel.started_at` takes it. The model performs no awareness check of
 its own -- that is the resolution service's, in `core/ledger.py`'s `_require_*`
-shape, and it arrives with `CPM-IDENTITY-S02`.
+shape, and `identity/services.py`'s `_require_aware` is where it lives. The same
+rule and the same check apply to `PackageMapping.resolved_at` below.
 
 **Neither model is evidence, and neither takes the escape.** `Package` declares
 no `observed_at` and inherits no `AppendOnlyModel`, so it carries none of the
@@ -65,16 +66,24 @@ exemption *for a model that carries a mark*, and a third user of it fails
 records the decision. A package row is not an observation; it is the thing
 observations are about.
 
-**What is deliberately absent, and whose it is.** Per-mapping `not_applicable` /
-`unmapped` outcome columns are `CPM-IDENTITY-S02`'s, which owns resolution
-semantics: `CPM-FR-1` needs a mapping that does not apply to be distinguishable
-from one that failed and from a successful empty result, and that is resolution's
-output rather than identity's shape. The override model and its audit row are
-`CPM-IDENTITY-S05`'s (`CPM-AD-14`). Admin, serializers, views, URLs and tasks are
-`CPM-EP-APP`'s. `core.CollectionRun.package_id` stays the integer `CPM-AD-3`
-specifies and is not converted to a `ForeignKey` here -- see the story's design
-notes: the conversion changes `core/ledger.py`'s recorder contract, and it
-belongs to the story that first makes packages exist to point at.
+**Per-mapping outcomes are a third table, and they could not have been a
+column.** `CPM-FR-1` needs a mapping that does not apply to be distinguishable
+from one that failed and from a successful empty result -- three states, which no
+nullable value column can carry. A column named `*_status` or `*_outcome` on
+`Package` would also be swept into the derived-status vocabulary by
+`tests/unit/django_apps/test_outcome_field_audit.py`, and `CPM-AD-1` says this
+row holds no derived status at all. So the outcome moved to `PackageMapping`,
+one row per `(package, kind)`, carrying why a value is absent and nothing the
+package row already holds. The established *values* stay here, because they are
+cross-ecosystem mappings and `CPM-AD-1` puts those on this row.
+
+**What is still deliberately absent, and whose it is.** The override model and
+its audit row are `CPM-IDENTITY-S05`'s (`CPM-AD-14`). Admin, serializers, views,
+URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package_id` stays the
+integer `CPM-AD-3` specifies and is not converted to a `ForeignKey` here -- see
+`CPM-IDENTITY-S01`'s design notes: the conversion changes `core/ledger.py`'s
+recorder contract, and it belongs to the story that first makes packages exist to
+point at.
 """
 
 from __future__ import annotations
@@ -84,10 +93,19 @@ from typing import Final
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from conda_package_supply_chain_monitor.core.outcomes import outcome_type
+
 __all__ = [
+    "ESTABLISHED",
+    "ESTABLISHED_MEMBER",
+    "MAPPED_FIELDS",
+    "UNKNOWN",
     "Feedstock",
     "IdentityConfidence",
+    "MappingKind",
+    "MappingOutcome",
     "Package",
+    "PackageMapping",
 ]
 
 #: How wide the short name columns are. A canonical package name, a display name,
@@ -122,6 +140,15 @@ _URL_LENGTH: Final[int] = 512
 #: Two vocabularies, two widths, each argued from its own longest value.
 _CONFIDENCE_LENGTH: Final[int] = 32
 
+#: How wide the two `PackageMapping` vocabulary columns are. `MappingKind`'s
+#: longest value is `source_repository`, seventeen characters, and
+#: `MappingOutcome`'s is `not_applicable`, fourteen; the rest is headroom, so a
+#: sixth kind or a second determinate verdict needs no migration for the width
+#: alone. One number for both because they are the same kind of value -- a fixed
+#: token from a closed vocabulary -- and splitting them would be two numbers
+#: nothing distinguishes.
+_VOCABULARY_LENGTH: Final[int] = 32
+
 
 class IdentityConfidence(models.TextChoices):
     """How certain a package identity is, in the PRD's own spelling.
@@ -152,6 +179,127 @@ class IdentityConfidence(models.TextChoices):
     VERIFIED = "verified"
     INVENTORY_DERIVED = "inventory-derived"
     UNMAPPED = "unmapped"
+
+
+class MappingKind(models.TextChoices):
+    """The mappings `CPM-FR-1` asks a resolution to establish, one member each.
+
+    A **closed** vocabulary, and closed is the operative word: every mapping
+    column this model holds belongs to exactly one member, `MAPPED_FIELDS` below
+    states which, and `tests/unit/django_apps/test_identity_models.py` reconciles
+    the two against `Package._meta`. A mapping column added without a kind would
+    be a value no resolution could record an outcome for, and a kind added
+    without a column would be an outcome about nothing.
+
+    `CPM-FR-1` lists "a canonical name, a source repository, its release
+    ecosystem identity (PyPI for the Python packages v1 targets), and zero or
+    more conda-forge feedstocks", and adds that "cross-ecosystem identifiers
+    (package URLs, CPEs) are recorded when derivable". The canonical name is not
+    among the members: it is the package's own name rather than a mapping onto
+    another ecosystem, it is never absent (`canonical_name_is_present`), and
+    "this package has no name" is not a state `CPM-FR-1` asks anybody to record.
+
+    `CONDA_ARTIFACT` is separate from `FEEDSTOCK` for the reason `conda_purl` is
+    separate from the `Feedstock` rows: a feedstock is the *recipe* that builds a
+    conda artifact, and a package can have the second without the first --
+    `CPM-FR-9`'s staged-recipe state exists precisely because those two travel
+    apart.
+
+    Values are fixed lowercase tokens, matching the shape every stored
+    vocabulary in this product uses. They are not an `OutcomeState` and carry no
+    sentinel: a *kind* names which question was asked, and the answer is the
+    `outcome` column beside it.
+    """
+
+    SOURCE_REPOSITORY = "source_repository"
+    RELEASE_ECOSYSTEM = "release_ecosystem"
+    CONDA_ARTIFACT = "conda_artifact"
+    FEEDSTOCK = "feedstock"
+    CROSS_ECOSYSTEM = "cross_ecosystem"
+
+
+#: The determinate verdict `MappingOutcome` adds to `core`'s four sentinels,
+#: declared once as the `(member name, value)` pair `outcome_type` takes.
+#:
+#: One pair rather than a member reference, because the composed type below is
+#: built from it and `ESTABLISHED` is read back out of it: a second spelling of
+#: `"established"` anywhere would be a value that could drift from the one the
+#: column actually offers, which is the duplication `core/outcomes.py` exists to
+#: prevent applied to this module.
+ESTABLISHED_MEMBER: Final[tuple[str, str]] = ("ESTABLISHED", "established")
+
+#: The mapping outcome vocabulary: `core`'s four sentinels plus `established`.
+#:
+#: **Bound once, at module scope, and that is load-bearing.** `outcome_type`
+#: mints a distinct class on every call, so two calls would produce two types
+#: whose members compare unequal as enum members and equal only as strings --
+#: `core/outcomes.py` says so in as many words and
+#: `tests/unit/django_apps/test_outcomes.py` pins it. This is the repository's
+#: first production caller; every later per-status vocabulary follows this shape.
+#:
+#: Composed rather than written out. The four sentinels arrive by construction
+#: with `core`'s own names, values and labels, which is what
+#: `tests/unit/django_apps/test_outcome_field_audit.py` reads to prove the table
+#: was not hand-rolled -- a hand-written table with the right values and Django's
+#: own derived labels would pass a value check and fail that one.
+#:
+#: `established` rather than `ok`: `CPM-AD-5` says a per-status type refines the
+#: generic determinate value into verdicts of its own, and what a resolution
+#: determines is that the mapping *was established*, which is a fact about the
+#: mapping rather than a clean bill of health. `core.outcomes.aggregate` cannot
+#: rank it -- `PRECEDENCE` holds no composed determinate value -- and nothing
+#: here aggregates one; see the story's design notes.
+MappingOutcome: Final[type[models.TextChoices]] = outcome_type("MappingOutcome", [ESTABLISHED_MEMBER])
+
+#: `MappingOutcome`'s own members, by name, read off the composed type itself.
+#:
+#: The composed type is built by the functional enum API, so its members are
+#: invisible to a type checker reading its declared `type[TextChoices]` and
+#: `MappingOutcome.ESTABLISHED` will not type-check. This table is how the two
+#: values this module names are reached *through the type* rather than beside it
+#: -- so a sentinel that had drifted, or a determinate member that had been
+#: renamed, fails here at import rather than silently making every comparison
+#: below false.
+_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in MappingOutcome}
+
+#: `established`, the one determinate verdict this vocabulary adds.
+#:
+#: Named because resolution branches on it: only an `established` mapping may
+#: carry a value, and an `established` mapping that owns columns must carry one
+#: -- which is `CPM-FR-1`'s "records nothing rather than a guess" and its
+#: converse, expressed as rules a writer can be held to.
+ESTABLISHED: Final[str] = _MEMBER_VALUES["ESTABLISHED"]
+
+#: `unknown` as *this* vocabulary spells it, which is the column's default.
+#:
+#: The same string `OutcomeState.UNKNOWN` carries -- `verify_sentinels`
+#: guarantees that -- but reached through `MappingOutcome`, because the column's
+#: default must be one of its own choices and reaching across to the other class
+#: for it would be the one place this module took a value from a type the field
+#: does not declare.
+UNKNOWN: Final[str] = _MEMBER_VALUES["UNKNOWN"]
+
+#: Which `Package` columns each mapping kind owns. Every mapping column appears
+#: exactly once, and no other column appears at all.
+#:
+#: The table is what makes "the values are written when the outcome is
+#: `established`, and never otherwise" a rule rather than a habit: resolution
+#: reads it instead of naming columns one at a time, so a column that acquired a
+#: kind and a kind that acquired a column both arrive here, in the open.
+#:
+#: `FEEDSTOCK` maps to no column on purpose. `CPM-FR-1` says "zero or more", so
+#: the mapping is the `Feedstock` child rows -- which is also why the empty tuple
+#: is not an omission: a feedstock outcome of `established` with no rows is a
+#: *successful empty result*, the third state `CPM-FR-6` insists on keeping
+#: apart from `not_found` and `not_applicable`, and it is expressible only
+#: because the outcome lives beside the rows rather than being inferred from them.
+MAPPED_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    MappingKind.SOURCE_REPOSITORY.value: ("source_repository_url",),
+    MappingKind.RELEASE_ECOSYSTEM.value: ("primary_purl", "primary_type"),
+    MappingKind.CONDA_ARTIFACT.value: ("conda_purl",),
+    MappingKind.FEEDSTOCK.value: (),
+    MappingKind.CROSS_ECOSYSTEM.value: ("alternative_purls", "cpes"),
+}
 
 
 class Package(models.Model):
@@ -233,6 +381,12 @@ class Package(models.Model):
     #: no `auto_now_add` -- the writer supplies the instant from an injected
     #: `Clock` (`CPM-AD-26`), which is what makes a staleness assertion testable
     #: without waiting.
+    #:
+    #: It advances when the identity *changes*, not every time a resolver looks:
+    #: `record_resolution` leaves this row untouched when a resolution establishes
+    #: nothing new, so a package nothing has resolved does not read as freshly
+    #: resolved. When a resolver last looked is `PackageMapping.resolved_at`,
+    #: which is a different question and has its own column.
     resolved_at = models.DateTimeField(_("resolved at"))
 
     #: How certain the identity is, and therefore what automation may claim about
@@ -274,6 +428,36 @@ class Package(models.Model):
             # corrected, cannot be exported and cannot be found again, so the
             # refusal belongs where every writer passes through.
             models.CheckConstraint(condition=~models.Q(canonical_name=""), name="canonical_name_is_present"),
+            # The pair ingestion and resolution both join on, made unique by the
+            # database rather than by a check-then-act nothing serialises.
+            #
+            # `CPM-IDENTITY-S06`'s review recorded the trap this closes and
+            # `CPM-IDENTITY-S07` delivered its first half by moving the lookup
+            # here from the correctable `canonical_name`. Without the constraint
+            # the lookup is still only a convention: two sweeps racing a package
+            # the source has just named would each find nothing and each create a
+            # shell, and the second key's evidence would hang off a row the first
+            # key's does not.
+            #
+            # **Partial, and it has to be.** Both columns are `blank=True,
+            # default=""`, so an unconditional constraint would make `("", "")` a
+            # single permissible row for the whole product -- and every creator
+            # that is not ingestion, `CPM-IDENTITY-S05`'s override included,
+            # would collide with it for no reason. `condition=~Q(associator_key="")`
+            # says the rule that is actually meant: a package some source claims
+            # is unique to that source's key, and a package no source claims is
+            # not constrained at all. Keyed on the *key* rather than on both
+            # columns because the key is the half that identifies -- a row with a
+            # source and no key names nothing to be unique about.
+            #
+            # No NULLs are involved, so PostgreSQL and the SQLite fallback
+            # enforce this identically; `pixi run gate-postgres` is where it is
+            # proven rather than assumed.
+            models.UniqueConstraint(
+                fields=["identity_source", "associator_key"],
+                condition=~models.Q(associator_key=""),
+                name="one_package_per_source_key",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -386,3 +570,129 @@ class Feedstock(models.Model):
         name = self.name or "(no name)"
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         return f"{name} for {scope}"
+
+
+class PackageMapping(models.Model):
+    """What resolution concluded about one mapping of one package. Table `package_mappings`.
+
+    **This row exists because three states will not fit in a value column.**
+    `CPM-FR-1` requires a mapping that does not apply to be distinguishable from
+    one that failed *and* from a successful empty result. A blank
+    `source_repository_url` cannot say which of the three it is, and a nullable
+    one adds a fourth spelling of "missing" rather than a third meaning. So the
+    answer moves to its own row and the value stays on `Package`, where
+    `CPM-AD-1` puts cross-ecosystem mappings.
+
+    **It could not have been a column on `Package` even if it fitted.**
+    `CPM-AD-1` says the package row holds no derived status, and
+    `tests/unit/django_apps/test_identity_models.py` enforces that by name:
+    nothing there may be called `status`, `outcome`, `*_status` or `*_outcome`.
+    A `source_repository_outcome` column would have been swept into the
+    derived-status vocabulary by `tests/unit/django_apps/test_outcome_field_audit.py`
+    at the same moment. Both rules point the same way, which is usually the sign
+    that the shape rather than the naming was wrong.
+
+    **One row per `(package, kind)`, never per resolution.** This is not
+    evidence: it carries no `observed_at`, inherits no `AppendOnlyModel`, and is
+    rewritten in place when a later resolution reaches a different conclusion --
+    exactly as `Package.confidence` is. What a resolution *observed* belongs in
+    an evidence table owned by the collector that observed it (`CPM-AD-2`,
+    `CPM-AD-7`); what it *concluded* is identity, and identity is mutable by
+    construction.
+    """
+
+    #: The package this outcome is about, by the integer primary key `CPM-AD-3`
+    #: fixes. `CASCADE` on the same terms as `Feedstock.package`: an outcome about
+    #: a package that has gone describes nothing, and `EVIDENCE.02-AUDIT-001`'s
+    #: `PROTECT`/`RESTRICT` rule reaches relations touching *evidence* models,
+    #: which neither end of this one is.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.CASCADE,
+        related_name="mappings",
+        verbose_name=_("package"),
+    )
+
+    #: Which mapping this row answers for. A closed vocabulary rather than a free
+    #: string, because `MAPPED_FIELDS` ties each member to the columns it owns and
+    #: a kind nothing recognises would be an outcome about nothing.
+    kind = models.CharField(
+        _("kind"),
+        max_length=_VOCABULARY_LENGTH,
+        choices=MappingKind.choices,
+    )
+
+    #: What resolution concluded. `established`, or one of `core`'s four
+    #: sentinels: `not_applicable` for a mapping the package's type puts out of
+    #: scope, `not_found` for one that was looked for and is not there, `unknown`
+    #: for one nobody has looked for yet, `error` for a look that failed
+    #: (`CPM-FR-6`).
+    #:
+    #: Non-null and non-blank, because `NULL` and `""` would each be a fifth
+    #: non-answer with no name and no place in the precedence order -- which is
+    #: the whole of what the sentinels exist to remove. Defaults to `UNKNOWN`,
+    #: this vocabulary's own `unknown`, which is the honest value for a mapping
+    #: no resolution has reached and is one of the column's own choices.
+    outcome = models.CharField(
+        _("outcome"),
+        max_length=_VOCABULARY_LENGTH,
+        choices=MappingOutcome.choices,
+        default=UNKNOWN,
+    )
+
+    #: When this conclusion was reached (`CPM-FR-2`). Supplied by the caller from
+    #: an injected `Clock` on the same terms as `Package.resolved_at`: no
+    #: `default`, no `auto_now_add`, and no wall clock anywhere near it
+    #: (`CPM-AD-26`).
+    #:
+    #: **This is when the mapping was last *looked at*, and `Package.resolved_at`
+    #: is when the identity last *changed*.** The two answer different questions
+    #: and would be the same column only while every resolution established
+    #: something: a resolver that runs daily and finds nothing advances these
+    #: five rows every day and leaves the package row alone, which is what stops
+    #: a package nothing has resolved from reading as freshly resolved to
+    #: `CPM-IDENTITY-S04`'s review queue.
+    #:
+    #: All five rows are stamped with one instant by the only writer there is
+    #: today, because `record_resolution` requires an outcome for every kind --
+    #: so the column is not carrying per-mapping *divergence* yet. It is on the
+    #: row rather than on the package because the answer is, and a second
+    #: timestamp on the package row would be a coarser answer to a question this
+    #: table already answers exactly.
+    resolved_at = models.DateTimeField(_("resolved at"))
+
+    class Meta:
+        """The table the architecture names, not the `identity_packagemapping` Django derives.
+
+        Rejected for the reason `Package.Meta` gives: the schema is named by the
+        architecture rather than by which application happened to declare the
+        model.
+        """
+
+        db_table = "package_mappings"
+        verbose_name = _("package mapping")
+        verbose_name_plural = _("package mappings")
+        constraints = [
+            # One answer per question. Without it a second resolution appends a
+            # second row and "what did we conclude about this package's
+            # feedstocks" has two answers with nothing to choose between them --
+            # and `CPM-AD-2` is not available as a tie-break, because this is not
+            # evidence and carries no `observed_at` to order by.
+            models.UniqueConstraint(fields=["package", "kind"], name="one_outcome_per_package_mapping"),
+        ]
+
+    def __str__(self) -> str:
+        """Return the mapping this row answers for and what it concluded.
+
+        Returns:
+            A one-line summary naming the package, the kind and the outcome, or
+            saying which of them is absent. Read off `package_id` rather than
+            `package` for the reason `Feedstock.__str__` gives: the related object
+            of an unsaved instance raises `RelatedObjectDoesNotExist`, and a
+            `__str__` that raises is what a failure message would have been.
+
+        """
+        kind = self.kind or "(no kind)"
+        outcome = self.outcome or "(no outcome)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        return f"{kind} is {outcome} for {scope}"

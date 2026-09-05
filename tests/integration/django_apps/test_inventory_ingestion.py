@@ -399,21 +399,37 @@ def test_an_existing_identity_is_not_lowered_by_ingestion() -> None:
     """PRD Appendix A.1: a `verified` confidence is never overwritten by a lower one.
 
     This is what "get or create" buys that "update or create" would have thrown
-    away, and it is not hypothetical: `CPM-IDENTITY-S02` will resolve real
-    identities behind the same door, and the daily sweep runs after it.
+    away, and it is not hypothetical: `CPM-IDENTITY-S02`'s `record_resolution`
+    now resolves real identities behind the same door, and the daily sweep runs
+    after it.
+
+    **The fixture carries the pair the sweep looks up, and that is the whole
+    difference between this case and a vacuous one.** An earlier version created
+    the row with a blank `associator_key`, so the lookup missed it, the insert
+    then collided on `canonical_name`, and the sweep wrote nothing at all -- the
+    assertions passed because nothing happened, and `update_or_create` would have
+    passed them identically. Giving the row the source and key ingestion actually
+    matches on is what makes `get_or_create` *find* it, and asserting `SUCCEEDED`
+    is what proves it did rather than failing quietly.
     """
     resolved = Package.objects.create(
         canonical_name=_name(FIRST_KEY),
         resolved_at=FIXED_INSTANT,
         confidence=IdentityConfidence.VERIFIED,
         source_repository_url="https://example.invalid/numpy",
+        identity_source=COLLECTOR_NAME,
+        associator_key=FIRST_KEY,
     )
 
-    _ingest(_adapter(_record(FIRST_KEY)))
+    result = _ingest(_adapter(_record(FIRST_KEY)))
 
     resolved.refresh_from_db()
+    assert result.state is RunState.SUCCEEDED
+    assert result.evidence_rows == 1
+    assert Package.objects.count() == 1
     assert resolved.confidence == IdentityConfidence.VERIFIED
     assert resolved.source_repository_url == "https://example.invalid/numpy"
+    assert resolved.resolved_at == FIXED_INSTANT
 
 
 @pytest.mark.django_db
