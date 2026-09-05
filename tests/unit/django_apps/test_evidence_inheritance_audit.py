@@ -192,12 +192,15 @@ def test_the_sweep_has_applications_to_look_at() -> None:
 def test_every_evidence_model_still_carries_the_append_only_guard() -> None:
     """`EVIDENCE.02-AUDIT-001`, enumerated from the registry rather than from a list.
 
-    No evidence model exists yet, so this passes over an empty set today. That is
-    stated rather than hidden: what keeps the case honest in the meantime is the
-    fixture half below, which proves the detector still detects. The day
-    `CPM-EP-CURRENCY` lands the first evidence table, this becomes the assertion
-    that matters and needs no edit to start mattering.
+    `CPM-IDENTITY-S06` landed the first evidence table -- `inventory_snapshots`,
+    whose relation to `identity.Package` is the first `PROTECT` this rule is
+    actually about -- so this is no longer a sweep over an empty set, and it
+    needed no edit to start mattering. The fixture half below is kept rather than
+    retired: one real subject can be conforming for reasons the detector never
+    had to exercise, and only a deliberately broken model shows that it still
+    detects.
     """
+    assert evidence_models() != [], "the sweep has nothing to be about"
     assert audit_failures(evidence_models()) == {}
 
 

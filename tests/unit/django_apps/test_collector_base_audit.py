@@ -174,8 +174,23 @@ EVIDENCE_WRITE_METHODS: Final[frozenset[str]] = frozenset({"abulk_create", "acre
 #: is Django's most ordinary call and a repository-wide rule requiring a
 #: transaction around every one of them would be a rule about something else
 #: entirely. What `CPM-AD-23` is about is the collector base's write, so that is
-#: what is checked -- and the day a concrete collector arrives, its module joins
-#: this tuple.
+#: what is checked.
+#:
+#: **One entry, still, and the reason a concrete collector did not join it is
+#: worth stating.** `CPM-IDENTITY-S06` landed the first one, and it makes no
+#: insert of its own: every row it writes goes through `Collector._write_evidence`
+#: -- the module below -- which is what applies the declared-model check, the
+#: `observed_at` check and the tally the base reconciles against what a sweep
+#: reports. So this rule already covers its writes, at the one place they happen,
+#: and adding its module here would fail
+#: `test_the_evidence_write_rule_has_a_write_to_be_about` for the right reason:
+#: there is no `create` in it to be about.
+#:
+#: What that leaves uncovered here is the collector's *own* obligation -- that its
+#: per-package `transaction.atomic()` encloses that call and encloses no loop --
+#: and `tests/unit/django_apps/test_inventory_ingestion.py` makes both of those
+#: claims over the same file, plus the one this rule cannot: that the module has
+#: no direct write at all.
 TRANSACTIONAL_WRITE_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
 )
@@ -257,9 +272,15 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
 #: the scan, so an exclusion added later cannot quietly take it out of view.
 AN_INHERITED_OUTBOUND_CALL: Final[str] = "config/authorization/jwks.py"
 
-#: The modules `CPM-EVIDENCE-S05` and `CPM-EVIDENCE-S08` wrote, named so that a
-#: scan which had stopped reaching them would fail here rather than report a
-#: clean repository.
+#: The modules `CPM-EVIDENCE-S05`, `CPM-EVIDENCE-S08` and `CPM-IDENTITY-S06`
+#: wrote, named so that a scan which had stopped reaching them would fail here
+#: rather than report a clean repository.
+#:
+#: The last of them sits under a *different application* from the other three,
+#: which is the reason it is worth naming as well as auditing: the walk starts at
+#: `src/` and has never had to descend into a second `django_apps` subtree that
+#: carries one of these rules, so an exclusion that happened to skip it would look
+#: exactly like a repository that had not grown one.
 #:
 #: The three that carry a detectable form are named individually as well, because
 #: `test_the_detectors_find_what_the_named_modules_actually_contain` measures the
@@ -268,8 +289,10 @@ AN_INHERITED_OUTBOUND_CALL: Final[str] = "config/authorization/jwks.py"
 THE_LIMITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py"
 THE_RESPONSE_CACHE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/response_cache.py"
 THE_TRANSPORT: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/transport.py"
+THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/tasks.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
+    THE_INGESTION_COLLECTOR,
     THE_LIMITER,
     THE_RESPONSE_CACHE,
     THE_TRANSPORT,

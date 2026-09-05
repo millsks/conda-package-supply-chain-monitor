@@ -133,11 +133,14 @@ def constraint_failures(model: type[models.Model]) -> list[str]:
 def test_no_evidence_model_carries_a_unique_constraint() -> None:
     """`EVIDENCE.02-AUDIT-003`, enumerated from the registry rather than from a list.
 
-    No evidence model exists yet, so this passes over an empty set today. The day
-    `CPM-EP-CURRENCY` lands the first evidence table, it becomes the assertion
-    that matters and needs no edit to start mattering; until then the two guards
-    below are what keep it from being permanently green for the wrong reason.
+    `CPM-IDENTITY-S06` landed the first evidence table, so this is no longer a
+    sweep over an empty set and it needed no edit to start mattering. The two
+    guards below are kept: `inventory_snapshots` carries a `CheckConstraint` and
+    no `UniqueConstraint`, which is a subject the detector can pass without ever
+    having to tell the two apart.
     """
+    assert evidence_models() != [], "the sweep has nothing to be about"
+
     offenders = {
         model._meta.label: failures  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
         for model in evidence_models()

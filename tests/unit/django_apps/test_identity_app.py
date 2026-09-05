@@ -57,7 +57,13 @@ STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
 #: Every module this application is allowed to declare today. `CPM-AD-19` gives a
 #: domain application more than this -- `urls.py`, `tasks.py`, an `api/`
 #: subpackage -- when it has views or work to schedule; this one has neither yet.
-EXPECTED_MODULES: Final[tuple[str, ...]] = ("__init__.py", "apps.py", "models.py")
+#:
+#: `services.py` arrived with `CPM-IDENTITY-S06`, which needed the one door
+#: `CPM-AD-25` names: the collector that ingests the inventory never writes the
+#: package table, so a package it names for the first time is created by
+#: `identity`'s resolution service. It holds shell creation only;
+#: `CPM-IDENTITY-S02` adds real resolution behind the same door.
+EXPECTED_MODULES: Final[tuple[str, ...]] = ("__init__.py", "apps.py", "models.py", "services.py")
 
 #: The surfaces this story does not build, in both shapes each can take. A
 #: `tasks.py` and a `tasks/` package are the same surface to Django and to the

@@ -52,12 +52,18 @@ that documentation, in a form the audits can read. It is not a quiet door: the
 audit records every model that uses it in a table and fails when the two
 disagree, exactly as `RECORDED_EXEMPTIONS` does for the source scans.
 
-**Both marks are empty today, and that is stated rather than hidden.** No
-evidence model exists yet -- `CPM-AD-7` puts the first with `CPM-EP-CURRENCY`,
-and `CPM-EVIDENCE-S02` is forbidden to create one -- so every sweep over
-`evidence_models()` currently passes by finding nothing. What keeps the audits
-honest in the meantime is that each of them measures these predicates against
-fixture models built in an isolated registry, conforming and not. `isolate_apps`
+**Neither mark is empty any more, and that is stated rather than assumed.**
+`CPM-IDENTITY-S06` landed the first evidence model -- `collectors.InventorySnapshot`,
+the `inventory_snapshots` table `CPM-AD-25` names -- so every sweep over
+`evidence_models()` now has a real table to be about, and none of the three
+audits needed an edit to start mattering. That is the property the three marks
+were built for: the model arrived in a collector's own application, which is the
+shape `CPM-AD-7` makes the norm and which the `observed_at` mark catches.
+`exempt_models()` has not been empty since `CPM-EVIDENCE-S03`'s run ledger.
+What still keeps the audits honest is that each of them *also* measures these
+predicates against fixture models built in an isolated registry, conforming and
+not -- a single real subject can be conforming for reasons the detector never
+had to notice. `isolate_apps`
 patches `Options.default_apps` rather than the global `django.apps.apps`, so
 those fixtures are invisible to `first_party_models()` below and must be passed
 to the predicates directly -- which is why the predicates take a model rather
@@ -122,14 +128,17 @@ NOT_EVIDENCE_ATTRIBUTE: Final[str] = "not_evidence"
 #: by somebody who decided to, not discovered by a predicate.
 RUN_LEDGER_MODEL_LABELS: Final[frozenset[str]] = frozenset({"core.CollectionRun", "core.PolicyRun"})
 
-#: Three applications that must be in scope, so a scope that had narrowed to
-#: nothing is caught. `core` is where the base lives and where evidence models
-#: will land; `identity` is the second application under the second import root,
-#: and naming it is what keeps the anchor honest now that the scope predicate has
-#: more than one `django_apps` subtree to find; `users` is inherited platform and
-#: is still this repository's own source, which is what `CPM-AD-5`'s "anywhere"
-#: means.
+#: Four applications that must be in scope, so a scope that had narrowed to
+#: nothing is caught. `core` is where the base lives; `identity` is the second
+#: application under the second import root, and naming it is what keeps the
+#: anchor honest now that the scope predicate has more than one `django_apps`
+#: subtree to find; `collectors` is the third and is where evidence models
+#: actually land (`CPM-AD-7` gives each collector its own table in its own
+#: application), so a scope that reached the first two and not it would sweep a
+#: repository with no evidence in it; `users` is inherited platform and is still
+#: this repository's own source, which is what `CPM-AD-5`'s "anywhere" means.
 FIRST_PARTY_APP_NAMES: Final[tuple[str, ...]] = (
+    "conda_package_supply_chain_monitor.collectors",
     "conda_package_supply_chain_monitor.core",
     "conda_package_supply_chain_monitor.identity",
     "django_service.users",
@@ -261,8 +270,10 @@ def evidence_models() -> list[type[models.Model]]:
 
     Returns:
         The first-party models carrying at least one mark, in registry order.
-        Empty today, which is why every caller pairs its sweep with fixture
-        models.
+        No longer empty -- `CPM-IDENTITY-S06` landed `collectors.InventorySnapshot`
+        -- and every caller still pairs its sweep with fixture models, because a
+        detector can be right about one real table for reasons that would not
+        survive a second.
 
     """
     return [model for model in first_party_models() if is_evidence_model(model)]
@@ -272,8 +283,8 @@ def exempt_models() -> list[type[models.Model]]:
     """Return every first-party model declaring itself not evidence.
 
     Returns:
-        The models setting `not_evidence = True`, in registry order. Empty today;
-        `CPM-EVIDENCE-S03`'s run ledger is the first expected user, and
+        The models setting `not_evidence = True`, in registry order.
+        `CPM-EVIDENCE-S03`'s run ledger is the only user, and
         `tests/unit/django_apps/test_evidence_inheritance_audit.py` reconciles
         this against a recorded table so the escape cannot be taken silently.
 
