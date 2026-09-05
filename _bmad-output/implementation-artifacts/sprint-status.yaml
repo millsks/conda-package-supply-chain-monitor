@@ -32,7 +32,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-05-2026 09:40
+last_updated: 09-05-2026 18:20
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -58,10 +58,10 @@ development_status:
   epic-evidence-retrospective: optional
 
   # CPM-EP-IDENTITY: Every package resolved, or visibly not
-  epic-identity: backlog
+  epic-identity: in-progress
   cpm-identity-s06-inventory-arrives-arrives-as-evidence: ready-for-dev
   cpm-identity-s07-watchlist-inventory-source: ready-for-dev
-  cpm-identity-s01-package-identity-model: ready-for-dev
+  cpm-identity-s01-package-identity-model: done
   cpm-identity-s02-resolution-records-where-came-from: ready-for-dev
   cpm-identity-s03-confidence-gates-what-system-will: ready-for-dev
   cpm-identity-s04-unresolved-packages-selectable-ranked: ready-for-dev

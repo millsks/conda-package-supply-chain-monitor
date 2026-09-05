@@ -199,6 +199,7 @@ LOCAL_APPS = [
     # composition step is Epic 9), so the entry here is what actually installs
     # the application today.
     "conda_package_supply_chain_monitor.core",
+    "conda_package_supply_chain_monitor.identity",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps

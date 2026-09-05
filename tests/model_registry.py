@@ -122,12 +122,16 @@ NOT_EVIDENCE_ATTRIBUTE: Final[str] = "not_evidence"
 #: by somebody who decided to, not discovered by a predicate.
 RUN_LEDGER_MODEL_LABELS: Final[frozenset[str]] = frozenset({"core.CollectionRun", "core.PolicyRun"})
 
-#: Two applications that must be in scope, so a scope that had narrowed to
+#: Three applications that must be in scope, so a scope that had narrowed to
 #: nothing is caught. `core` is where the base lives and where evidence models
-#: will land; `users` is inherited platform and is still this repository's own
-#: source, which is what `CPM-AD-5`'s "anywhere" means.
+#: will land; `identity` is the second application under the second import root,
+#: and naming it is what keeps the anchor honest now that the scope predicate has
+#: more than one `django_apps` subtree to find; `users` is inherited platform and
+#: is still this repository's own source, which is what `CPM-AD-5`'s "anywhere"
+#: means.
 FIRST_PARTY_APP_NAMES: Final[tuple[str, ...]] = (
     "conda_package_supply_chain_monitor.core",
+    "conda_package_supply_chain_monitor.identity",
     "django_service.users",
 )
 
