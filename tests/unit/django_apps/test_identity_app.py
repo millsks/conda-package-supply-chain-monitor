@@ -73,8 +73,22 @@ STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
 #: package table, so a package it names for the first time is created by
 #: `identity`'s resolution service. `CPM-IDENTITY-S02` added the second door
 #: beside it -- `record_resolution`, which writes what a resolver concluded about
-#: a package that already exists -- and both live in that one module.
-EXPECTED_MODULES: Final[tuple[str, ...]] = ("__init__.py", "apps.py", "models.py", "services.py")
+#: a package that already exists -- and `CPM-IDENTITY-S05` the third,
+#: `override_identity`. All three live in that one module.
+#:
+#: `confidence.py` arrived with `CPM-IDENTITY-S05` and is not a fourth surface: it
+#: holds `IdentityConfidence` and nothing else, re-exported from `models.py` so no
+#: importer changed. It exists because `core/models.py` reads that vocabulary
+#: while `identity/models.py` now reads `core.models.AppendOnlyModel` for the
+#: audit row, and a leaf module is what keeps those two edges from being a cycle.
+#: Its own docstring carries the reasoning.
+EXPECTED_MODULES: Final[tuple[str, ...]] = (
+    "__init__.py",
+    "apps.py",
+    "confidence.py",
+    "models.py",
+    "services.py",
+)
 
 #: The surfaces this story does not build, in both shapes each can take. A
 #: `tasks.py` and a `tasks/` package are the same surface to Django and to the
@@ -205,6 +219,7 @@ def test_the_application_ships_a_migrations_package() -> None:
     assert sorted(path.name for path in migrations.glob("0*.py")) == [
         "0001_package_identity.py",
         "0002_resolution.py",
+        "0003_identity_override.py",
     ]
 
 

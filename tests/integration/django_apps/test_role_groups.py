@@ -21,11 +21,24 @@ test that made its own rows would hide a real defect in it.
 Every test here rolls back. `@pytest.mark.django_db` wraps each in a transaction,
 which is what leaves the state as found; `transaction=True` would truncate the
 tables the migrations seeded and take the first test's evidence with it.
+
+**The cases that read what a migration left carry a local-feedback caveat, and it
+is worth naming rather than discovering.** `--reuse-db` is in `addopts`, so on a
+developer's machine those cases can be reading rows an *earlier* database build
+wrote -- which means a change to `core/0001` or `core/0004` may not be reflected
+until the test database is rebuilt (`--create-db`, or deleting it). CI builds
+fresh every run and `pixi run gate-postgres` starts a throwaway server, so the
+gate always reads the current migrations and this is not a hole in it. What it
+costs is the inner loop: a migration edit that broke provisioning could pass
+locally and fail in CI, which is the one direction of surprise worth writing
+down. The cases that *run* `forward` and `reverse` themselves are unaffected --
+they execute the code as it is now.
 """
 
 from __future__ import annotations
 
 from importlib import import_module
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -33,8 +46,13 @@ import pytest
 import structlog
 from django.apps import apps as global_apps
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.contrib.auth.models import Permission
+from django.db import connection
 
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
 from conda_package_supply_chain_monitor.core.roles import RoleContract
 from conda_package_supply_chain_monitor.core.roles import role_group_permissions
 from config.authorization.exceptions import ClaimsRejected
@@ -50,6 +68,48 @@ if TYPE_CHECKING:
     from django_service.users.models import User
 
 MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0001_provision_role_groups"
+
+# `CPM-IDENTITY-S05`'s grant. `tests/unit/django_apps/test_role_migration.py`
+# holds its shape; what is here is the half only a run can show.
+GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0005_grant_identity_override"
+
+# The leadership group the suite is configured with, bound once so the
+# unconfigured-contract case can still name the row after it has replaced the
+# contract that names it.
+TEST_LEADERSHIP_GROUP = "cpm-leadership"
+
+
+def _schema_editor() -> Any:
+    """Return what `RunPython` hands a data migration for `schema_editor`.
+
+    `0004`'s `forward` reads `schema_editor.connection.alias` to tell
+    `create_permissions` which database to write to. `0001`'s cases pass `None`
+    because its `forward` never touches the argument; this one does, so the cases
+    below hand it the live connection wrapper -- which is what `migrate` passes,
+    reached through the object that actually carries it.
+
+    Returns:
+        A stand-in exposing `.connection`, typed `Any` because a schema editor is
+        a backend-specific class no annotation here should assert.
+
+    """
+    return SimpleNamespace(connection=connection)
+
+
+def _label(permission: Permission) -> str:
+    """Return a permission as the `app_label.codename` string a declaration names it by.
+
+    Args:
+        permission: The row.
+
+    Returns:
+        The dotted spelling `ROLE_GROUP_PERMISSIONS` and `provision_groups` use,
+        so a case compares declarations against declarations rather than against
+        primary keys.
+
+    """
+    return f"{permission.content_type.app_label}.{permission.codename}"
+
 
 # Names chosen to look nothing like the ones the suite is configured with, so a
 # case passing on them cannot be passing on a literal in the source.
@@ -144,16 +204,68 @@ def test_the_migration_provisions_the_three_role_groups() -> None:
 
 
 @pytest.mark.django_db
-def test_the_role_groups_carry_no_permissions() -> None:
-    """Membership is the fact this story establishes; grants arrive with the surfaces.
+def test_the_migration_grants_the_override_permission_to_leadership_and_to_nobody_else() -> None:
+    """AC #7: the rows after migration hold exactly the grant, and the other two hold none.
 
-    Asserted against the rows rather than only against the declaration, because
-    an empty tuple in the declaration and an empty permission set on the row are
-    different claims: `permissions.set` is what makes the second follow from the
-    first, and a grant attached by hand in the admin would show up here.
+    This case used to assert that every role group carried no permissions at all,
+    which was true until `CPM-IDENTITY-S05` -- the first story with anything to
+    grant. It is rewritten rather than deleted, because the property it protected
+    is the half that still matters: a permission on the security-reviewer or
+    packaging-engineer row is the accident the empty assertion existed to catch,
+    and it is now a *narrower* claim than "nobody holds anything", not a weaker
+    one.
+
+    **Asserted on the rows, not on the declaration.** An entry in
+    `ROLE_GROUP_PERMISSIONS` and a `Permission` attached to an `auth_group` row
+    are different claims, and everything between them can fail quietly:
+    `_resolve_permissions` logs an unresolvable codename at warning and attaches
+    nothing, `create_permissions` not being called leaves `auth_permission` empty
+    for `identity` on a fresh database, and a migration that never ran attaches
+    nothing at all. Each of those ends with leadership holding no permission, the
+    unit case in `tests/unit/django_apps/test_roles.py` still passing, and every
+    override refused as forbidden. This is the case that catches all three.
+
+    Nothing here provisions anything. `core/0005_grant_identity_override` ran when
+    the test database was built, and what is read back is its output -- which is
+    the only way to show that the migration is what guarantees the grant, rather
+    than some later call that happens to run first in production too.
     """
-    for name in role_group_permissions(settings.ROLE_CONTRACT):
-        assert Group.objects.get(name=name).permissions.count() == 0
+    contract = settings.ROLE_CONTRACT
+    held = {
+        name: {
+            f"{permission.content_type.app_label}.{permission.codename}"
+            for permission in Group.objects.get(name=name).permissions.select_related("content_type")
+        }
+        for name in role_group_permissions(contract)
+    }
+
+    assert held[contract.leadership] == {IDENTITY_OVERRIDE_PERMISSION}
+    assert held[contract.security_reviewer] == set()
+    assert held[contract.packaging_engineer] == set()
+
+
+@pytest.mark.django_db
+def test_the_granted_permission_is_the_one_the_override_actually_checks() -> None:
+    """The grant and the check are one string, proven against a real user and real rows.
+
+    The unit suite reconciles `IDENTITY_OVERRIDE_PERMISSION` against the model's
+    `Meta.permissions`, which is a claim about two declarations. This is the claim
+    about the world: a person put in the leadership group by nothing but a
+    membership passes `has_perm` for the permission `override_identity` asks
+    about, and the same person outside it does not.
+
+    `has_perm` is called on a user re-read from the database, because Django
+    caches a user's permissions on the instance the first time it resolves them --
+    so asserting the negative and then the positive on one object would report the
+    stale answer and pass whatever the grant did.
+    """
+    user = UserFactory.create(username="a-leader", idp_subject=SUBJECT)
+
+    assert get_user_model().objects.get(pk=user.pk).has_perm(IDENTITY_OVERRIDE_PERMISSION) is False
+
+    user.groups.add(Group.objects.get(name=settings.ROLE_CONTRACT.leadership))
+
+    assert get_user_model().objects.get(pk=user.pk).has_perm(IDENTITY_OVERRIDE_PERMISSION) is True
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +409,15 @@ def test_provisioning_a_role_group_never_clears_a_designated_groups_permissions(
     would catch it: `stage_two`'s condition asks whether the designated rows
     *exist*, not what they hold. The symptom is staff members authenticating,
     receiving `is_staff`, and landing on an empty admin index.
+
+    **Asserted as a superset since `CPM-IDENTITY-S05`, not as equality.** The
+    leadership slot now declares a real codename, so a pass over a row that slot
+    shares with the staff group legitimately *adds* one permission. Equality would
+    have made this case fail on the grant rather than on the disarming it exists
+    to catch. What it asserts instead is the property itself, in both directions:
+    nothing the earlier pass attached is gone, and everything this pass added was
+    asked for by the role declaration -- so a `set` in place of the `add` still
+    fails here, and so does a codename attached from somewhere nobody declared.
     """
     migration = import_module(MIGRATION_MODULE)
     provision_designated_groups()
@@ -307,7 +428,11 @@ def test_provisioning_a_role_group_never_clears_a_designated_groups_permissions(
 
     shared.refresh_from_db()
     assert before, "the designated staff group must hold permissions for this to mean anything"
-    assert set(shared.permissions.values_list("pk", flat=True)) == before
+    after = set(shared.permissions.values_list("id", "content_type__app_label", "codename"))
+    assert {row[0] for row in after} >= before
+    declared = set(role_group_permissions(colliding_contract)[colliding_contract.leadership])
+    gained = {f"{app_label}.{codename}" for row_id, app_label, codename in after if row_id not in before}
+    assert gained <= declared
 
 
 @pytest.mark.django_db
@@ -485,3 +610,111 @@ def test_a_group_claim_asserting_no_groups_syncs_to_no_roles(role_holder: User) 
     assert outcome.removed == ()
     assert outcome.ignored == ()
     assert set(role_holder.groups.values_list("name", flat=True)) == set()
+
+
+# ---------------------------------------------------------------------------
+# `core/0005_grant_identity_override`, run rather than only read.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_the_grant_pass_converges_rather_than_duplicating() -> None:
+    """`migrate` is re-run on every deployment, so the pass must be idempotent.
+
+    Asserted at the call site rather than inferred from `get_or_create` and
+    `permissions.add`, because idempotence is a property of the whole pass: it
+    creates permission rows, resolves them and attaches them, and any of the three
+    could have been written to duplicate.
+    """
+    grant = import_module(GRANT_MIGRATION_MODULE)
+    leadership = Group.objects.get(name=settings.ROLE_CONTRACT.leadership)
+
+    grant.forward(global_apps, _schema_editor())
+    grant.forward(global_apps, _schema_editor())
+
+    assert [_label(permission) for permission in leadership.permissions.all()] == [IDENTITY_OVERRIDE_PERMISSION]
+
+
+@pytest.mark.django_db
+def test_the_grant_reverse_detaches_the_permission_and_leaves_the_group() -> None:
+    """The rollback path, executed rather than read.
+
+    `reverse` is executable code kept permanently in the migration graph, and
+    nothing but an operator rolling back ever runs it -- so a broken filter, a
+    wrong model or a raise surfaces at the worst possible moment. That is the
+    argument `0001`'s three reverse cases make, and this is the same argument for
+    the migration that carries the product's one grant.
+
+    The group survives, and so does every membership hanging off it: unapplying a
+    grant is not unapplying the role.
+    """
+    grant = import_module(GRANT_MIGRATION_MODULE)
+    grant.forward(global_apps, _schema_editor())
+    leadership = Group.objects.get(name=settings.ROLE_CONTRACT.leadership)
+    assert leadership.permissions.count() == 1
+
+    grant.reverse(global_apps, _schema_editor())
+
+    leadership.refresh_from_db()
+    assert list(leadership.permissions.all()) == []
+    assert Group.objects.filter(name=settings.ROLE_CONTRACT.leadership).exists()
+    assert Permission.objects.filter(codename=IDENTITY_OVERRIDE_CODENAME).exists()
+
+
+@pytest.mark.django_db
+def test_the_grant_reverse_leaves_a_group_the_role_contract_does_not_name(
+    settings: SettingsWrapper,
+) -> None:
+    """The rollback revokes what this migration granted, and not what somebody else did.
+
+    `forward` provisions with `preserve_existing=True` precisely so it speaks only
+    for what it asks for. A `reverse` that stripped the codename from *every* group
+    holding it would re-create through the rollback path exactly the disarming that
+    keyword exists to prevent -- a group another contract, another migration or an
+    administrator in the admin had granted it to, silently revoked by unapplying a
+    migration that never granted it.
+
+    The other group here is outside the role contract entirely, which is what makes
+    the case about scope rather than about ordering.
+    """
+    grant = import_module(GRANT_MIGRATION_MODULE)
+    grant.forward(global_apps, _schema_editor())
+    permission = Permission.objects.get(codename=IDENTITY_OVERRIDE_CODENAME)
+    somebody_elses = Group.objects.create(name=A_REVIEWER_GROUP)
+    somebody_elses.permissions.add(permission)
+
+    grant.reverse(global_apps, _schema_editor())
+
+    assert list(Group.objects.get(name=settings.ROLE_CONTRACT.leadership).permissions.all()) == []
+    assert list(somebody_elses.permissions.all()) == [permission]
+
+
+@pytest.mark.django_db
+def test_the_grant_pass_provisions_nothing_on_an_unconfigured_contract(
+    settings: SettingsWrapper,
+) -> None:
+    """A fresh clone is migrated long before anyone has role groups to declare.
+
+    `forward` logs and returns rather than raising, on `0001`'s terms exactly: a
+    migration that refused would make `pixi run migrate` unusable during bring-up,
+    and refusing to *serve* on an unconfigured contract is a startup concern that
+    belongs to stage one. `reverse` returns on the same condition, so it undoes
+    exactly what `forward` does.
+
+    The permission row is still created -- that half runs before the contract is
+    read, and it is `post_migrate`'s work being done early rather than anything to
+    do with the contract.
+    """
+    grant = import_module(GRANT_MIGRATION_MODULE)
+    settings.ROLE_CONTRACT = AN_UNCONFIGURED_CONTRACT
+    leadership_before = set(
+        Group.objects.get(name=TEST_LEADERSHIP_GROUP).permissions.values_list("pk", flat=True),
+    )
+
+    grant.forward(global_apps, _schema_editor())
+    grant.reverse(global_apps, _schema_editor())
+
+    assert Permission.objects.filter(codename=IDENTITY_OVERRIDE_CODENAME).exists()
+    assert set(Group.objects.get(name=TEST_LEADERSHIP_GROUP).permissions.values_list("pk", flat=True)) == (
+        leadership_before
+    )

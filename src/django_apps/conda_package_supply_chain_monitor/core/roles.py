@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     import environ
 
 __all__ = [
+    "IDENTITY_APP_LABEL",
+    "IDENTITY_OVERRIDE_CODENAME",
+    "IDENTITY_OVERRIDE_PERMISSION",
     "LEADERSHIP",
     "PACKAGING_ENGINEER",
     "ROLE_ENVIRONMENT_VARIABLES",
@@ -72,21 +75,71 @@ ROLE_ENVIRONMENT_VARIABLES: Final[tuple[str, ...]] = (
     "CPM_LEADERSHIP_GROUP",
 )
 
+#: The application the one governed write lives in, and the codename that gates
+#: it. Declared *here* rather than in `identity/models.py`, which is the module
+#: that attaches the codename to a model: this file is imported from
+#: `config/settings/base.py`, long before the app registry is populated, so it
+#: could not read a value out of a model even if it wanted to -- while
+#: `identity/models.py` imports these two freely, because this module imports
+#: nothing but `dataclasses` and `typing`.
+#:
+#: One spelling, therefore, rather than a codename written in the model and an
+#: `app_label.codename` string written again in the grant below. Those two would
+#: drift the day either is renamed, and the symptom is the quietest one there is:
+#: `provision_groups` logs the unresolved codename at warning and attaches
+#: nothing, so the permission simply stops being held and every override is
+#: refused as forbidden.
+#: `tests/unit/django_apps/test_identity_overrides.py` reconciles this against
+#: `IdentityOverride._meta` in both halves, so a model that moved application or
+#: renamed its permission fails there.
+IDENTITY_APP_LABEL: Final = "identity"
+IDENTITY_OVERRIDE_CODENAME: Final = "override_package_identity"
+IDENTITY_OVERRIDE_PERMISSION: Final = f"{IDENTITY_APP_LABEL}.{IDENTITY_OVERRIDE_CODENAME}"
+
 #: What each role group may do, keyed by **role slot** and never by group name.
 #:
-#: All three are deliberately empty. `core` has no models and the product has no
-#: views yet, so every codename written here would resolve to nothing, be logged
-#: as unresolved on every `migrate`, and grant nobody anything -- while still
-#: being maintained, shown in the admin, and inherited from by whoever writes the
-#: first role-scoped surface. That is how a decorative grant drifts into a
-#: load-bearing one; `SUPERUSER_ROLE`'s empty tuple in
+#: **One grant, and it is the first.** Every tuple here was empty until
+#: `CPM-IDENTITY-S05`: `core` has no models, the product has no views, and a
+#: codename written before the thing it guards exists would resolve to nothing,
+#: be logged as unresolved on every `migrate`, and grant nobody anything -- while
+#: still being maintained, shown in the admin, and inherited from by whoever
+#: writes the first role-scoped surface. That is how a decorative grant drifts
+#: into a load-bearing one; `SUPERUSER_ROLE`'s empty tuple in
 #: `django_service/users/provisioning.py` is the same decision for the same
-#: reason. Membership is the fact this contract establishes. The grants arrive
-#: with the surfaces they guard, in `CPM-EP-APP` (`CPM-AD-13`).
+#: reason. The grants arrive with the surfaces they guard (`CPM-AD-13`).
+#:
+#: `CPM-FR-3` makes the audited identity override the **only** human write in the
+#: product that mutates governed reference data, and `CPM-AD-14` puts the whole
+#: weight of the rule on it -- so its codename is the first thing there has ever
+#: been to grant, and it arrives with the write rather than with a surface.
+#:
+#: **Leadership alone, and the other two stay empty on purpose.** The security
+#: and compliance reviewer and the packaging engineer read the review queue and
+#: act on what it says; correcting governed reference data is a different act,
+#: and `CPM-IDENTITY-S05` says in as many words that neither slot receives it.
+#: Two empty tuples beside one grant are also what keeps this table honest: they
+#: are what a test asserts is *still* empty, so a second permission attached to
+#: the wrong slot is a failure rather than a diff nobody reads.
+#:
+#: **Deleting a codename from this table does not revoke the grant, and there is
+#: no way to make it.** The role contract is a *secondary* declaration over the
+#: `auth_group` rows the claims contract also writes to, so it provisions with
+#: `preserve_existing=True` -- it adds what it asks for and removes nothing,
+#: because the alternative is a pass that silently clears whatever the claims
+#: contract attached to a shared group. `provision_groups`' own docstring states
+#: the trade in as many words: "a secondary declaration cannot revoke by
+#: omission; whoever removes one of its codenames has to say so." Concretely:
+#: taking `IDENTITY_OVERRIDE_PERMISSION` off leadership below leaves every
+#: already-provisioned deployment holding it, and the person who wants it gone
+#: writes a migration that detaches it -- the shape
+#: `core/0005_grant_identity_override`'s `reverse` already has.
+#: `tests/integration/django_apps/test_role_groups.py` pins this in both
+#: directions, so it is a property somebody demonstrated rather than a caveat in
+#: a comment.
 ROLE_GROUP_PERMISSIONS: Final[dict[str, tuple[str, ...]]] = {
     SECURITY_REVIEWER: (),
     PACKAGING_ENGINEER: (),
-    LEADERSHIP: (),
+    LEADERSHIP: (IDENTITY_OVERRIDE_PERMISSION,),
 }
 
 

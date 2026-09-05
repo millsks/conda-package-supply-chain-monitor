@@ -29,6 +29,9 @@ import pytest
 from django.conf import settings
 
 from conda_package_supply_chain_monitor.core import roles
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_APP_LABEL
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
 from conda_package_supply_chain_monitor.core.roles import LEADERSHIP
 from conda_package_supply_chain_monitor.core.roles import PACKAGING_ENGINEER
 from conda_package_supply_chain_monitor.core.roles import ROLE_ENVIRONMENT_VARIABLES
@@ -211,15 +214,48 @@ def test_the_permission_declaration_is_keyed_by_role_slot() -> None:
     assert set(ROLE_GROUP_PERMISSIONS) == ROLE_SLOTS
 
 
-def test_every_role_slot_grants_nothing_yet() -> None:
-    """`core` has no models and the product has no views.
+def test_only_the_leadership_slot_grants_anything_and_it_grants_the_override() -> None:
+    """AC #7's declaration half: one grant, to one slot, and two slots still empty.
 
-    Pinned rather than left to be re-derived: every codename written today would
-    resolve to nothing, be logged as unresolved on every `migrate`, and still be
-    maintained and inherited from -- which is how a decorative grant drifts into
-    a load-bearing one. The grants arrive with the surfaces they guard.
+    This case used to assert that every slot granted nothing, which was the state
+    until `CPM-IDENTITY-S05`. It is rewritten rather than deleted, because the
+    property it protected still matters and is now the harder half: a permission
+    attached to the security-reviewer or packaging-engineer slot is exactly the
+    accident an empty tuple was pinned to catch, and deleting the case would have
+    removed the mechanism at the moment there was finally something to attach.
+
+    The grant itself is asserted by *equality with a tuple*, not by membership: a
+    second codename added to leadership without a decision is the same accident
+    seen from the other side, and `codenames >= {...}` would pass on it.
+
+    `IDENTITY_OVERRIDE_PERMISSION` is imported rather than spelled, because a
+    literal `"identity.override_package_identity"` here would be a second spelling
+    of the string whose *single* spelling is the entire reason `core/roles.py`
+    declares it -- see that module, and
+    `tests/unit/django_apps/test_identity_overrides.py`, which reconciles it
+    against the model's own `Meta.permissions`.
     """
-    assert all(codenames == () for codenames in ROLE_GROUP_PERMISSIONS.values())
+    assert ROLE_GROUP_PERMISSIONS[LEADERSHIP] == (IDENTITY_OVERRIDE_PERMISSION,)
+    assert ROLE_GROUP_PERMISSIONS[SECURITY_REVIEWER] == ()
+    assert ROLE_GROUP_PERMISSIONS[PACKAGING_ENGINEER] == ()
+
+
+def test_the_override_permission_is_an_app_label_and_a_codename() -> None:
+    """The shape `provision_groups` resolves, asserted where the string is declared.
+
+    `_resolve_permissions` splits on the dot and looks the two halves up in
+    `auth_permission`; a codename written without its application resolves to
+    nothing, is logged at warning, and attaches silently -- so the leadership
+    group would simply not hold the permission and every override would be
+    refused as forbidden with nothing in the log saying why.
+
+    Asserted against the two constants rather than against a literal, so the pair
+    stays reconciled if either is renamed.
+    """
+    assert f"{IDENTITY_APP_LABEL}.{IDENTITY_OVERRIDE_CODENAME}" == IDENTITY_OVERRIDE_PERMISSION
+    assert IDENTITY_OVERRIDE_PERMISSION.count(".") == 1
+    assert IDENTITY_APP_LABEL
+    assert IDENTITY_OVERRIDE_CODENAME
 
 
 def test_the_declared_variables_pair_with_the_contract_fields_in_order() -> None:

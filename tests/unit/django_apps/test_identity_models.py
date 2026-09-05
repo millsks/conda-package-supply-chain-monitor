@@ -42,6 +42,7 @@ from conda_package_supply_chain_monitor.identity.models import MAPPED_FIELDS
 from conda_package_supply_chain_monitor.identity.models import UNKNOWN
 from conda_package_supply_chain_monitor.identity.models import Feedstock
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_package_supply_chain_monitor.identity.models import IdentityOverride
 from conda_package_supply_chain_monitor.identity.models import MappingKind
 from conda_package_supply_chain_monitor.identity.models import MappingOutcome
 from conda_package_supply_chain_monitor.identity.models import Package
@@ -52,8 +53,12 @@ from tests.model_registry import OBSERVED_AT_FIELD
 from tests.model_registry import declares_not_evidence
 from tests.model_registry import evidence_marks
 from tests.model_registry import first_party_models
+from tests.source_scan import SRC_ROOT
+from tests.source_scan import project_files
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from django.db.models import Field
 
 #: The unique correctable name, and the constraint the story turns on.
@@ -172,6 +177,29 @@ STORED_FIELD_NAME: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*$")
 DERIVED_STATUS_NAMES: Final[frozenset[str]] = frozenset({"outcome", "status"})
 DERIVED_STATUS_SUFFIXES: Final[tuple[str, ...]] = ("_outcome", "_status")
 
+#: The `core` package the import rule below is swept over, and the two spellings
+#: it separates. `identity/confidence.py` exists to break the cycle between
+#: `core.models` and `identity.models`, and it only breaks it while every `core`
+#: module reads the vocabulary from the leaf. Compared as source text rather than
+#: resolved from an AST because that is exactly what an import statement is, and
+#: both forms are the literal line a developer types.
+CORE_PACKAGE: Final[Path] = SRC_ROOT / "django_apps" / "conda_package_supply_chain_monitor" / "core"
+FORBIDDEN_CONFIDENCE_IMPORT: Final[str] = (
+    "from conda_package_supply_chain_monitor.identity.models import IdentityConfidence"
+)
+PERMITTED_CONFIDENCE_IMPORT: Final[str] = (
+    "from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence"
+)
+
+#: The `core` modules that legitimately read the vocabulary, by path under `src/`.
+#: `models.py` mirrors the value onto `PackageHealth`; `confidence.py` is
+#: `CPM-AD-4`'s gate over it. Written out so a third reader is a decision somebody
+#: made, and so the ban above cannot pass by nothing reading it at all.
+EXPECTED_CONFIDENCE_READERS: Final[tuple[str, ...]] = (
+    "django_apps/conda_package_supply_chain_monitor/core/confidence.py",
+    "django_apps/conda_package_supply_chain_monitor/core/models.py",
+)
+
 #: The confidence values, in the PRD's own spelling. The hyphen in the middle
 #: value is the assertion: `CPM-AD-5`'s fixed-lowercase rule binds derived-status
 #: vocabularies, and confidence is identity provenance rather than a derived
@@ -202,10 +230,28 @@ EXPECTED_MAPPING_KINDS: Final[tuple[str, ...]] = (
     "cross_ecosystem",
 )
 
-#: Every table the `identity` application owns. One tuple rather than two,
-#: because every case below sweeps all three: dropping a model from a sweep to
+#: Every table the `identity` application owns. One tuple rather than several,
+#: because every case below sweeps all four: dropping a model from a sweep to
 #: make it pass is how a table stops being covered by a rule it is still bound by.
-IDENTITY_TABLES: Final[tuple[type[models.Model], ...]] = (Package, Feedstock, PackageMapping)
+#:
+#: `IdentityOverride` joined with `CPM-IDENTITY-S05` and is the one that is
+#: *evidence* -- so it is excluded from exactly one case here, by name and with
+#: the reason written down, rather than by being left out of this tuple. Left out,
+#: every rule below would stop reaching it: nothing would stop a `review_status`
+#: column, an export heading or a projected name landing on the audit row.
+IDENTITY_TABLES: Final[tuple[type[models.Model], ...]] = (Package, Feedstock, PackageMapping, IdentityOverride)
+
+#: The one `identity` table that is evidence, and the one case below it is
+#: excluded from.
+#:
+#: `CPM-FR-32` makes the audit row append-only, so it inherits `AppendOnlyModel`
+#: and declares `observed_at` -- two of the three marks `tests/model_registry.py`
+#: reads. It is therefore the exact opposite of what
+#: `test_no_identity_model_is_evidence_and_none_takes_the_escape` asserts of the
+#: other three, and it is named here rather than dropped from `IDENTITY_TABLES`
+#: for the reason `RECORDED_STATUS_COLUMNS` is a table rather than an omission.
+#: `tests/unit/test_model_registry.py` is where its marks are asserted positively.
+THE_EVIDENCE_TABLE: Final[type[models.Model]] = IdentityOverride
 
 #: The derived-status columns this application declares on purpose, by model.
 #:
@@ -373,22 +419,50 @@ def test_the_recorded_status_column_table_still_describes_the_models() -> None:
     assert Feedstock not in RECORDED_STATUS_COLUMNS
 
 
-@pytest.mark.parametrize("model", IDENTITY_TABLES, ids=lambda model: model.__name__)
-def test_no_identity_model_is_evidence_and_none_takes_the_escape(model: type[models.Model]) -> None:
+@pytest.mark.parametrize(
+    "model",
+    [model for model in IDENTITY_TABLES if model is not THE_EVIDENCE_TABLE],
+    ids=lambda model: model.__name__,
+)
+def test_no_identity_row_but_the_audit_row_is_evidence_and_none_takes_the_escape(
+    model: type[models.Model],
+) -> None:
     """AC #6, stated where the models are declared rather than only in the registry guard.
 
-    Neither carries any of the three marks `tests/model_registry.py` reads -- no
-    `observed_at`, no `AppendOnlyModel`, and the app label is `identity` rather
-    than `evidence` -- so neither may declare `not_evidence = True` either. That
-    attribute is `CPM-AD-2`'s recorded exemption *for a model that carries a
-    mark*, and a third user of it fails
+    None of the three identity rows carries any of the three marks
+    `tests/model_registry.py` reads -- no `observed_at`, no `AppendOnlyModel`, and
+    the app label is `identity` rather than `evidence` -- so none may declare
+    `not_evidence = True` either. That attribute is `CPM-AD-2`'s recorded
+    exemption *for a model that carries a mark*, and a further user of it fails
     `tests/unit/django_apps/test_evidence_inheritance_audit.py` until somebody
     records the decision. A package row is not an observation; it is the thing
     observations are about.
+
+    `IdentityOverride` is excluded, and the exclusion is the claim next door: an
+    audit row *is* an observation -- of a decision a person made -- so it carries
+    two marks on purpose. It stays in every other sweep in this module.
     """
     assert OBSERVED_AT_FIELD not in _field_names(model)
     assert evidence_marks(model) == []
     assert declares_not_evidence(model) is False
+
+
+def test_the_audit_row_is_evidence_and_does_not_take_the_escape() -> None:
+    """The other half of the case above, so the exclusion is not a hole.
+
+    Dropping `IdentityOverride` from a sweep to make it pass is exactly what
+    `IDENTITY_TABLES`' comment forbids, so the exclusion is paid for here: the
+    model must carry the marks, by the same predicate, and must not have taken the
+    `not_evidence` escape to get out of the obligations they bring.
+
+    Both marks are asserted rather than `is_evidence_model(...) is True`, because
+    the union is satisfied by any one of them: a model that had lost the base but
+    kept `observed_at` would still read as evidence while no longer refusing an
+    `update()`.
+    """
+    assert OBSERVED_AT_FIELD in _field_names(THE_EVIDENCE_TABLE)
+    assert evidence_marks(THE_EVIDENCE_TABLE) == ["base", OBSERVED_AT_FIELD]
+    assert declares_not_evidence(THE_EVIDENCE_TABLE) is False
 
 
 # ---------------------------------------------------------------------------
@@ -1021,3 +1095,64 @@ def test_a_mapping_renders_the_question_and_its_answer(instance: PackageMapping,
     answer -- nobody has looked -- while the absent kind is not an answer at all.
     """
     assert str(instance) == expected
+
+
+# ---------------------------------------------------------------------------
+# The import rule the leaf vocabulary module exists to make enforceable.
+# ---------------------------------------------------------------------------
+
+
+def test_no_core_module_reads_the_confidence_vocabulary_through_identity_models() -> None:
+    """`identity/confidence.py` exists to break a cycle, and this is what keeps it broken.
+
+    `core/models.py` reads `IdentityConfidence` for `PackageHealth.confidence`,
+    and `identity/models.py` reads `core.models.AppendOnlyModel` for
+    `CPM-IDENTITY-S05`'s audit row. Those two edges together are an import cycle
+    that fails at `django.setup()` with `cannot import name 'AppendOnlyModel' from
+    partially initialized module`. The vocabulary was moved into a leaf module so
+    `core` can read it without reading `identity.models` at all.
+
+    **A module in `core` that imports it from `identity.models` re-arms the
+    cycle**, and does not necessarily fail *today* -- it fails the moment
+    `core/models.py` reaches that module, which for `core/confidence.py` is a
+    plausible edit rather than a hypothetical one, since `PackageHealth` carries
+    the very confidence that gate is over. That is the shape of defect a passing
+    suite hides, so the rule is swept rather than written in a comment. It was
+    already true of one file when this was written: `core/confidence.py` still
+    imported from `identity.models` after the split.
+
+    Swept over `core/` alone. `collectors/selection.py` imports it through
+    `identity.models` quite legitimately -- `collectors` is a third application and
+    closes nothing -- and a repository-wide ban would be a rule about something
+    else.
+    """
+    modules = project_files(CORE_PACKAGE)
+    offenders = [
+        module.relative_to(SRC_ROOT).as_posix()
+        for module in modules
+        if FORBIDDEN_CONFIDENCE_IMPORT in module.read_text(encoding="utf-8")
+    ]
+
+    assert modules != (), "the sweep found no core modules, so it is vacuous"
+    assert offenders == [], (
+        f"these core modules read IdentityConfidence through identity.models and re-arm the import cycle "
+        f"identity/confidence.py exists to break: {offenders}"
+    )
+
+
+def test_the_core_modules_that_read_the_vocabulary_still_read_it() -> None:
+    """The anti-vacuity half: the sweep above passes on a `core` that reads nothing.
+
+    `core/models.py` and `core/confidence.py` both need the vocabulary, so a
+    `core` in which neither imported it at all would satisfy the ban perfectly
+    while meaning the rule is about nothing. Both are asserted to import it from
+    the leaf module by name, which is also what fails if the leaf module is
+    deleted and the declaration moves back.
+    """
+    readers = [
+        module.relative_to(SRC_ROOT).as_posix()
+        for module in project_files(CORE_PACKAGE)
+        if PERMITTED_CONFIDENCE_IMPORT in module.read_text(encoding="utf-8")
+    ]
+
+    assert sorted(readers) == sorted(EXPECTED_CONFIDENCE_READERS)

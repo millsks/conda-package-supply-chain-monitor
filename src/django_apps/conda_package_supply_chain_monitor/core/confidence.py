@@ -33,7 +33,16 @@ row exists, the column is populated, and `OutcomeState.UNKNOWN` is the sentinel
   into the value.
 * `verified` passes through, which needs no argument.
 
-**It reuses `IdentityConfidence` rather than restating three values.**
+**It reuses `IdentityConfidence` rather than restating three values**, and it
+imports it from `identity/confidence.py` rather than from `identity/models.py`.
+That is the rule the leaf module exists to make possible, and it binds every
+module under `core/`: `core/models.py` reads the same vocabulary, and
+`identity/models.py` reads `core.models.AppendOnlyModel` for `CPM-IDENTITY-S05`'s
+audit row, so an import of `identity.models` from anywhere `core/models.py` might
+one day reach closes the cycle again -- and this module is the likeliest such
+reach, because `PackageHealth` carries the confidence this gate is over.
+`tests/unit/django_apps/test_identity_models.py` asserts the rule over the whole
+of `core/` rather than leaving it to this comment.
 `identity/models.py` says the hyphen in `inventory-derived` is deliberate and
 that matching the governing document exactly is what keeps a later gate from
 "translating between two spellings of the same three values". Restating the
@@ -58,7 +67,7 @@ from __future__ import annotations
 from typing import Final
 
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 
 __all__ = [
     "GATED_VALUE",

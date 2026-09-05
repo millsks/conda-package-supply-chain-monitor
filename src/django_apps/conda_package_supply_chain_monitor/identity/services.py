@@ -6,7 +6,7 @@ service, which creates the shell at `unmapped` confidence." `CPM-AD-14` is the
 other half and is unchanged: identity is mutated by resolution or by the override
 path, and by nothing else. This module is the door that sentence names.
 
-**Two doors, and they are deliberately not one.** `resolve_package_shell` is
+**Three doors, and they are deliberately not one.** `resolve_package_shell` is
 create-only: a package named by the inventory for the first time gets an identity
 row *before* anything has resolved it, and `unmapped` is the honest value for that
 row rather than a placeholder waiting to be corrected. `record_resolution` is the
@@ -15,6 +15,38 @@ writes what a resolver concluded about it. Neither is the other's special case -
 one may only insert and the other may only update, so a caller cannot reach the
 wrong behaviour by passing a different argument, and ingestion's contract stayed
 settled while resolution's was written.
+
+`override_identity` is the third, added by `CPM-IDENTITY-S05`, and it is the
+other half of `CPM-AD-14` -- the human path. It is not a variant of the second:
+`record_resolution` takes what a *resolver* concluded and may not lower a
+`verified` identity, while this takes what a *person* decided, requires a
+permission and a reason, raises the confidence to `verified`, and writes an
+append-only audit row recording who, when, from what and why. `CPM-FR-3` makes it
+the only human write in the product that mutates governed reference data, which
+is why it carries obligations no other door here has.
+
+**A corrected name leaves the mapping rows exactly as they were, and that is
+worth saying out loud.** `PackageMapping` records what resolution concluded about
+each mapping of a package, and those conclusions were reached under the identity
+the override has just replaced -- so after a correction the outcome rows describe
+a package by a name it no longer has. That is the honest state rather than a
+defect: the rows are keyed on the package's integer primary key, not on its name
+(`CPM-AD-3`), so they still describe the same *package*, and what an auditor
+needs to know -- that they predate the correction -- is answerable from
+`PackageMapping.resolved_at` against the `IdentityOverride`'s `observed_at`.
+Re-resolving under the corrected identity is a collector's job and happens on the
+next sweep; a door that invalidated the mappings here would be discarding
+findings on the strength of a name.
+
+**This module opens exactly one transaction, and it is that one.** Everywhere
+else the boundary is the caller's (see below); `override_identity` is the
+exception `CPM-AD-23` describes rather than a departure from it -- the correction
+and its audit row are one atomic unit, "never `transaction.on_commit`, never a
+follow-up task", and there is no caller that could place the boundary for them,
+because a correction committed without its audit row is precisely the state
+`CPM-FR-32` exists to make impossible. Nesting it inside a caller's own
+`atomic()` is safe and is the ordinary case: Django opens a savepoint, and the
+pair still commits or rolls back together.
 
 `CPM-FR-1` is explicit that a resolution which cannot establish a mapping records
 nothing rather than a guess. `resolve_package_shell` therefore asserts no mapping
@@ -114,11 +146,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from typing import Final
 
+import structlog
+from django.db import transaction
+
 from conda_package_supply_chain_monitor.core.clock import is_aware
+from conda_package_supply_chain_monitor.core.ledger import current_trace_id
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
 from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
 from conda_package_supply_chain_monitor.identity.models import MAPPED_FIELDS
 from conda_package_supply_chain_monitor.identity.models import Feedstock
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_package_supply_chain_monitor.identity.models import IdentityOverride
 from conda_package_supply_chain_monitor.identity.models import MappingKind
 from conda_package_supply_chain_monitor.identity.models import MappingOutcome
 from conda_package_supply_chain_monitor.identity.models import Package
@@ -132,23 +170,35 @@ if TYPE_CHECKING:
     from django.db import models
 
     from conda_package_supply_chain_monitor.core.clock import Clock
+    from django_service.users.models import User
 
 __all__ = [
     "ASSOCIATOR_KEY_FIELD",
     "ASSOCIATOR_KEY_LENGTH",
     "CANONICAL_NAME_FIELD",
     "CANONICAL_NAME_LENGTH",
+    "DISPLAY_NAME_FIELD",
+    "DISPLAY_NAME_LENGTH",
     "FEEDSTOCK_NAME_FIELD",
     "FEEDSTOCK_NAME_LENGTH",
     "FEEDSTOCK_URL_LENGTHS",
+    "IDENTITY_FIELD",
+    "OVERRIDE_PERMISSION_MISSING",
+    "OVERRIDE_RECORDED_EVENT",
+    "OVERRIDE_REFUSED_EVENT",
     "PACKAGE_FIELD_LENGTHS",
+    "Correction",
     "FeedstockMapping",
+    "OverrideError",
     "RecordedResolution",
     "Resolution",
     "ResolutionError",
+    "override_identity",
     "record_resolution",
     "resolve_package_shell",
 ]
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 def _column_length(model: type[models.Model], field: str) -> int:
@@ -217,6 +267,17 @@ CANONICAL_NAME_LENGTH: Final[int] = _column_length(Package, CANONICAL_NAME_FIELD
 ASSOCIATOR_KEY_FIELD: Final[str] = "associator_key"
 ASSOCIATOR_KEY_LENGTH: Final[int] = _column_length(Package, ASSOCIATOR_KEY_FIELD)
 
+#: The column a display name is written to, and how long it may be.
+#:
+#: `CPM-IDENTITY-S05`'s override is the only thing in this product that writes
+#: it: `identity/models.py` says a blank display name means *missing* and the
+#: reporting layer falls back to the canonical name, and `Resolution` deliberately
+#: carries no field for it -- what a human is shown is not a mapping `CPM-FR-1`
+#: asks a resolver to establish. Read off the field on the same terms as the two
+#: above, so widening the column widens the refusal with it.
+DISPLAY_NAME_FIELD: Final[str] = "display_name"
+DISPLAY_NAME_LENGTH: Final[int] = _column_length(Package, DISPLAY_NAME_FIELD)
+
 #: The column a feedstock's name is written to, and how long it may be.
 #:
 #: Read off `Feedstock` the same way and for the same reason: the name is a value
@@ -251,6 +312,62 @@ PACKAGE_FIELD_LENGTHS: Final[dict[str, int]] = {
 FEEDSTOCK_URL_LENGTHS: Final[dict[str, int]] = {
     name: _column_length(Feedstock, name) for name in ("url", "metadata_url")
 }
+
+
+#: The two events an override emits -- the refused one and the recorded one --
+#: and the reason a refusal on the permission carries.
+#:
+#: Named constants rather than literals at the call site, on the shape
+#: `config/authorization/mapper.py` established for every authorization refusal in
+#: this repository: a dotted `authorization.<event>` name, a `reason=` drawn from
+#: a constant, and the acting identity as a kwarg. Declared here so the case that
+#: asserts what was logged and the code that logs it cannot drift.
+#:
+#: `authorization.`-prefixed although this is a domain service, because the events
+#: are authorization decisions and an operator reading the log filters on the
+#: prefix rather than on which application happened to make the call.
+#:
+#: **Both directions, not only the refusal.** A log carrying only refusals would
+#: show an operator every rejected correction of governed reference data and not
+#: one accepted one -- and the accepted ones are what an auditor asks about.
+#: `CPM-AD-13` makes every authorization change an event; a correction that
+#: succeeded is one.
+OVERRIDE_REFUSED_EVENT: Final[str] = "authorization.override_refused"
+OVERRIDE_RECORDED_EVENT: Final[str] = "authorization.identity_overridden"
+OVERRIDE_PERMISSION_MISSING: Final[str] = "override_permission_missing"
+
+#: The attribute the acting identity is read from, matching
+#: `config/authorization/mapper.py`'s `_IDENTITY_FIELD`. Read through `getattr`
+#: with a default rather than accessed directly: `AnonymousUser` does not declare
+#: it, and neither would a user model from a component that has not adopted the
+#: platform's identity column -- and an `AttributeError` raised while *logging a
+#: refusal* would lose the record of the refusal as well as raising the wrong
+#: exception.
+IDENTITY_FIELD: Final[str] = "idp_subject"
+
+
+class OverrideError(ValueError):
+    """A human correction of a package identity was refused.
+
+    A separate type from `ResolutionError`, and the separation is the point:
+    "this resolver handed over something unusable" and "this person may not do
+    that, or did not say why" are refusals a caller has to be able to tell apart
+    -- the surface that will call this door (`CPM-APP-S05`) answers one of them
+    with a form error and the other with a refusal to act at all.
+
+    One type rather than a hierarchy, on the same terms `ResolutionError` states:
+    the detail is in the message, and no caller branches on which check failed.
+    What distinguishes the permission refusal from the rest is not the class, it
+    is the log record -- `OVERRIDE_REFUSED_EVENT` above, naming the actor.
+
+    A `ValueError` subclass, matching every other "this declaration or input is
+    unusable" in this product, so a caller catching one catches them all.
+    Deliberately **not** `django.core.exceptions.PermissionDenied`: that
+    exception is a request-layer instruction to render a 403, and this service is
+    reached by no request today -- see the story's design notes for why the
+    permission is enforced at the service boundary rather than at a surface that
+    does not exist.
+    """
 
 
 class ResolutionError(ValueError):
@@ -360,6 +477,75 @@ class Resolution:
     alternative_purls: tuple[str, ...] = ()
     cpes: tuple[str, ...] = ()
     feedstocks: tuple[FeedstockMapping, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Correction:
+    """What a person decided a package's identity should be, and why.
+
+    One object rather than three keyword parameters, for the reason `Resolution`
+    is one rather than fifteen: a correction is a single human decision, and
+    passing it as one value is what lets the surface that collects it build it,
+    log it and hand the same thing to the service -- rather than assembling it at
+    the call site, where the field somebody forgets is the reason.
+
+    It carries the *reason* as well as the values, because `CPM-AD-14` makes the
+    justification part of the decision rather than metadata about it: a correction
+    with no reason is not a correction this product accepts, and separating the
+    two would make it possible to build a well-formed one.
+
+    Every field is a *statement about a field*, so "leave this alone" has to be
+    expressible for each. It is the empty string for the name -- the ordinary case
+    for an override that only raises the confidence -- and `None` for the display
+    name, whose empty string means something else.
+
+    **Every value is stripped before it is stored, and that is a rule rather than
+    tidiness.** `canonical_name` is `unique=True`, so `" numpy "` and `"numpy"` are
+    two rows to the database and one name to every person who reads them: an
+    unstripped correction would slip past the collision check, past the unique
+    index, and into every export and read surface as a near-duplicate of a package
+    that already exists -- governed reference data acquiring two names for one
+    thing through the product's one audited write, with nothing failing at the
+    correction. The three `_require_*` helpers below normalise, and
+    `tests/unit/django_apps/test_identity_overrides.py` asserts what is stored for
+    a padded value on each field rather than only that a wholly blank one is
+    refused.
+
+    **There is no confidence field, and a correction therefore cannot lower one.**
+    An override always writes `verified`, because `CPM-AD-4` says that value *is*
+    an identity a person established. The cost is stated rather than hidden: a
+    reviewer who looks at a package and concludes it genuinely has no upstream
+    identity has no way to record that here. That is deliberate on two grounds.
+    "There is no identity to find" is a finding about the world, which is a
+    *resolution* -- `unmapped` with the outcome rows that say which mappings were
+    looked for and not found (`CPM-FR-6`), none of which a correction carries. And
+    a human write that lowered a confidence to `unmapped` would put the package
+    straight back into `CPM-IDENTITY-S04`'s review queue it had just been taken
+    out of, carrying an audit row saying a person verified it was unverifiable --
+    a loop nothing in the product breaks. If the product later wants a reviewer to
+    be able to say "looked, and there is nothing", it is a field here plus a
+    validation plus a queue rule, and it is a decision for the story that adds it.
+
+    Attributes:
+        reason: Why the correction was made. Required and non-blank
+            (`CPM-AD-14`); stored verbatim after stripping.
+        canonical_name: The corrected name, or blank to leave the stored one
+            alone. Correcting it is safe precisely because nothing in this product
+            references a package by its name (`CPM-AD-3`).
+        display_name: What a human should be shown, or `None` to leave the stored
+            value alone. The empty string is *not* `None` here: it means "there is
+            no display name", which PRD Appendix A.1's data rules make the honest
+            spelling of missing, and clearing one a previous override set is a
+            correction like any other. This is the only path in the product that
+            writes the column -- `Resolution` deliberately carries no field for
+            it, because what a human is shown is not a mapping `CPM-FR-1` asks a
+            resolver to establish.
+
+    """
+
+    reason: str
+    canonical_name: str = ""
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -633,9 +819,14 @@ def _require_name_is_free(correction: str, *, package: Package) -> None:
     of a module whose every other refusal is a `ResolutionError` raised before
     the first write.
 
-    Merging the two rows is not this door's to do. It has to decide which key
-    survives, which evidence moves, and what happens to the mappings each side
-    holds -- an audited correction, which is `CPM-IDENTITY-S05`'s.
+    **Merging the two rows is nobody's yet, and this message used to say
+    otherwise.** It named `CPM-IDENTITY-S05`'s audited override as where the merge
+    belonged. That story shipped, and its `override_identity` refuses the same
+    collision rather than resolving it -- correctly, because merging decides which
+    associator key survives, which evidence moves and what becomes of the mappings
+    each side holds, and none of those is a name correction. So the message no
+    longer hands the operator a door that would refuse them. It is owed by a later
+    story; the two refusals are what keep the collision visible until then.
 
     Args:
         correction: The validated corrected name.
@@ -645,13 +836,14 @@ def _require_name_is_free(correction: str, *, package: Package) -> None:
         ResolutionError: When another package already carries that name.
 
     """
-    if not Package.objects.filter(canonical_name=correction).exclude(pk=package.pk).exists():
+    if not _another_package_holds(correction, package=package):
         return
     message = (
         f"{correction!r} is already another package's canonical name, so this correction would collide with "
         f"it. canonical_name is unique (CPM-AD-3) and two shells converging on one upstream package is what "
-        f"correction is for -- merging them decides which associator key survives and which evidence moves, "
-        f"which is CPM-IDENTITY-S05's audited override rather than an automated resolution's."
+        f"correction is for -- but *merging* them decides which associator key survives, which evidence moves "
+        f"and what becomes of each side's mappings, and no door in this product does that yet. The collision "
+        f"is reported so a person can decide."
     )
     raise ResolutionError(message)
 
@@ -1366,3 +1558,502 @@ def _require_aware(instant: datetime, *, field: str) -> datetime:
         )
         raise ResolutionError(message)
     return instant
+
+
+def override_identity(
+    *,
+    package_id: int,
+    actor: User,
+    correction: Correction,
+    clock: Clock,
+) -> IdentityOverride:
+    """Correct a package identity as a person, and record who did it and why.
+
+    The third door into `identity`, and the human half of `CPM-AD-14`'s "package
+    identity is mutated by resolution, or by the override path -- nothing else".
+    `CPM-FR-3` makes it the only human write in the product that mutates governed
+    reference data, so it carries the three obligations `CPM-AD-14` puts on that
+    write: it requires a permission, it requires a reason, and it writes an audit
+    row **in the same transaction** as the correction.
+
+    What it does, in order: refuses an actor without the permission and logs the
+    refusal naming them; refuses a blank reason; refuses a name or display name
+    the columns could not hold; finds the package by its primary key and refuses
+    one that names nothing; refuses a correction onto a name another package
+    already holds; and then, inside one `transaction.atomic()`, writes the
+    correction and the `IdentityOverride` row that records it.
+
+    **Every refusal precedes the first write**, which is what makes a refused
+    override leave nothing behind. The two writes inside the block are the only
+    two, and they commit or roll back together (`IDENTITY.05-INT-001`, risk
+    `R-07`).
+
+    **`identity_source` and `associator_key` are never written.** They are the
+    pair both other doors find a package by, and rewriting either while
+    correcting a name is what orphans the package from its inventory source on
+    the next sweep -- the trap `CPM-IDENTITY-S06` recorded and `CPM-IDENTITY-S07`
+    closed. `_write_correction` builds its `update_fields` from what it actually
+    intends, so neither column can reach a `save()` by construction.
+
+    **The correction survives automated resolution, and needs no new mechanism to
+    do it.** The override writes `verified`, and `record_resolution` already
+    refuses to lower a `verified` confidence or to overwrite the name that goes
+    with it. So a later, lower-confidence resolver records its findings and
+    leaves the human's decision standing.
+
+    **Creation is not this door's.** A package id naming nothing is refused rather
+    than created: `CPM-AD-25` makes `resolve_package_shell` the only creator of a
+    package row, and an override that quietly created what it could not find would
+    give the product a second one.
+
+    Args:
+        package_id: The package to correct, by the surrogate integer primary key
+            `CPM-AD-3` fixes. An id rather than an instance, because the caller is
+            a surface holding a selection from `CPM-IDENTITY-S04`'s review queue,
+            and re-reading the row inside this door is what makes the correction a
+            statement about the row as it stands rather than about a copy that may
+            be minutes old.
+        actor: The person making the correction. Must hold
+            `IDENTITY_OVERRIDE_PERMISSION`, which `core/roles.py` grants to the
+            leadership role group alone.
+        correction: What they decided and why. See `Correction` for each field
+            and for why it is one value rather than three parameters.
+        clock: The clock the audit row's `observed_at` and the package's
+            `resolved_at` are read from (`CPM-AD-26`). Injected rather than
+            reached for, because an audit row's instant is the thing an auditor
+            reads, and a service that read a wall clock would make every assertion
+            about it a statement about how long the test took.
+
+    Returns:
+        The audit row this override wrote, with `package` already carrying the
+        correction. The row rather than the package, because the row is the thing
+        `CPM-FR-32` makes independently queryable and the package is reachable
+        through it -- and because a caller handed only the package could not tell
+        an override that changed nothing from one that was never recorded.
+
+    Raises:
+        OverrideError: When the actor does not hold the permission; when the
+            reason is blank or only whitespace; when a corrected name is blank
+            after stripping or is wider than its column; when the display name is
+            wider than its column; when the package id names no row; when the
+            corrected name is already another package's; or when the clock
+            answered a naive instant. Every one is raised before the first write.
+
+    """
+    _require_permitted(actor)
+    justification = _require_reason(correction.reason)
+    name = _require_overridden_name(correction.canonical_name)
+    replacement = _require_overridden_display_name(correction.display_name)
+    decided_at = _require_decided_at(clock.now())
+
+    # The one `transaction.atomic()` in this module (`CPM-AD-23`), and the read is
+    # *inside* it under `select_for_update()`. That is not tidiness: the audit row
+    # records the values this correction replaced, so the row it reads them from
+    # has to be the row it then writes. Read outside the block, two concurrent
+    # overrides of one package both observe the same prior values and both record
+    # them, and the second row claims to have replaced a value the first had
+    # already replaced -- an audit trail that is wrong about the thing it exists to
+    # be right about. The collision check is inside for the same reason: a name
+    # taken between the check and the write would escape as the raw
+    # `IntegrityError` this door refuses in order to prevent.
+    with transaction.atomic():
+        package = _package_with_id(package_id)
+        if name and name != package.canonical_name:
+            _require_name_is_unclaimed(name, package=package)
+        prior_canonical_name = package.canonical_name
+        prior_display_name = package.display_name
+        prior_confidence = package.confidence
+        _write_correction(package, canonical_name=name, display_name=replacement, decided_at=decided_at)
+        override = IdentityOverride.objects.create(
+            observed_at=decided_at,
+            package=package,
+            actor=actor,
+            prior_canonical_name=prior_canonical_name,
+            new_canonical_name=package.canonical_name,
+            prior_display_name=prior_display_name,
+            new_display_name=package.display_name,
+            prior_confidence=prior_confidence,
+            new_confidence=package.confidence,
+            reason=justification,
+            # `current_trace_id()` never raises and answers the empty string
+            # outside an instrumented request or task (`CPM-AD-15`). An
+            # uncorrelated audit row is worth incomparably more than a refused
+            # correction, so nothing here branches on it.
+            trace_id=current_trace_id(),
+        )
+    # Logged after the block rather than inside it, so the event describes a
+    # correction that reached the end of its transaction rather than one that was
+    # merely attempted. `CPM-AD-13` makes every authorization change an event, and
+    # a log carrying only the *refusals* would let an operator filtering
+    # `authorization.` see every rejected correction of governed reference data and
+    # not one accepted one -- which is the half an auditor asks about first.
+    logger.info(
+        OVERRIDE_RECORDED_EVENT,
+        user_id=actor.pk,
+        idp_subject=getattr(actor, IDENTITY_FIELD, ""),
+        package_id=package.pk,
+        override_id=override.pk,
+    )
+    return override
+
+
+def _require_permitted(actor: User) -> None:
+    """Refuse an actor who does not hold the override permission, and say so in the log.
+
+    **The service is the boundary, because it is where the only caller is.**
+    `CPM-AD-13` says authorization is declared per surface and enforced centrally;
+    there is no surface yet -- see the story's design notes -- so `user.has_perm`
+    here is the whole enforcement. When `CPM-APP-S05` builds the modal it declares
+    its own permission and this becomes the second line rather than the only one,
+    which is the right number for the product's single governed write.
+
+    **An unauthenticated actor is refused first, and that ordering is the whole
+    of it.** `AnonymousUser` answers `has_perm` perfectly well -- False, through
+    every backend -- so the check itself would work. What does not work is the
+    *log record beside it*: `AnonymousUser` has no `idp_subject`, so reading the
+    attribute unconditionally would raise `AttributeError` on exactly the branch
+    AC 2 is written about, and the refusal an operator most needs to see would be
+    the one that never reaches the log. `is_authenticated` is tested first and
+    both identity fields are read defensively, so a caller handing over an
+    anonymous request user, a `SimpleLazyObject` wrapping one, or a user model
+    without the platform's identity column is refused *and* recorded.
+
+    **A superuser is admitted, and that is a decision rather than an oversight.**
+    `PermissionsMixin.has_perm` returns True for any active superuser before it
+    consults a backend, so a superuser reaches this write without the leadership
+    grant. It is left that way for the reason `django_service/users/provisioning.py`
+    leaves `SUPERUSER_ROLE`'s tuple empty: the superuser flag is the platform's
+    break-glass, it already reaches the Django admin -- from which the same rows
+    are editable with no audit row at all -- and a check written to refuse it here
+    would make the product's one *audited* correction path the only thing a
+    superuser could not use during the incident where group synchronisation is
+    what broke. The mitigation is not the check, it is the row: an override by a
+    superuser writes the same `IdentityOverride` naming them, at the same instant,
+    with the same reason, so the write stays governed even when the grant is
+    bypassed. `tests/integration/django_apps/test_identity_overrides.py` asserts
+    both halves, so this is a recorded decision rather than an accident of
+    Django's default.
+
+    **The refusal is logged with the acting identity, explicitly.** Outside a
+    request nothing binds `user_id`, so `django_structlog`'s request binding
+    cannot be relied on and the actor is passed as a kwarg. Both the primary key
+    and the identity-provider subject are carried: `idp_subject` is the
+    correlation key an operator has and is what every other authorization event in
+    this repository names, and it is blank on a locally created account -- which
+    is exactly the case where the primary key is the only handle there is.
+
+    Args:
+        actor: The person attempting the correction.
+
+    Raises:
+        OverrideError: When the actor is not authenticated, or does not hold the
+            permission. Raised after the log record rather than before it, so the
+            refusal is recorded even where the caller swallows the exception.
+
+    """
+    if actor.is_authenticated and actor.has_perm(IDENTITY_OVERRIDE_PERMISSION):
+        return
+    logger.warning(
+        OVERRIDE_REFUSED_EVENT,
+        reason=OVERRIDE_PERMISSION_MISSING,
+        user_id=getattr(actor, "pk", None),
+        idp_subject=getattr(actor, IDENTITY_FIELD, ""),
+    )
+    message = (
+        f"user {getattr(actor, 'pk', None)!r} does not hold {IDENTITY_OVERRIDE_PERMISSION!r}, so this identity "
+        f"override is refused. CPM-FR-3 makes the override the only human write that mutates governed reference "
+        f"data and CPM-AD-14 gates it on a permission, which core/roles.py grants to the leadership role group "
+        f"alone."
+    )
+    raise OverrideError(message)
+
+
+def _require_reason(reason: str) -> str:
+    """Refuse an override that does not say why it was made.
+
+    `CPM-AD-14` requires a reason, and the refusal is here rather than at the
+    column because a blank `TextField` is perfectly valid SQL: the row would be
+    written, would be counted, and would record that somebody changed governed
+    reference data for no stated reason -- an audit trail that answers the one
+    question it exists to answer with nothing.
+
+    Args:
+        reason: What the actor gave as the justification.
+
+    Returns:
+        The reason with surrounding whitespace removed, which is the form the row
+        carries.
+
+    Raises:
+        OverrideError: When it is empty or only whitespace.
+
+    """
+    justification = reason.strip()
+    if not justification:
+        message = (
+            f"an identity override needs a reason; {reason!r} says nothing. CPM-AD-14 requires the correction "
+            f"to record why it was made, and an audit row with a blank reason answers the one question it "
+            f"exists to answer with nothing."
+        )
+        raise OverrideError(message)
+    return justification
+
+
+def _require_overridden_name(canonical_name: str) -> str:
+    """Return the corrected name an override supplied, or blank for no correction.
+
+    The empty string means "leave the stored name alone", which is the ordinary
+    case for an override that raises a correct identity to `verified` or that only
+    supplies a display name. Whitespace is *not* that: it is a correction to
+    nothing, and writing it would be refused by `canonical_name_is_present` as an
+    `IntegrityError` naming a constraint rather than the input that broke it.
+
+    Written out rather than delegating to `_require_correction`, on the terms this
+    module already states for `_require_key` and `_require_name`: the two refusals
+    say different things -- a resolver that handed over an unusable name has a
+    defect, a person who typed one has a typo -- and a shared message would say
+    neither.
+
+    Args:
+        canonical_name: What the actor says the package should be called.
+
+    Returns:
+        The validated name, stripped, or the empty string when none was supplied.
+
+    Raises:
+        OverrideError: When a correction was supplied and is only whitespace, or
+            is wider than `canonical_name` can hold.
+
+    """
+    if not canonical_name:
+        return ""
+    correction = canonical_name.strip()
+    if not correction:
+        message = (
+            f"an identity override was given {canonical_name!r} as a canonical name, which names nothing. "
+            f"Leave the name out entirely to correct something else about the identity; a package with no "
+            f"name cannot be corrected, exported or found again (CPM-FR-2)."
+        )
+        raise OverrideError(message)
+    if len(correction) > CANONICAL_NAME_LENGTH:
+        raise OverrideError(_too_wide(correction, field=CANONICAL_NAME_FIELD, limit=CANONICAL_NAME_LENGTH))
+    return correction
+
+
+def _require_overridden_display_name(display_name: str | None) -> str | None:
+    """Return the display name an override supplied, or `None` to leave it alone.
+
+    `None` and `""` are two different instructions, and that distinction is the
+    reason this parameter is nullable at all: `None` means the override said
+    nothing about the display name, and `""` means it said there is not one.
+    Blank means missing rather than empty (PRD Appendix A.1's data rules), so a
+    whitespace-only value is normalised to `""` rather than refused -- "a display
+    name of three spaces" is not a state worth being able to store.
+
+    Args:
+        display_name: What the actor supplied, or `None`.
+
+    Returns:
+        The value stripped, or `None` when nothing was supplied.
+
+    Raises:
+        OverrideError: When it is wider than `display_name` can hold. SQLite
+            ignores `max_length` and PostgreSQL raises, so an unrefused over-long
+            value is a working row on a developer's machine and a failed
+            correction in the gate (`R-5`).
+
+    """
+    if display_name is None:
+        return None
+    replacement = display_name.strip()
+    if len(replacement) > DISPLAY_NAME_LENGTH:
+        raise OverrideError(_too_wide(replacement, field=DISPLAY_NAME_FIELD, limit=DISPLAY_NAME_LENGTH))
+    return replacement
+
+
+def _require_decided_at(instant: datetime) -> datetime:
+    """Refuse a naive instant, on the same terms every other writer here does.
+
+    `AppendOnlyModel.save()` refuses a naive `observed_at` as well, so this is the
+    second guard on the same value -- and it is worth having, because it is the
+    one that fires *before* the transaction opens. The base's refusal would fire
+    inside it, after the correction had already been written, and a rollback that
+    happens to be correct is not the same thing as a refusal that precedes every
+    write.
+
+    Args:
+        instant: The value the clock answered.
+
+    Returns:
+        The instant, unchanged.
+
+    Raises:
+        OverrideError: When the instant carries no usable offset.
+
+    """
+    if not is_aware(instant):
+        message = (
+            f"an identity override was made with a naive instant ({instant!r}). The instant comes from a "
+            f"Clock, which always answers in UTC (CPM-AD-26); a naive value has no offset to interpret and "
+            f"would record a correction at a time it did not happen rather than failing."
+        )
+        raise OverrideError(message)
+    return instant
+
+
+def _package_with_id(package_id: int) -> Package:
+    """Return the package one primary key names, locked, refusing when there is none.
+
+    **Called from inside the override's transaction, and `select_for_update()` is
+    why.** The audit row records the values this correction replaced, so between
+    reading them and writing the new ones no other writer may change the row --
+    otherwise two concurrent overrides both read the same prior values, both
+    record them, and the second row is wrong about the thing it exists to be right
+    about. The lock is also what makes `_require_name_is_unclaimed` a check rather
+    than a guess: without it a name is free when it is tested and taken when it is
+    written.
+
+    PostgreSQL takes the row lock; SQLite has no row locks and Django's compiler
+    emits nothing for it there, which is a real difference and a stated one. The
+    gate is where this is proven (`pixi run gate-postgres`), on the terms every
+    other database guarantee in this product is.
+
+    Args:
+        package_id: The surrogate integer primary key.
+
+    Returns:
+        The package row, re-read so the correction is applied to the row as it now
+        stands rather than to a copy the caller may have been holding.
+
+    Raises:
+        OverrideError: When the id matches no row. Refused rather than created:
+            `CPM-AD-25` makes `resolve_package_shell` the only creator of a
+            package row, and an override that quietly created what it could not
+            find would give the product a second creator -- exactly what
+            `CPM-AD-14` and `CPM-AD-25` forbid.
+
+    """
+    try:
+        return Package.objects.select_for_update().get(pk=package_id)
+    except Package.DoesNotExist as unknown:
+        message = (
+            f"no package has the id {package_id!r}, so there is nothing to override. A package row is created "
+            f"by resolve_package_shell during ingestion (CPM-AD-25); this door corrects one that exists and "
+            f"never creates one."
+        )
+        raise OverrideError(message) from unknown
+
+
+def _require_name_is_unclaimed(name: str, *, package: Package) -> None:
+    """Refuse a correction onto a name another package already holds.
+
+    `_require_name_is_free` refuses the same collision for `record_resolution` and
+    the two share `_another_package_holds` -- one query, so the *rule* cannot
+    drift. What is deliberately not shared is the message: that one names this
+    door as where the merge belongs, and this one has to say that merging belongs
+    to nobody yet. See `_require_name_is_free` for the whole of that.
+
+    Without this the collision escapes as an `IntegrityError` from inside the
+    transaction -- `canonical_name` is `unique=True` -- which would roll the audit
+    row back correctly and tell the actor nothing about what they collided with.
+
+    Args:
+        name: The validated corrected name.
+        package: The package being corrected.
+
+    Raises:
+        OverrideError: When another package already carries that name.
+
+    """
+    if not _another_package_holds(name, package=package):
+        return
+    message = (
+        f"{name!r} is already another package's canonical name, so this override would collide with it. "
+        f"canonical_name is unique (CPM-AD-3). Two rows for one upstream package are *merged* rather than "
+        f"renamed onto each other -- which decides which associator key survives, which evidence moves and what "
+        f"becomes of the mappings each side holds. No door in this product does that yet; it is owed by a later "
+        f"story, and until then the collision is reported so a person can decide."
+    )
+    raise OverrideError(message)
+
+
+def _another_package_holds(name: str, *, package: Package) -> bool:
+    """Report whether some other package already carries a canonical name.
+
+    One query for the two doors that ask the question. They ask it for different
+    reasons and answer it with different messages, but "is this name taken by
+    somebody else" is one rule -- and two copies of it are two things that can be
+    changed one at a time, which is what `unique=True` would then catch as an
+    `IntegrityError` naming a constraint instead.
+
+    Args:
+        name: The validated corrected name.
+        package: The package the correction is against, excluded so a row keeping
+            the name it already has is not a collision with itself.
+
+    Returns:
+        True when at least one other package carries that name.
+
+    """
+    return Package.objects.filter(canonical_name=name).exclude(pk=package.pk).exists()
+
+
+def _write_correction(
+    package: Package,
+    *,
+    canonical_name: str,
+    display_name: str | None,
+    decided_at: datetime,
+) -> None:
+    """Write what this override settled, and no other column.
+
+    `update_fields` is built from what was actually written rather than listing
+    every column, which is what keeps `identity_source` and `associator_key` out
+    of it by construction instead of by somebody remembering to omit them -- the
+    same discipline `_write_identity` applies, for the same reason. Nothing on
+    `Feedstock`, `PackageMapping` or `core.PackageHealth` is touched either: this
+    function names three columns of one row and reaches no other table.
+
+    **The confidence is always `verified`, and a correction cannot lower it.**
+    `CPM-AD-4` describes that value as an identity a person established, and a
+    person establishing one is precisely what this door is. `Correction` therefore
+    carries no confidence field at all -- see its docstring for the trade, which is
+    that a reviewer concluding a package genuinely has no upstream identity has no
+    way to say so here, and why that is a *resolution's* finding rather than a
+    correction. It is written unconditionally rather than only when it changes; the
+    diff below is what stops an already-`verified` package from being saved again
+    for nothing.
+
+    **`resolved_at` advances only when something else did, and never backwards.**
+    Two rules over one column, and they are not the same one. The first is
+    `_write_identity`'s: the column records when the identity last *changed*, and
+    an override that confirmed an already-correct, already-`verified` identity
+    changed nothing about it -- so a confirmation writes an audit row and leaves
+    the package row alone. The second is this door's own, because this is the only
+    writer whose instant a *person* chooses: a correction made with an earlier
+    clock than the stored value would move the column backwards, and every
+    freshness read after it would judge the row older than it is. So the column is
+    advanced only when the new instant is later, and a correction stamped from
+    behind still lands -- it simply does not rewrite when the identity was last
+    settled.
+
+    Args:
+        package: The row to correct, already found and locked by its primary key.
+        canonical_name: The validated corrected name, or blank for no correction.
+        display_name: The validated display name, or `None` to leave it alone.
+        decided_at: The instant from the clock.
+
+    """
+    intended: dict[str, object] = {"confidence": IdentityConfidence.VERIFIED.value}
+    if canonical_name:
+        intended[CANONICAL_NAME_FIELD] = canonical_name
+    if display_name is not None:
+        intended[DISPLAY_NAME_FIELD] = display_name
+    written = {name: value for name, value in intended.items() if getattr(package, name) != value}
+    if not written:
+        return
+    if package.resolved_at is None or decided_at > package.resolved_at:
+        written["resolved_at"] = decided_at
+    for name, value in written.items():
+        setattr(package, name, value)
+    package.save(update_fields=sorted(written))

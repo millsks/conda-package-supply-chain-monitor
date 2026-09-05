@@ -52,6 +52,7 @@ from typing import Final
 from typing import NoReturn
 
 import pytest
+import structlog
 from django.conf import settings
 from django.contrib import admin
 from django.db import connections
@@ -61,6 +62,7 @@ from django.urls import path
 
 from conda_package_supply_chain_monitor.collectors.tasks import declared_inventory_adapter
 from conda_package_supply_chain_monitor.collectors.tasks import withdraw_inventory_adapter
+from conda_package_supply_chain_monitor.identity import services as identity_services
 from config import urls as config_urls
 from config.authorization.claims import ClaimsContract
 from config.locality import RUNTIME_ENV_VAR
@@ -694,3 +696,50 @@ def _boot_declared_adapter_withdrawn() -> None:
     """
     if declared_inventory_adapter() is not None:
         withdraw_inventory_adapter()
+
+
+#: The control event the identity-service capture below emits to prove the
+#: capture is live. Named rather than written as a literal in each module for the
+#: reason the fixture is shared at all: two spellings of a guard's own control
+#: value is how one of them stops being checked.
+IDENTITY_SERVICE_CAPTURE_CONTROL: Final[str] = "identity-service-capture-control"
+
+
+@pytest.fixture
+def captured_identity_service_logs(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict[str, Any]]]:
+    """Capture what `identity/services.py` logs, with the two guards the plain helper lacks.
+
+    Shared by `tests/unit/django_apps/test_identity_overrides.py` and
+    `tests/integration/django_apps/test_identity_overrides.py`, which both assert
+    over the override's authorization events. It lived in both modules verbatim
+    first, which is the duplication `tests/model_registry.py` and
+    `tests/source_scan.py` were extracted to prevent: two copies of a *guard* that
+    can drift look exactly like two passing tests, and the guard here is the
+    control event -- the half that stops every assertion over an empty list from
+    passing vacuously.
+
+    The reasoning for each guard is `tests/unit/test_drain.py`'s and is not
+    restated: the module-scope logger is rebound so `capture_logs` binds a fresh
+    proxy inside its own processor chain, and the control event proves the capture
+    is live before a case relies on what it holds.
+
+    It sits in this file rather than in a tier-local conftest because both tiers
+    use it, and rather than in a helper module because it is a *pytest* fixture --
+    it depends on `monkeypatch`, which only the plugin can supply.
+
+    Args:
+        monkeypatch: pytest's patcher, which restores the module's own logger.
+
+    Yields:
+        The captured events, in order, with the control event already cleared.
+
+    """
+    monkeypatch.setattr(identity_services, "logger", structlog.get_logger(identity_services.__name__))
+    with structlog.testing.capture_logs() as captured:
+        identity_services.logger.warning(IDENTITY_SERVICE_CAPTURE_CONTROL)
+        assert [event["event"] for event in captured] == [IDENTITY_SERVICE_CAPTURE_CONTROL], (
+            "structlog.testing.capture_logs() cannot see identity.services' logger, so every assertion "
+            "over what it logged would be vacuous"
+        )
+        captured.clear()
+        yield captured

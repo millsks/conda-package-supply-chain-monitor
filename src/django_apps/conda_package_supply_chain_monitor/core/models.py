@@ -103,8 +103,7 @@ from django.utils.translation import gettext_lazy as _
 
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -822,8 +821,13 @@ class CollectionRun(RunLedgerModel):
     #: `PROTECT` for `CPM-AD-25`'s reason rather than
     #: `EVIDENCE.02-AUDIT-001`'s, and nullable because an inventory-wide sweep
     #: genuinely has no package -- see the class docstring for both.
+    #: Named lazily rather than imported, for the reason `PackageHealth.package`
+    #: is: `CPM-IDENTITY-S05` gave `identity/models.py` an `AppendOnlyModel`
+    #: subclass, so that module now imports this one, and an import of `Package`
+    #: here would close the cycle. The string resolves through Django's app
+    #: registry and deconstructs identically, so no migration follows from it.
     package = models.ForeignKey(
-        Package,
+        "identity.Package",
         on_delete=models.PROTECT,
         null=True,
         blank=True,
@@ -987,8 +991,18 @@ class PackageHealth(models.Model):
     #: `PROTECT` because a package is never deleted in this product (`CPM-AD-25`
     #: records absence as an observation), so a cascade here would only ever fire
     #: on an accident.
+    #: `"identity.Package"` as a string rather than the imported class, which is
+    #: Django's own lazy reference and here is load-bearing rather than stylistic:
+    #: `identity/models.py` now reads `AppendOnlyModel` from this module for
+    #: `CPM-IDENTITY-S05`'s audit row, so an import of `identity.models` here
+    #: would close a cycle and fail at start-up. The lazy form asks the app
+    #: registry for the model when the relation is first resolved, long after both
+    #: modules are loaded, and it deconstructs to exactly the `identity.package`
+    #: the existing migration already records -- so nothing about the schema
+    #: changes. `identity/confidence.py` exists for the other half of the same
+    #: problem, and says so.
     package = models.OneToOneField(
-        Package,
+        "identity.Package",
         on_delete=models.PROTECT,
         related_name="health",
         verbose_name=_("package"),
