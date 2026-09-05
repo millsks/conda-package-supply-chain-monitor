@@ -139,6 +139,21 @@ def test_a_fresh_handle_has_declared_nothing() -> None:
     assert handle.detail == ""
 
 
+def test_a_handle_built_without_a_row_refuses_to_name_one() -> None:
+    """`CPM-EVIDENCE-S07`'s passes reference the run, and a bare handle has none.
+
+    The recorder builds the row and hands it to the handle, which is the only way
+    a body can key its own writes to the run it is inside -- a caller that went
+    looking for "the newest running row" would find a different row the moment
+    two runs overlap. A bare `RunHandle()` exists only to exercise the
+    declaration rules below, so it refuses rather than answering `None`: every
+    product caller reaches this through a recorder, and a `None` would push all
+    of them into a check none of them needs.
+    """
+    with pytest.raises(RunLedgerError, match="constructed without a ledger row"):
+        _ = RunHandle().run
+
+
 @pytest.mark.parametrize(
     ("declare", "expected"),
     [

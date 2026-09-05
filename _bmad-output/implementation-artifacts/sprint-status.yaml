@@ -40,7 +40,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-05-2026 18:20
+last_updated: 09-05-2026 16:30
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -54,14 +54,14 @@ development_status:
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie
-  epic-evidence: in-progress
+  epic-evidence: done
   cpm-evidence-s01-five-outcome-states-precedence-order: done
   cpm-evidence-s02-evidence-refuses-be-updated: done
   cpm-evidence-s03-run-ledger-survives-killed-worker: done
   cpm-evidence-s04-three-queues-cadence-as-data: done
   cpm-evidence-s05-collector-base-carrying-external-call: done
   cpm-evidence-s06-stale-failed-evidence-read-as: done
-  cpm-evidence-s07-policy-run-writer-rollup: ready-for-dev
+  cpm-evidence-s07-policy-run-writer-rollup: done
   cpm-evidence-s08-conditional-requests-and-caching: done
   epic-evidence-retrospective: optional
 

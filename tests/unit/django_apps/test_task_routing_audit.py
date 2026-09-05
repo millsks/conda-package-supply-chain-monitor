@@ -64,6 +64,7 @@ from typing import Final
 import pytest
 
 from conda_package_supply_chain_monitor.core.queues import QUEUE_BY_NAMESPACE
+from conda_package_supply_chain_monitor.core.queues import TASK_NAMESPACE_PREFIX
 from conda_package_supply_chain_monitor.core.queues import Queue
 from conda_package_supply_chain_monitor.core.queues import queue_for
 from config.celery_app import app
@@ -111,6 +112,18 @@ A_VERIFICATION_TASK: Final[str] = "cpm.verify.py314_build"
 A_PRODUCT_TASK_IN_NO_NAMESPACE: Final[str] = "cpm.sweep.thing"
 A_PRODUCT_TASK_WITH_A_BARE_NAME: Final[str] = "conda_package_supply_chain_monitor.collectors.tasks.fetch"
 A_SECOND_TASK_IN_THE_EXEMPTED_MODULE: Final[str] = "django_service.users.tasks.count_something_else"
+
+#: The last segment of the policy run's declared name, and the module celery's
+#: autodiscovery imports it from.
+#:
+#: Spelled here rather than imported from `core.tasks`, deliberately: importing
+#: that module *registers* the task, so a case that imported the constant would
+#: read a registry it had seeded itself and would stay green over a policy run
+#: declared in a module autodiscovery never scans. The namespace and the queue
+#: still come from `core/queues.py`, so a renamed queue fails here rather than
+#: routing the task nowhere.
+POLICY_RUN_TASK_SUFFIX: Final[str] = "run"
+AUTODISCOVERED_TASK_MODULE: Final[str] = "conda_package_supply_chain_monitor.core.tasks"
 
 #: Every name the resolver and celery's router are reconciled over, well-formed
 #: and not.
@@ -491,3 +504,40 @@ def test_the_helper_reports_a_registry_left_different_from_the_one_it_found() ->
         app.tasks.pop(intruder, None)
 
     assert intruder not in registered_task_names()
+
+
+def test_the_policy_run_task_is_registered_and_routed_to_the_policy_queue() -> None:
+    """`CPM-EVIDENCE-S07`'s task, asserted by name rather than only by the sweep above.
+
+    The sweep is a *negative*: it fails a task that resolves to no queue. That
+    passes just as well for a task nothing ever registered, which is exactly what
+    a policy run declared outside `core/tasks.py` would produce -- celery's
+    autodiscovery imports each application's `tasks` module and no other, so a
+    task in a module named anything else is registered nowhere and the beat row
+    can never reach it.
+
+    **The name is composed here rather than imported from the module it names,
+    and that is the load-bearing half.** Importing `POLICY_RUN_TASK_NAME` from
+    `core.tasks` imports the module, which registers the task -- so this case
+    would pass over a registry it had itself seeded, and renaming the module to
+    something autodiscovery does not scan would leave the suite green while beat
+    could never reach the task. Built from `core/queues.py`'s own parts, the
+    registry read is the one autodiscovery produced.
+
+    The declaring module is asserted for the same reason: it is what says the
+    task lives where autodiscovery looks.
+    """
+    composed = f"{TASK_NAMESPACE_PREFIX}.{Queue.POLICY.value}.{POLICY_RUN_TASK_SUFFIX}"
+
+    assert composed in product_task_names(), (
+        f"{composed} is not registered. Celery's autodiscovery imports each application's `tasks` module and "
+        f"no other; a policy run declared anywhere else is never registered and never runs."
+    )
+    assert queue_for(composed) is Queue.POLICY
+    assert declaring_module(composed) == f"{TASK_NAMESPACE_PREFIX}.{Queue.POLICY.value}"
+    assert declaring_module(composed) not in RECORDED_EXEMPTIONS
+    assert app.tasks[composed].__module__ == AUTODISCOVERED_TASK_MODULE, (
+        f"the policy run is declared outside {AUTODISCOVERED_TASK_MODULE}; celery's autodiscovery imports "
+        f"each application's `tasks` module and no other, so it would be registered only by whatever "
+        f"happened to import it -- this suite, and not a worker."
+    )
