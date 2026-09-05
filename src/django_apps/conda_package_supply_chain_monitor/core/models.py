@@ -106,6 +106,7 @@ if TYPE_CHECKING:
     from django.db.models.base import ModelBase
 
 __all__ = [
+    "FINISHED_AT_FIELD",
     "AppendOnlyError",
     "AppendOnlyManager",
     "AppendOnlyModel",
@@ -137,6 +138,14 @@ _RunModel = TypeVar("_RunModel", bound=models.Model)
 _STATUS_LENGTH: Final[int] = 16
 _TRACE_ID_LENGTH: Final[int] = 32
 _NAME_LENGTH: Final[int] = 128
+
+#: The column the recorder's `finally` writes, and therefore the one that exists
+#: exactly when a run has an ending. Both queryset methods below read it --
+#: `unfinished()` for its absence and `failed()` to order by it -- and a name
+#: spelled at each of them is one typo away from ordering a failure page by the
+#: primary key instead, which looks identical until the ids stop matching the
+#: chronology.
+FINISHED_AT_FIELD: Final[str] = "finished_at"
 
 
 class AppendOnlyError(Exception):
@@ -563,9 +572,9 @@ class AppendOnlyModel(models.Model):
 
 
 class RunLedgerQuerySet(models.QuerySet[_RunModel]):
-    """The run ledger's queryset, and the one place "started and never finished" is spelled.
+    """The run ledger's queryset, and the one place two operational questions are spelled.
 
-    One method. `unfinished()` is the whole reason the ledger exists in a
+    Two methods. `unfinished()` is the whole reason the ledger exists in a
     database rather than in a log line: a worker killed between the outbound call
     and the insert leaves a row that is `running` with no `finished_at`, and the
     question "which runs started and never finished" has to be *askable* rather
@@ -580,6 +589,17 @@ class RunLedgerQuerySet(models.QuerySet[_RunModel]):
     was never advanced and whose `finished_at` was somehow written would be
     counted by one query and not the other. `finished_at` is the authority
     because it is what the recorder's `finally` writes.
+
+    `failed()` is the other half, and it is `CPM-FR-38`'s: a collection failure
+    has to be *answerable in the application layer* rather than only by reading
+    two log streams side by side. `CPM-NFR-3` says the system "degrades to stale
+    evidence, never to a clean result", and a coverage view can only say what the
+    monitor cannot see if the failures are queryable -- with the `detail` that
+    says what went wrong and the `trace_id` that leads to the span it went wrong
+    in (`CPM-AD-15`). Declared here for the reason `unfinished()` is: written at
+    each call site, "which runs failed" is one keystroke from
+    `status=RunState.ERROR`, which is not a value this vocabulary has and which
+    would silently return nothing at all.
 
     Nothing is refused here. The ledger is mutable by construction (`CPM-AD-2`),
     so `update()` and `delete()` stay exactly as Django wrote them -- the
@@ -598,7 +618,36 @@ class RunLedgerQuerySet(models.QuerySet[_RunModel]):
             and says nothing at all about whether it finished.
 
         """
-        return self.filter(finished_at__isnull=True)
+        return self.filter(**{f"{FINISHED_AT_FIELD}__isnull": True})
+
+    def failed(self) -> RunLedgerQuerySet[_RunModel]:
+        """Return the runs that ended in failure, newest ending first.
+
+        `CPM-FR-38`: a collection failure is retrievable from the application
+        layer, not only from the logs, and each one exposes its error detail and
+        its `trace_id` -- both of which are columns on the row, so this is a
+        query rather than a projection.
+
+        Returns:
+            Every row whose `status` is `failed`, ordered by `finished_at`
+            descending. Ordered here rather than left to the database's own
+            arbitrary order, because the question a collector-health surface asks
+            is "what has broken *lately*", and an unordered page of failures is a
+            different answer on every read.
+
+            A row whose `trace_id` is blank is returned like any other: the
+            column is empty when no span was active, which `RunLedgerModel` says
+            "never blocks the run", and omitting the row would hide exactly the
+            failures that happened outside a traced path.
+
+            `partial` is deliberately not included. A run that did some of its
+            work is a different operational fact from one that did none, and
+            `core/runs.py` keeps the four endings distinct precisely so a reader
+            is never asked to infer which happened. A surface that wants both
+            asks for both.
+
+        """
+        return self.filter(status=RunState.FAILED).order_by(f"-{FINISHED_AT_FIELD}")
 
 
 class RunLedgerModel(models.Model):
