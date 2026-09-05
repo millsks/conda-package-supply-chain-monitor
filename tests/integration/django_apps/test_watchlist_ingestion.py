@@ -331,7 +331,8 @@ def test_a_packages_canonical_name_is_the_rows_name_and_its_key_is_the_rows_key(
 
     While the source key was written into both, a lookup on either matched and
     nothing could tell the correctable name from the stable key -- which is what
-    hid the trap `CPM-IDENTITY-S02` has to close.
+    hid the trap `CPM-IDENTITY-S02` closed, by making the pair unique and by
+    never writing it while correcting a name.
     """
     ingest_inventory()
 
