@@ -804,8 +804,67 @@ them; it is sequenced first in delivery. `CPM-EP-NL` is post-MVP (§7).
 5. What is the p95 latency budget for CPM-NFR-5, and at what inventory size is it measured?
 6. Does the internal-data handling requirement force a private or self-hosted model
    deployment for CPM-FR-34? Blocks `CPM-EP-NL`.
-7. What are the per-collector freshness targets for CPM-FR-38? Needed before the first
-   collector ships, not before the epic starts.
+7. **Resolved 2026-09-05.** Kept numbered rather than struck, as Open Question 3 was.
+   *What are the per-collector freshness targets for CPM-FR-38?* Answered at the moment
+   this list said it would be needed: `CPM-IDENTITY-S06` ships the first collector.
+
+   **7a — how a target is chosen.** **Answer:** derived, not picked. A freshness target is
+
+   ```
+   freshness_target = cadence x (1 + tolerated_missed_runs) + one sweep duration
+   ```
+
+   Cadence is not open — CPM-NFR-2 already fixes it per signal class, and CPM-AD-20 makes
+   it data in `django_celery_beat` rather than code. One sweep duration is a measurement,
+   not a judgement. So the only judgement is `tolerated_missed_runs`: how many consecutive
+   missed collections may pass before the product stops calling an answer current. That is
+   a risk posture, it is per **signal class** rather than per collector, and it is three
+   numbers rather than nine.
+
+   | Signal class | Cadence (CPM-NFR-2) | Tolerated missed runs | Freshness target |
+   |---|---|---|---|
+   | Vulnerability, KEV | daily | 1 | 2 days |
+   | Licence | daily | 2 | 3 days |
+   | Version currency — source, PyPI, feedstock, published conda | daily to weekly | 1 | 2x the configured cadence |
+   | Inventory ingestion | daily | 1 | 2 days |
+   | Python 3.14 verification | on demand | — | see 7c |
+
+   **The target must be strictly greater than the cadence, and that is the rule the table
+   exists to enforce.** `core/freshness.py` reports stale when `observed_at < now - target`,
+   so a target equal to its cadence makes evidence go stale at exactly the moment the next
+   run is due: any delay in scheduling, and the whole inventory reads stale without a single
+   collection having failed. A target below its cadence is worse — evidence is stale in the
+   ordinary case, and CPM-FR-38's "stale never displays as clean" stops carrying information
+   because everything is stale.
+
+   The values above are the starting point and are expected to move once the sweep durations
+   in 7b are measured. What is settled is the derivation, not the arithmetic's inputs.
+
+   **7b — the measurement the targets still owe.** *How long does a full sweep take per
+   collector at realistic inventory size, under CPM-NFR-3's rate limiting?* Not answerable
+   before a populated inventory exists, which is what `CPM-IDENTITY-S06` and
+   `CPM-IDENTITY-S07` deliver. A target must exceed one sweep's wall-clock duration plus its
+   cadence, or evidence goes stale in the gap between successful runs. The table's values
+   assume a sweep completes well inside its cadence; the first full run at CPM-NFR-1's
+   10,000 packages is what confirms or refutes that, and CPM-EP-CURRENCY is where it is
+   measured.
+
+   **7c — the collector with no cadence.** *What target does the Python 3.14 verification
+   collector take?* CPM-NFR-2 runs it on demand, so there is no cadence to derive from, and
+   CPM-AD-28 still requires a strictly positive target. Open. It is one collector and it is
+   in `CPM-EP-PY314`, so it blocks `CPM-PY314-S02` and nothing before it. The two candidate
+   readings are a target measured from the *request* rather than from a schedule, or a
+   verification result that is treated as durable evidence about an immutable artifact and
+   therefore never stale — which would need CPM-AD-28 amending rather than a number.
+
+   **7d — whether a target is code or data.** *Should `freshness_target` move out of the
+   collector class?* Open, and the asymmetry is worth naming: CPM-AD-20 makes cadence data
+   in the `DatabaseScheduler`, while CPM-AD-28 makes the target a `ClassVar` the collector
+   base validates at construction. So tuning a target is a code change and a deployment,
+   while tuning the cadence it is derived from is a database edit. 7b says these values will
+   be tuned. This is an architecture decision rather than a product one, so it is recorded
+   here and owned by the architecture pass; until it is answered, the `ClassVar` stands and
+   CPM-AD-28's construction-time refusal is unchanged.
 8. What seeds the CPM-FR-20 priority rule set and the score function? Both are undefined —
    they encode an organizational risk posture that does not exist yet. Blocks
    `CPM-EP-PRIORITY`; does not block the collectors or the application.
