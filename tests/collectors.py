@@ -1,0 +1,800 @@
+"""The fixtures the collector-base cases are measured against, in one place.
+
+`CPM-EVIDENCE-S05`'s base owns the transport seam, the rate limit and the
+observation window, and it is forbidden to own a concrete evidence model:
+`CPM-AD-7` gives each collector its own table and puts the first in
+`CPM-EP-CURRENCY`, so a table invented in `core` would be one no collector wants
+and one the append-only audits would police forever. What the suite therefore
+needs is a *fixture* collector writing a *fixture* evidence table, in the same
+shape `tests/integration/django_apps/test_append_only_evidence.py` already uses
+for the append-only base.
+
+Two suites need them. `tests/unit/django_apps/test_collection.py` builds
+collectors to assert the construction-time refusals and needs no table at all;
+`tests/integration/django_apps/test_collection.py` runs `collect()` against a
+real one. A second copy of either would be the failure `tests/source_scan.py`
+and `tests/model_registry.py` were both extracted to prevent -- two fixtures that
+can disagree look exactly like two passing tests.
+
+**The evidence model is built inside `isolate_apps` and built once.**
+`isolate_apps` patches `Options.default_apps` rather than the global registry, so
+the fixture model is invisible to `tests/model_registry.py`'s sweeps and to
+`tests/unit/django_apps/test_migration_completeness.py` -- which is the whole
+reason it is built there rather than declared at module scope, where it would be
+a model in `core` that no migration builds. The class survives its block (it
+holds a reference to the registry it was defined in) and is cached, so the unit
+tier's type and the integration tier's real table are the same class.
+
+**The fake transport records what it was asked for.** That is `CPM-AD-27`
+expressed as a test helper: the base hands it a locator and it hands back a
+`Payload` a case wrote by hand, so every parse, `not_found` and `error` path is
+reachable without a socket. `calls` is what proves the *negative* assertions --
+the window case is only meaningful if the transport can say it was never asked.
+
+**The limiter is one method and is not a mock.** A rate-limit refusal is a
+boolean, and arranging one through the cache would mean writing a counter into a
+window whose boundary the case then has to reason about. Substituting the
+protocol is the seam the base already offers, and
+`tests/unit/django_apps/test_rate_limit.py` is where the real limiter is proved
+against a real cache. `FixedLimiter` *records* every ask as well as answering it,
+for the reason `RecordedTransport` records its calls: an argument nothing reads
+is an argument nothing would notice going wrong, and the cost the base charges is
+where retry and the allowance are reconciled (`CPM-AD-20`).
+
+**Six deliberately broken collectors, each broken in exactly one way.** A parser
+that raises, a parser that finds nothing, a `sentinel_evidence` that ignores the
+state it was asked for, a `translate` that ignores the instant it was handed, an
+evidence row the schema will not accept, and a *sentinel* row it will not accept.
+Each is a subclass of the ordinary fixture, so it differs from the working
+collector by one method and by nothing else -- which is what makes the assertion
+about that method rather than about the fixture. The third and fourth exist
+because both mistakes type-check perfectly: the base checks the row rather than
+trusting it, and these are what measure that check. The last two are the only
+shapes that reach the database's own refusals, which is what the per-package
+transaction and the failing-write wrapper are each about.
+
+A helper module, not a collected one. `[tool.pytest.ini_options] python_files`
+matches `test_*.py` and `tests.py`, so nothing here is collected, and it sits at
+`tests/` rather than under `tests/unit/` for the reason `tests/source_scan.py`,
+`tests/model_registry.py` and `tests/celery_tasks.py` do: a collected test module
+is not a helper library.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass
+from dataclasses import field
+from datetime import datetime
+from datetime import timedelta
+from functools import cache as memoized
+from typing import TYPE_CHECKING
+from typing import ClassVar
+from typing import Final
+
+from django.core.cache import cache
+from django.db import models
+from django.test.utils import isolate_apps
+
+from conda_package_supply_chain_monitor.core.collection import Collector
+from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
+from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
+from conda_package_supply_chain_monitor.core.transport import Payload
+from tests.model_registry import FIXTURE_APP
+from tests.model_registry import FIXTURE_LABEL
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from collections.abc import Sequence
+
+    from conda_package_supply_chain_monitor.core.clock import Clock
+    from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
+    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_package_supply_chain_monitor.core.transport import TransportError
+
+#: The name every fixture collector declares, and therefore what its ledger rows
+#: and its rate-limit cache keys carry. Prefixed so it cannot be confused with a
+#: real collector's name the day one exists.
+FIXTURE_COLLECTOR: Final[str] = "cpm-fixture-collector"
+
+#: A second name, for the matrix row where a recent run belongs to a *different*
+#: collector and must not suppress this one.
+OTHER_FIXTURE_COLLECTOR: Final[str] = "cpm-fixture-other-collector"
+
+#: The table the fixture evidence model is given, rather than the
+#: `core_collectedfact` Django would derive. Load-bearing for the same reason
+#: `test_append_only_evidence.py`'s is: the integration fixture drops a stale
+#: table of this name at session start -- `--reuse-db` means a killed run leaves
+#: one behind -- and a derived name would one day land on a genuine migrated
+#: table.
+FIXTURE_TABLE: Final[str] = "cpm_fixture_collected_fact"
+
+#: The observation window the fixture collectors declare. An hour, which is long
+#: enough that a case can place a prior run comfortably inside it or outside it
+#: by naming a fraction or a multiple of this value, rather than by writing an
+#: interval at the call site that nothing reconciles against the declaration.
+FIXTURE_WINDOW: Final[timedelta] = timedelta(hours=1)
+
+#: The timeout the fixture collectors declare. A real number rather than a
+#: sentinel: the base builds a `RequestsTransport` from it whenever a case does
+#: not substitute one, and that construction must succeed.
+FIXTURE_TIMEOUT: Final[float] = 5.0
+
+#: The allowance the fixture collectors declare. Generous, because the cases that
+#: are about the limit substitute a refusing limiter rather than exhausting this.
+FIXTURE_RATE_LIMIT: Final[RateLimit] = RateLimit(calls=60, per=timedelta(minutes=1))
+
+#: The locator the fixture collectors read, with the package key appended. Not a
+#: reachable address: every case substitutes the transport, and the one
+#: integration case that makes a real call builds its own URL from the local
+#: server's port.
+FIXTURE_SOURCE_PREFIX: Final[str] = "https://fixture.invalid/packages/"
+
+#: A whole locator, for a payload a case builds by hand. `Payload.source` is the
+#: field that exists so an evidence row can say where an observation came from,
+#: so the default has to be something a row could meaningfully carry.
+A_SOURCE: Final[str] = f"{FIXTURE_SOURCE_PREFIX}recorded"
+
+#: What a fixture payload's body says when a case does not care.
+A_PAYLOAD_BODY: Final[str] = '{"version": "2.4.0"}'
+
+#: The value a determinate fixture evidence row carries. The generic determinate
+#: member's value (`core/outcomes.py`'s `DETERMINATE`), spelled here so a case
+#: asserting "no row carries `ok`" has the same string the fixture writes.
+DETERMINATE_VALUE: Final[str] = "ok"
+
+#: What one collection costs the rate limiter: the request plus its retry budget
+#: (`Collector.request_cost`). Derived rather than written out, so a case that
+#: exhausts an allowance stays correct if the default retry count changes.
+FIXTURE_REQUEST_COST: Final[int] = 1 + DEFAULT_RETRIES
+
+#: A naive instant, for the collector that ignores the one it was handed.
+#:
+#: `AppendOnlyModel.save()` refuses this and `bulk_create` never calls `save()`,
+#: which is the hole `Collector._require_stamped` closes -- so a fixture that
+#: could not produce a naive instant would leave that guard unmeasured.
+A_NAIVE_INSTANT: Final[datetime] = datetime(2026, 9, 4, 12, 0)  # noqa: DTZ001 - naive on purpose; see above
+
+#: How wide the fixture evidence model's short columns are. Wide enough for the
+#: longest `OutcomeState` value, which is `not_applicable`, and for a locator.
+_STATE_LENGTH: Final[int] = 32
+_SOURCE_LENGTH: Final[int] = 255
+
+
+@memoized
+def fixture_evidence_model() -> type[AppendOnlyModel]:
+    """Return the fixture evidence model, building it once for the session.
+
+    An ordinary evidence model: it inherits `AppendOnlyModel`, declares its own
+    columns, and carries no unique constraint that could suppress a
+    re-observation (`CPM-AD-7`).
+
+    **`isolate_apps` is entered and left before the class is used.** The patched
+    registry is not held open -- the class keeps a reference to the registry it
+    was defined in, and it declares no relation, so nothing it does needs to look
+    another model up. Leaving the block is also what keeps the model out of the
+    global registry that `tests/model_registry.py` sweeps.
+
+    Returns:
+        A concrete `AppendOnlyModel` subclass whose `db_table` is
+        `FIXTURE_TABLE`. Cached, so every caller in the session gets the same
+        class -- which is what makes the integration tier's table the unit
+        tier's model.
+
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class CollectedFact(AppendOnlyModel):
+            #: The package the observation is about, by the integer primary key
+            #: `CPM-AD-3` fixes. Not a `ForeignKey`, for the reason
+            #: `CollectionRun.package_id` is not one: `identity.Package` does
+            #: not exist yet.
+            package_id = models.PositiveBigIntegerField()
+
+            #: The `OutcomeState` value this row carries, emitted verbatim
+            #: (`CPM-AD-24`). A `CharField`, never a boolean (`CPM-AD-5`).
+            state = models.CharField(max_length=_STATE_LENGTH)
+
+            #: What the base or the collector had to say about the observation.
+            detail = models.TextField(blank=True, default="")
+
+            #: What the source said, where it said anything.
+            body = models.TextField(blank=True, default="")
+
+            #: Where the observation came from. `Payload.source` exists so an
+            #: evidence row can say that without the collector reconstructing
+            #: it, and a fixture that dropped the column would leave the field
+            #: asserted nowhere.
+            source = models.CharField(max_length=_SOURCE_LENGTH, blank=True, default="")
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+                db_table = FIXTURE_TABLE
+
+    return CollectedFact
+
+
+@dataclass(slots=True)
+class RecordedTransport:
+    """A transport that answers from a script and remembers what it was asked.
+
+    The concrete form of `CPM-AD-27`'s promise: the base's whole orchestration is
+    exercisable with no socket, because the only thing it needs from the outside
+    world is a `Payload`.
+
+    Attributes:
+        payload: What `fetch` returns.
+        failure: The `TransportError` to raise instead, for the
+            source-unavailable row of the matrix.
+        calls: Every locator `fetch` was handed, in order. The window cases
+            assert this stays empty, which is the only way to show the transport
+            was *not* called.
+
+    """
+
+    payload: Payload | None = None
+    failure: TransportError | None = None
+    calls: list[str] = field(default_factory=list)
+
+    def fetch(self, source: str) -> Payload:
+        """Record the request and answer from the script.
+
+        Args:
+            source: The locator the base asked for.
+
+        Returns:
+            The scripted payload.
+
+        Raises:
+            TransportError: When one was scripted, which is the
+                source-unavailable row of the matrix.
+            RuntimeError: When neither a payload nor a failure was scripted. A
+                raise rather than an `assert`, because `assert` vanishes under
+                `python -O` and would then return `None` where a `Payload` is
+                annotated -- and a helper that invented an empty payload would
+                let a case pass by observing nothing, which is the failure the
+                base exists to prevent.
+
+        """
+        self.calls.append(source)
+        if self.failure is not None:
+            raise self.failure
+        if self.payload is None:
+            message = f"RecordedTransport was asked to fetch {source!r} with neither a payload nor a failure scripted"
+            raise RuntimeError(message)
+        return self.payload
+
+
+def recorded_payload(*, source: str = A_SOURCE, found: bool = True, body: str = A_PAYLOAD_BODY) -> Payload:
+    """Build a payload a case can hand to the fake transport.
+
+    Args:
+        source: The locator the payload claims to have come from. Defaults to a
+            whole locator rather than the bare prefix, so a case asserting that
+            `Payload.source` reaches an evidence row is asserting something a
+            real payload would carry.
+        found: Whether the source says the resource exists.
+        body: What the source said.
+
+    Returns:
+        A `Payload` carrying no status code, because a transport substituted at
+        this seam is not obliged to speak HTTP -- which is `CPM-AD-29`'s file
+        adapter in miniature.
+
+    """
+    return Payload(source=source, found=found, body=body)
+
+
+@dataclass(slots=True)
+class FixedLimiter:
+    """A rate limiter whose answer is decided by the case, and which records the ask.
+
+    Recording matters as much as answering. Discarding the arguments would leave
+    nothing to notice if `collect()` passed a wall-clock instant, another
+    collector's name, or a cost that did not include the retry budget -- and the
+    reconciliation of retry against the allowance (`CPM-AD-20`) is exactly what
+    lives in that argument.
+
+    Attributes:
+        permitted: What `acquire` answers. `False` is the rate-limit-reached row
+            of the matrix.
+        asks: Every `(collector, limit, now, cost)` the base asked about, in
+            order, the way `RecordedTransport` records its calls.
+
+    """
+
+    permitted: bool
+    asks: list[tuple[str, RateLimit, datetime, int]] = field(default_factory=list)
+
+    def acquire(self, *, collector: str, limit: RateLimit, now: datetime, cost: int = 1) -> bool:
+        """Record what was asked and answer the scripted verdict.
+
+        Args:
+            collector: The name a real limiter would key its counter on.
+            limit: The allowance a real limiter would count against.
+            now: The instant a real limiter would decide the window from.
+            cost: How many requests the caller says it is about to issue.
+
+        Returns:
+            `permitted`, unchanged.
+
+        """
+        self.asks.append((collector, limit, now, cost))
+        return self.permitted
+
+
+def collector_class(  # noqa: PLR0913 - one parameter per declaration; see below
+    *,
+    declared_model: type[AppendOnlyModel] | None,
+    declared_name: str = FIXTURE_COLLECTOR,
+    declared_window: timedelta | None = FIXTURE_WINDOW,
+    declared_timeout: float | None = FIXTURE_TIMEOUT,
+    declared_retries: int = DEFAULT_RETRIES,
+    declared_rate_limit: RateLimit | None = FIXTURE_RATE_LIMIT,
+) -> type[Collector]:
+    """Build a collector subclass with exactly the declarations a case wants.
+
+    A factory rather than a family of classes because the refusal cases differ
+    from the working one by a single declaration, and the assertion each makes is
+    only meaningful if everything *else* is the same. Written out as six classes
+    they would drift, and a refusal case would eventually pass for the wrong
+    reason. That is also the argument for the argument count: there is exactly
+    one parameter per declaration the base checks, and collapsing any two of them
+    into a bundle would put a refusal case one indirection away from the
+    declaration it is about.
+
+    The parameter names all carry `declared_` because a class body cannot read an
+    enclosing function's local under the same name as an attribute it is
+    assigning -- `name = name` in the body below would resolve to the class
+    attribute being defined, not to the argument.
+
+    Args:
+        declared_model: The evidence model, or `None` for the case that declares
+            none.
+        declared_name: The collector's name, or `""` for the case that declares
+            none.
+        declared_window: The observation window, or `None`.
+        declared_timeout: The timeout in seconds, or `None`.
+        declared_retries: The retry count, which is also what the rate limiter is
+            charged per collection.
+        declared_rate_limit: The allowance, or `None`.
+
+    Returns:
+        A concrete `Collector` subclass. Constructing it is what applies the
+        refusals, so a case asserting one instantiates rather than merely
+        building the class.
+
+    """
+
+    class _FixtureCollector(Collector):
+        """A fixture collector over the fixture evidence table."""
+
+        name: ClassVar[str] = declared_name
+        evidence_model: ClassVar[type[AppendOnlyModel] | None] = declared_model
+        observation_window: ClassVar[timedelta | None] = declared_window
+        timeout: ClassVar[float | None] = declared_timeout
+        retries: ClassVar[int] = declared_retries
+        rate_limit: ClassVar[RateLimit | None] = declared_rate_limit
+
+        def source_for(self, *, package_id: int) -> str:
+            """Return the fixture locator for one package.
+
+            Args:
+                package_id: The package being collected.
+
+            Returns:
+                An unreachable URL naming the package.
+
+            """
+            return f"{FIXTURE_SOURCE_PREFIX}{package_id}"
+
+        def translate(self, payload: Payload, *, package_id: int, observed_at: datetime) -> Sequence[AppendOnlyModel]:
+            """Turn the recorded body into one determinate evidence row.
+
+            Args:
+                payload: What the source said.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                One unsaved row carrying `ok` and the body verbatim.
+
+            """
+            model = fixture_evidence_model()
+            return [
+                model(
+                    observed_at=observed_at,
+                    package_id=package_id,
+                    state=DETERMINATE_VALUE,
+                    detail="",
+                    body=payload.body,
+                    source=payload.source,
+                ),
+            ]
+
+        def sentinel_evidence(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> AppendOnlyModel:
+            """Shape one sentinel row for the fixture table.
+
+            Args:
+                state: The sentinel the base decided on.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                One unsaved row carrying the sentinel's value verbatim
+                (`CPM-AD-24`).
+
+            """
+            model = fixture_evidence_model()
+            return model(
+                observed_at=observed_at,
+                package_id=package_id,
+                state=state.value,
+                detail=detail,
+                body="",
+                source=self.source_for(package_id=package_id),
+            )
+
+    return _FixtureCollector
+
+
+def breaking_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a fixture collector whose parser breaks on the payload it is handed.
+
+    The matrix's translation-raises row. A subclass of the ordinary fixture
+    rather than a flag on the factory above, so the two differ by exactly the
+    method under test and by nothing else -- and so the factory keeps one
+    parameter per *declaration*, which is what makes its own refusal cases read.
+
+    `ValueError` rather than a bespoke type, because the guarantee under test is
+    that the base does not depend on which exception a parser produces.
+
+    Args:
+        declared_model: The evidence model the sentinel row is written to. The
+            base must still write one, which is the whole point of the row.
+
+    Returns:
+        A concrete `Collector` subclass whose `translate` always raises.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _BreakingCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that cannot parse what it was given."""
+
+        def translate(self, payload: Payload, *, package_id: int, observed_at: datetime) -> Sequence[AppendOnlyModel]:
+            """Raise, as a parser meeting a malformed payload does.
+
+            Args:
+                payload: What the source said.
+                package_id: The package the observation is about.
+                observed_at: The instant the row would have carried.
+
+            Raises:
+                ValueError: Always.
+
+            """
+            message = (
+                f"the payload from {payload.source} for package {package_id} at {observed_at.isoformat()} is malformed"
+            )
+            raise ValueError(message)
+
+    return _BreakingCollector
+
+
+def working_collector(
+    *,
+    clock: Clock,
+    transport: Transport,
+    limiter: RateLimiter | None = None,
+) -> Collector:
+    """Build a fully declared fixture collector over the fixture evidence model.
+
+    The ordinary case, in one call, so that the cases differ from one another in
+    what they arrange rather than in how they build the collector.
+
+    Args:
+        clock: The stopped clock the run reads every instant from.
+        transport: The transport the case scripted -- a `RecordedTransport` in
+            every case but the one that proves the real one.
+        limiter: A substituted limiter, or `None` to leave the collector with the
+            real cache-backed one.
+
+    Returns:
+        A constructed collector, ready to `collect`.
+
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    return built(clock=clock, transport=transport, limiter=limiter)
+
+
+def empty_translation_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose parser finds nothing in a body the source served.
+
+    The silent-mismatch case: a source that changed shape, or a selector that no
+    longer matches, produces zero rows and no exception at all. Left unguarded
+    that is a `succeeded` run with no evidence, which reads exactly like a
+    package nothing has gone wrong with.
+
+    Args:
+        declared_model: The evidence model the sentinel row is written to.
+
+    Returns:
+        A concrete `Collector` subclass whose `translate` returns nothing.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _EmptyTranslationCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector whose parser no longer matches its source."""
+
+        def translate(self, payload: Payload, *, package_id: int, observed_at: datetime) -> Sequence[AppendOnlyModel]:
+            """Return no rows at all.
+
+            Args:
+                payload: What the source said.
+                package_id: The package the observation is about.
+                observed_at: The instant the rows would have carried.
+
+            Returns:
+                An empty sequence.
+
+            """
+            return []
+
+    return _EmptyTranslationCollector
+
+
+def lying_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose sentinel row ignores the state it was asked for.
+
+    The subclass mistake nothing else could catch: it type-checks perfectly, it
+    writes a row on every failing path so "never no row" still holds, and every
+    one of those rows says the package is fine. It is `CPM-NFR-3`'s "never a
+    clean result" defeated from inside the contract, which is why the base checks
+    the row rather than trusting it.
+
+    Args:
+        declared_model: The evidence model the row is built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence` always writes
+        the determinate value.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _LyingSentinelCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that reports every failure as a clean observation."""
+
+        def sentinel_evidence(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> AppendOnlyModel:
+            """Ignore `state` and write the determinate value.
+
+            Args:
+                state: The sentinel the base asked for, discarded.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                One unsaved row carrying `ok`.
+
+            """
+            model = fixture_evidence_model()
+            return model(
+                observed_at=observed_at,
+                package_id=package_id,
+                state=DETERMINATE_VALUE,
+                detail=detail,
+                body="",
+                source=self.source_for(package_id=package_id),
+            )
+
+    return _LyingSentinelCollector
+
+
+def unstamped_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector that stamps its rows from somewhere other than the run.
+
+    `bulk_create` does not call `save()`, so `AppendOnlyModel`'s naive-instant
+    refusal -- which `core/models.py` calls "the one place every evidence write
+    passes through" -- never runs on this path. This is what that hole looks like
+    from the outside: a row that is written, that is never corrected because the
+    table is append-only, and whose `observed_at` makes every later freshness
+    comparison wrong by the writer's offset.
+
+    Args:
+        declared_model: The evidence model the row is built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `translate` ignores the instant it
+        was handed and stamps a naive one.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _UnstampedCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that reads its own clock, badly."""
+
+        def translate(self, payload: Payload, *, package_id: int, observed_at: datetime) -> Sequence[AppendOnlyModel]:
+            """Stamp the row with a naive instant of its own.
+
+            Args:
+                payload: What the source said.
+                package_id: The package the observation is about.
+                observed_at: The instant it was handed and ignores.
+
+            Returns:
+                One unsaved row carrying `A_NAIVE_INSTANT`.
+
+            """
+            model = fixture_evidence_model()
+            return [
+                model(
+                    observed_at=A_NAIVE_INSTANT,
+                    package_id=package_id,
+                    state=DETERMINATE_VALUE,
+                    detail="",
+                    body=payload.body,
+                    source=payload.source,
+                ),
+            ]
+
+    return _UnstampedCollector
+
+
+def unwritable_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose evidence rows the database will refuse.
+
+    Used for the per-package transaction case: package *N*'s write raises inside
+    the nested `transaction.atomic()`, which rolls back to the savepoint and
+    leaves packages 1..*N*-1 exactly where they were. Without the nesting the
+    rollback would reach further -- which is the whole of `CPM-AD-23` and is what
+    makes `CPM-FR-15`'s partial success reachable.
+
+    The row violates a NOT NULL rather than raising in Python, so the failure
+    comes from the database and the transaction is genuinely the thing that
+    contains it.
+
+    Args:
+        declared_model: The evidence model the row is built for.
+
+    Returns:
+        A concrete `Collector` subclass whose translated row cannot be inserted.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _UnwritableCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector whose rows the schema refuses."""
+
+        def translate(self, payload: Payload, *, package_id: int, observed_at: datetime) -> Sequence[AppendOnlyModel]:
+            """Return a row with no `package_id`, which the column forbids.
+
+            Args:
+                payload: What the source said.
+                package_id: The package the observation is about, dropped.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                One unsaved, uninsertable row.
+
+            """
+            model = fixture_evidence_model()
+            return [
+                model(
+                    observed_at=observed_at,
+                    package_id=None,
+                    state=DETERMINATE_VALUE,
+                    detail="",
+                    body=payload.body,
+                    source=payload.source,
+                ),
+            ]
+
+    return _UnwritableCollector
+
+
+def unwritable_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose *sentinel* row the database will refuse.
+
+    The ordering hazard the base wraps against: a failing path already has a
+    reason -- the source was unreachable -- and then writes the row recording it.
+    If that write raises, the database error reaches the run recorder and becomes
+    the ledger row's `detail`, replacing the reason with a message about the
+    write. A reader is then left with the epitaph and not the death.
+
+    Args:
+        declared_model: The evidence model the row is built for.
+
+    Returns:
+        A concrete `Collector` subclass whose sentinel row cannot be inserted.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _UnwritableSentinelCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that cannot record its own failures."""
+
+        def sentinel_evidence(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> AppendOnlyModel:
+            """Return a correctly stamped, correctly stated, uninsertable row.
+
+            Args:
+                state: The sentinel the base asked for, carried faithfully so the
+                    row passes every check the base makes before the insert.
+                package_id: The package the observation is about, dropped, which
+                    is what the column refuses.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                One unsaved row the schema will not accept.
+
+            """
+            model = fixture_evidence_model()
+            return model(
+                observed_at=observed_at,
+                package_id=None,
+                state=state.value,
+                detail=detail,
+                body="",
+                source=self.source_for(package_id=package_id),
+            )
+
+    return _UnwritableSentinelCollector
+
+
+@contextmanager
+def cleared_cache() -> Iterator[None]:
+    """Empty the cache around a case, in one place both suites use.
+
+    The cache is process-wide and the ledger is not: a rate-limit counter left
+    behind by one case is an allowance already spent in the next, and the failure
+    would land in whichever case happened to run second. Cleared on the way out
+    as well, so a case leaves the cache as it found it for the rest of the
+    session.
+
+    It lives here rather than being written twice because this module's own
+    docstring argues that a second copy of a fixture is the failure
+    `tests/source_scan.py` and `tests/model_registry.py` were extracted to
+    prevent -- and two `autouse` fixtures that can drift apart are exactly that.
+    It is a context manager rather than a fixture because the two suites that
+    need it sit under different `conftest.py` files, and a fixture in
+    `tests/conftest.py` would either be autouse for the whole suite -- clearing
+    the cache under every case in the repository, including the ones whose
+    subject is what the cache holds -- or would have to be requested by name in
+    each module anyway.
+
+    Yields:
+        Nothing; the helper is entirely its two side effects.
+
+    """
+    cache.clear()
+    try:
+        yield
+    finally:
+        cache.clear()
