@@ -292,9 +292,7 @@ def test_neither_row_declares_a_derived_status(model: type[models.Model]) -> Non
     `CPM-IDENTITY-S02`'s, with the semantics that story defines.
     """
     offenders = [
-        name
-        for name in _field_names(model)
-        if name in DERIVED_STATUS_NAMES or name.endswith(DERIVED_STATUS_SUFFIXES)
+        name for name in _field_names(model) if name in DERIVED_STATUS_NAMES or name.endswith(DERIVED_STATUS_SUFFIXES)
     ]
 
     assert offenders == [], f"{model.__name__} declares derived-status fields: {offenders}"
@@ -497,7 +495,7 @@ def test_resolved_at_is_required_and_reads_no_wall_clock() -> None:
 
 
 def test_the_multi_valued_mappings_default_to_an_empty_list_and_never_to_null() -> None:
-    """"No identifiers" is `[]`, which is a value, and never NULL, which is a second one.
+    """ "No identifiers" is `[]`, which is a value, and never NULL, which is a second one.
 
     `blank=True` is what makes an empty list a valid form value rather than a
     validation error; the column stays NOT NULL with a `list` default, so
