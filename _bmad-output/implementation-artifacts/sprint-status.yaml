@@ -40,7 +40,7 @@
 # exists, not that its contents are final.
 
 generated: 09-02-2026 18:00
-last_updated: 09-06-2026 01:30
+last_updated: 09-06-2026 03:00
 project: conda-package-supply-chain-monitor
 project_key: CPM
 tracking_system: file-system
@@ -73,7 +73,7 @@ development_status:
   cpm-identity-s07-watchlist-inventory-source: done
   cpm-identity-s02-resolution-records-where-came-from: done
   cpm-identity-s03-confidence-gates-what-system-will: done
-  cpm-identity-s04-unresolved-packages-selectable-ranked: ready-for-dev
+  cpm-identity-s04-unresolved-packages-selectable-ranked: done
   cpm-identity-s05-audited-human-write: ready-for-dev
   epic-identity-retrospective: optional
 
