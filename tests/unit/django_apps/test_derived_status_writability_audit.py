@@ -159,11 +159,42 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: database. Recorded rather than special-cased by model type, because this scan
 #: reads syntax and cannot know which model an attribute belongs to -- and a
 #: heuristic that guessed would be the door a real write later walks through.
+#: **`core/rollup.py` is the rollup writer and has no entry, which is a recorded
+#: state rather than an oversight.** `CPM-EVIDENCE-S07` built the writer this
+#: table was written in anticipation of, and the rollup it writes declares no
+#: domain status column: `epics.md` says the table "grows as passes are added"
+#: and no policy epic has run, so `core/rollup.py` composes the stamps and the
+#: confidence and nothing this scan matches. An entry recording zero of a form
+#: would license nothing and assert nothing, and one recording a form that is not
+#: there fails `test_every_recorded_exemption_still_describes_the_file` -- so the
+#: honest record is the absence, plus `THE_ROLLUP_WRITER` below, which keeps the
+#: file in the scan's view and makes the day it acquires its first write a
+#: decision somebody has to record here.
+#:
+#: The writer reaches its columns as a mapping -- `update_or_create(defaults=...)`
+#: -- which this scan does not see, and that is stated rather than left to be
+#: discovered: it is one of the four shapes `ORM_WRITE_METHODS` already records
+#: as outside its reach. What it means for the first pass's `currency_status` is
+#: that the write becomes visible here only if it is spelled as a keyword or an
+#: assignment, and that is the shape the entry should record when it arrives.
+#: Routing a real status column through the mapping *to stay out of this table*
+#: would be the `**kwargs` dodge that constant names.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
     },
 }
+
+#: The one module `CPM-AD-11` permits to write current package health, named so
+#: the scan can be asserted to still reach it. See `RECORDED_EXEMPTIONS` above
+#: for why it carries no entry today.
+THE_ROLLUP_WRITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rollup.py"
+
+#: The rollup itself, by `app_label.ModelName`. `derived_state_models()` was
+#: empty when this module was written and `CPM-EVIDENCE-S07` is the story named
+#: in its docstring as making it non-vacuous, so the model is named here and the
+#: sweep is asserted to have found it.
+THE_ROLLUP_MODEL_LABEL: Final[str] = "core.PackageHealth"
 
 #: The module the exemption table above is about, asserted to be reachable by the
 #: scan so that an exclusion added later cannot quietly take it out of view.
@@ -365,6 +396,34 @@ def test_the_scan_reaches_the_modules_the_rule_is_about() -> None:
     assert len(SUBJECT_MODULES) > len(RECORDED_EXEMPTIONS), f"expected modules under {SRC_ROOT}"
     assert A_MODULE_THAT_WRITES_A_RUN_STATUS in relative, (
         f"the scan no longer reaches {A_MODULE_THAT_WRITES_A_RUN_STATUS}, which the exemption table is about"
+    )
+    assert THE_ROLLUP_WRITER in relative, (
+        f"the scan no longer reaches {THE_ROLLUP_WRITER}, which is the one module CPM-AD-11 permits to write "
+        f"current package health -- the module this whole rule is about"
+    )
+
+
+def test_the_rollup_is_recognised_as_derived_state() -> None:
+    """The sweep over `derived_state_models()` is no longer vacuous, and this says so.
+
+    This module was written before the table existed, deliberately, so the rule
+    would be shaped by `CPM-AD-11` rather than by whatever the writer happened to
+    do -- and its docstring names `CPM-EVIDENCE-S07` as the story that makes the
+    registry sweep meaningful. That story has run. `PackageHealth` declares
+    `computed_at`, so `holds_derived_state` finds it, and the editability rule
+    below now inspects a real model rather than an empty list.
+
+    The rollup declares no status column *yet*, which is why that rule finds
+    nothing to fault: `epics.md` says the table grows as passes are added. What
+    this case asserts is that the model is in view, so the first
+    `currency_status` declared without `editable=False` fails there rather than
+    passing through an empty sweep.
+    """
+    found = {model._meta.label for model in derived_state_models()}  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert THE_ROLLUP_MODEL_LABEL in found, (
+        f"{THE_ROLLUP_MODEL_LABEL} is not recognised as holding derived state, so the editability rule below "
+        f"inspects nothing. CPM-AD-11 requires the rollup to carry {DERIVED_STATE_MARK}."
     )
 
 

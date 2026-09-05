@@ -1,0 +1,510 @@
+"""The fixtures the policy-run and rollup cases are measured against, in one place.
+
+`CPM-EVIDENCE-S07` builds the orchestration and is forbidden to ship a concrete
+policy pass: currency, feedstock, vulnerability, licence, readiness and priority
+are their own epics, and a pass invented in `core` would be one no epic wants and
+one the ownership audit would police forever. What the suite therefore needs is
+*fixture* passes writing *fixture* derived tables, in the same shape
+`tests/collectors.py` holds the collector fixtures.
+
+Two suites need them. `tests/unit/django_apps/test_policy_registry.py` and
+`tests/unit/django_apps/test_pass_ownership_audit.py` build passes to assert the
+registration refusals and need no table at all;
+`tests/integration/django_apps/test_policy_run.py` and
+`tests/integration/django_apps/test_rollup.py` run them against real ones. A
+second copy of either would be the failure `tests/source_scan.py` and
+`tests/model_registry.py` were both extracted to prevent -- two fixtures that can
+disagree look exactly like two passing tests.
+
+**Two derived tables, because one proves nothing about the rule that matters.**
+`EVIDENCE.07-INT-001` is "two passes writing two domains in one run, and both
+results survive the compose". One fixture table can only show that a pass wrote
+something; it cannot show that composing the rollup left another domain alone,
+which is the property the single-writer rule is *for*.
+
+**The derived tables key the package and the run by integer, not by
+`ForeignKey`.** That is forced rather than chosen. The models are built inside
+`django.test.utils.isolate_apps`, which patches `Options.default_apps` with a
+registry holding none of this repository's models -- so a `ForeignKey(Package)`
+declared there resolves against a registry `identity.Package` is not in, and its
+reverse accessor is deferred forever. It is also the shape `tests/collectors.py`
+already uses for `CollectedFact.package_id`, and the *real* passes are unaffected:
+`PackageHealth` is a migrated model declaring real `ForeignKey`s to both, and it
+is the table the rules in this story are about.
+
+**The models are built inside `isolate_apps` and built once.** `isolate_apps`
+patches `Options.default_apps` rather than the global registry, so the fixture
+models are invisible to `tests/model_registry.py`'s sweeps and to
+`tests/unit/django_apps/test_migration_completeness.py` -- which is the whole
+reason they are built there rather than declared at module scope, where they
+would be two models in `core` that no migration builds. The classes survive their
+block (each holds a reference to the registry it was defined in) and are cached,
+so the unit tier's types and the integration tier's real tables are the same
+classes.
+
+**No fixture pass contributes a rollup column, and that is the honest state
+rather than an omission.** `core/rollup.py` offers none: the rollup declares its
+identity, its stamps and the confidence, and no domain status column, because
+`epics.md` says it "grows as passes are added" and none has been. So
+`register_pass` would *refuse* a fixture contributing one -- correctly, and that
+refusal is itself a case. The contribution path is therefore proved by the
+refusals and by the writer's own composition, and the first real pass is what
+exercises it end to end.
+
+**Five fixture passes, each differing in exactly one way.** One that works, one
+that raises for a nominated package, one that reads the first one's rows, one
+that returns a column it never declared, and one that declares a column the
+rollup does not offer. Each is built by the same factory with one behaviour
+changed, which is what makes an assertion about that behaviour rather than about
+the fixture.
+
+A helper module, not a collected one. `[tool.pytest.ini_options] python_files`
+matches `test_*.py` and `tests.py`, so nothing here is collected, and it sits at
+`tests/` rather than under `tests/unit/` for the reason `tests/source_scan.py`,
+`tests/model_registry.py`, `tests/celery_tasks.py` and `tests/collectors.py` do:
+a collected test module is not a helper library.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from contextlib import suppress
+from functools import cache as memoized
+from typing import TYPE_CHECKING
+from typing import Final
+
+from django.db import models
+from django.test.utils import isolate_apps
+
+from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_package_supply_chain_monitor.core.policy import PolicyPass
+from conda_package_supply_chain_monitor.core.policy import PolicyPassError
+from conda_package_supply_chain_monitor.core.policy import register_pass
+from conda_package_supply_chain_monitor.core.policy import unregister_pass
+from tests.model_registry import FIXTURE_APP
+from tests.model_registry import FIXTURE_LABEL
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
+    from collections.abc import Iterator
+    from collections.abc import Mapping
+    from datetime import datetime
+
+    from conda_package_supply_chain_monitor.core.models import PolicyRun
+    from conda_package_supply_chain_monitor.identity.models import Package
+
+#: The names the fixture passes declare, and therefore what the rollup's
+#: per-domain version map is keyed by. Prefixed so they cannot be confused with a
+#: real pass's name the day one exists.
+FIRST_DOMAIN: Final[str] = "cpm-fixture-first-pass"
+SECOND_DOMAIN: Final[str] = "cpm-fixture-second-pass"
+OTHER_DOMAIN: Final[str] = "cpm-fixture-other-pass"
+
+#: The tables the fixture derived models are given, rather than the
+#: `core_firstfinding` Django would derive. Load-bearing for the same reason
+#: `tests/collectors.py`'s `FIXTURE_TABLE` is: the integration fixture drops a
+#: stale table of this name at session start -- `--reuse-db` means a killed run
+#: leaves one behind -- and a derived name would one day land on a genuine
+#: migrated table.
+FIRST_TABLE: Final[str] = "cpm_fixture_first_finding"
+SECOND_TABLE: Final[str] = "cpm_fixture_second_finding"
+
+#: The verdict a working fixture pass records and contributes. The generic
+#: determinate value, so no case asserting "this column is not clean" shares a
+#: string with what the fixture writes.
+A_VERDICT: Final[str] = OutcomeState.OK.value
+
+#: A rollup column no rollup declares, for the refusal that is about exactly
+#: that. Spelled as a column a real epic would plausibly add, so the refusal
+#: message reads as the mistake it stands for.
+AN_UNDECLARED_COLUMN: Final[str] = "currency_status"
+
+#: How wide the fixture verdict column is. Wide enough for any `OutcomeState`
+#: value and for a per-status verdict a later epic composes.
+_VERDICT_LENGTH: Final[int] = 32
+
+#: What a pass that has no derived table of its own declares. Used by the
+#: refusal case, and never registered.
+NO_DERIVED_MODEL: Final = None
+
+
+@memoized
+def fixture_derived_models() -> tuple[type[models.Model], type[models.Model]]:
+    """Return the two fixture derived models, building them once for the session.
+
+    Two ordinary per-domain tables: each keyed by the package and the policy run
+    the row was computed in, exactly as `CPM-AD-21` keys a real one, and each
+    carrying one verdict column of its own.
+
+    **`isolate_apps` is entered and left before the classes are used.** The
+    patched registry is not held open -- each class keeps a reference to the
+    registry it was defined in, and neither declares a relation, so nothing they
+    do needs to look another model up. Leaving the block is also what keeps them
+    out of the global registry that `tests/model_registry.py` sweeps.
+
+    Returns:
+        The first and second fixture derived models, in that order. Cached, so
+        every caller in the session gets the same classes -- which is what makes
+        the integration tier's tables the unit tier's models.
+
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class FirstFinding(models.Model):  # noqa: DJ008 - a fixture table, never rendered anywhere
+            #: The package this finding is about, by the integer primary key
+            #: `CPM-AD-3` fixes. Not a `ForeignKey`, for the reason the module
+            #: docstring gives.
+            package_id = models.PositiveBigIntegerField()
+
+            #: The policy run that computed it. Together with `package_id` this
+            #: is the `(package, policy_run)` key `CPM-AD-21` requires.
+            policy_run_id = models.PositiveBigIntegerField()
+
+            #: What this domain concluded. A `CharField`, never a boolean
+            #: (`CPM-AD-5`).
+            verdict = models.CharField(max_length=_VERDICT_LENGTH)
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+                db_table = FIRST_TABLE
+
+        class SecondFinding(models.Model):  # noqa: DJ008 - a fixture table, never rendered anywhere
+            package_id = models.PositiveBigIntegerField()
+            policy_run_id = models.PositiveBigIntegerField()
+            verdict = models.CharField(max_length=_VERDICT_LENGTH)
+
+            #: How many of the *first* pass's rows this pass could see for the
+            #: same package and run when it ran. Zero would mean the passes did
+            #: not execute in declared order, or that a later pass cannot read an
+            #: earlier one's work -- both of which `CPM-AD-21` forbids and
+            #: neither of which any other column would show.
+            saw_earlier = models.PositiveIntegerField(default=0)
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+                db_table = SECOND_TABLE
+
+    return FirstFinding, SecondFinding
+
+
+def working_pass_class(
+    *,
+    name: str = FIRST_DOMAIN,
+    derived_model: type[models.Model] | None = None,
+    contributes: tuple[str, ...] = (),
+    verdict: str = A_VERDICT,
+) -> type[PolicyPass]:
+    """Build a fixture pass that writes one derived row per package and contributes nothing.
+
+    Args:
+        name: The name the pass declares.
+        derived_model: The table it owns. Defaults to the first fixture model.
+        contributes: The rollup columns it claims. Empty by default, because the
+            rollup offers none -- see the module docstring.
+        verdict: The value it writes into its derived table and returns for every
+            column it declared.
+
+    Returns:
+        A `PolicyPass` subclass.
+
+    """
+    model = fixture_derived_models()[0] if derived_model is None else derived_model
+
+    class FixturePass(PolicyPass):
+        """A pass that does exactly what a pass is meant to do."""
+
+        def evaluate(
+            self,
+            package: Package,
+            *,
+            policy_run: PolicyRun,
+            evidence_cutoff: datetime,
+        ) -> Mapping[str, str]:
+            """Write this pass's own derived row and return its contribution.
+
+            Args:
+                package: The package being evaluated.
+                policy_run: The run the row is keyed to.
+                evidence_cutoff: The instant a real pass would read evidence as
+                    of. Unused: the fixture reads no evidence, because what these
+                    cases are about is the orchestration around a pass rather
+                    than any pass's own logic.
+
+            Returns:
+                The declared columns, each carrying `verdict`.
+
+            """
+            model.objects.create(package_id=package.pk, policy_run_id=policy_run.pk, verdict=verdict)
+            return dict.fromkeys(contributes, verdict)
+
+    FixturePass.name = name
+    FixturePass.derived_model = model
+    FixturePass.contributes = contributes
+    return FixturePass
+
+
+def failing_pass_class(*, name: str = SECOND_DOMAIN, failing: Collection[int]) -> type[PolicyPass]:
+    """Build a fixture pass that raises for nominated packages and works for the rest.
+
+    The matrix's one-package-fails row. `CPM-AD-23` commits the packages that
+    worked and rolls back the one that did not, and a pass that failed for
+    *every* package could not tell that apart from a run that failed outright.
+
+    Args:
+        name: The name the pass declares.
+        failing: The package primary keys it refuses to evaluate.
+
+    Returns:
+        A `PolicyPass` subclass over the second fixture derived model.
+
+    """
+    model = fixture_derived_models()[1]
+    refused = frozenset(failing)
+
+    class FailingPass(PolicyPass):
+        """A pass that breaks on some packages and not on others."""
+
+        def evaluate(
+            self,
+            package: Package,
+            *,
+            policy_run: PolicyRun,
+            evidence_cutoff: datetime,
+        ) -> Mapping[str, str]:
+            """Write a row, then refuse if this package is one of the nominated ones.
+
+            The row is written *before* the refusal on purpose: it is what makes
+            the rollback observable. A pass that raised before writing would
+            leave nothing behind either way, and the case could not tell a
+            transaction from an early return.
+
+            Args:
+                package: The package being evaluated.
+                policy_run: The run the row is keyed to.
+                evidence_cutoff: Unused, as in every fixture pass.
+
+            Returns:
+                An empty contribution, for a package this pass accepts.
+
+            Raises:
+                RuntimeError: For a nominated package. Deliberately not one of
+                    this product's own error types: a pass is somebody else's
+                    code and may raise anything at all, and the orchestration
+                    must survive whatever it raises.
+
+            """
+            model.objects.create(package_id=package.pk, policy_run_id=policy_run.pk, verdict=A_VERDICT)
+            if package.pk in refused:
+                message = f"fixture pass {name} refuses package {package.pk}"
+                raise RuntimeError(message)
+            return {}
+
+    FailingPass.name = name
+    FailingPass.derived_model = model
+    return FailingPass
+
+
+def reading_pass_class(*, name: str = SECOND_DOMAIN) -> type[PolicyPass]:
+    """Build a fixture pass that records how many of the first pass's rows it can see.
+
+    `CPM-AD-21`'s ordered read, made observable. The count goes into the second
+    derived table's own `saw_earlier` column rather than into a list this module
+    holds, so the assertion is made against the database the run wrote -- a
+    module-level list would pass just as well if the pass had run outside the
+    run's transaction entirely.
+
+    Args:
+        name: The name the pass declares.
+
+    Returns:
+        A `PolicyPass` subclass over the second fixture derived model.
+
+    """
+    first, second = fixture_derived_models()
+
+    class ReadingPass(PolicyPass):
+        """A pass whose only work is looking at what ran before it."""
+
+        def evaluate(
+            self,
+            package: Package,
+            *,
+            policy_run: PolicyRun,
+            evidence_cutoff: datetime,
+        ) -> Mapping[str, str]:
+            """Count the earlier pass's rows for this package and this run.
+
+            Args:
+                package: The package being evaluated.
+                policy_run: The run whose rows are counted. Counted *for this
+                    run* rather than for the table as a whole, because a count
+                    over every run would be satisfied by a row an earlier run
+                    left behind.
+                evidence_cutoff: Unused, as in every fixture pass.
+
+            Returns:
+                An empty contribution.
+
+            """
+            seen = first.objects.filter(package_id=package.pk, policy_run_id=policy_run.pk).count()
+            second.objects.create(
+                package_id=package.pk,
+                policy_run_id=policy_run.pk,
+                verdict=A_VERDICT,
+                saw_earlier=seen,
+            )
+            return {}
+
+    ReadingPass.name = name
+    ReadingPass.derived_model = second
+    return ReadingPass
+
+
+def undeclared_contribution_pass_class(*, name: str = FIRST_DOMAIN) -> type[PolicyPass]:
+    """Build a fixture pass that returns a column it never declared.
+
+    The runtime half of the single-owner rule: registration checks what a pass
+    *claims*, and this is what checks what it actually returned. A pass that
+    declared nothing and wrote into another pass's column would otherwise walk
+    past every static check there is.
+
+    Args:
+        name: The name the pass declares.
+
+    Returns:
+        A `PolicyPass` subclass over the first fixture derived model.
+
+    """
+    model = fixture_derived_models()[0]
+
+    class UndeclaredPass(PolicyPass):
+        """A pass whose declaration and whose output disagree."""
+
+        def evaluate(
+            self,
+            package: Package,
+            *,
+            policy_run: PolicyRun,
+            evidence_cutoff: datetime,
+        ) -> Mapping[str, str]:
+            """Return a column this pass never claimed.
+
+            Args:
+                package: The package being evaluated.
+                policy_run: The run the row is keyed to.
+                evidence_cutoff: Unused, as in every fixture pass.
+
+            Returns:
+                A contribution naming `AN_UNDECLARED_COLUMN`, which
+                `contributes` does not.
+
+            """
+            model.objects.create(package_id=package.pk, policy_run_id=policy_run.pk, verdict=A_VERDICT)
+            return {AN_UNDECLARED_COLUMN: A_VERDICT}
+
+    UndeclaredPass.name = name
+    UndeclaredPass.derived_model = model
+    return UndeclaredPass
+
+
+@contextmanager
+def registered_pass(policy_pass: type[PolicyPass]) -> Iterator[type[PolicyPass]]:
+    """Register one fixture pass for the body of a `with`, and withdraw it afterwards.
+
+    Registration is process-global, so a case that left a pass behind would
+    change what every later case in the session sees -- and the ownership audit,
+    which sweeps exactly that registry, would then fail in a different module
+    with no indication of where the pass came from. A context manager rather than
+    a fixture for the reason `tests/collectors.py`'s `registered_collector` is
+    one: several cases register two passes in a nominated order, which a fixture
+    cannot express.
+
+    Args:
+        policy_pass: The class to register.
+
+    Yields:
+        The class, so the body can name it without a second reference.
+
+    """
+    register_pass(policy_pass)
+    try:
+        yield policy_pass
+    finally:
+        # `suppress` because a case may legitimately have withdrawn the pass
+        # itself -- the withdrawal cases do -- and an exception raised here would
+        # replace whatever the body was reporting, which is the hazard
+        # `core/ledger.py`'s finalization and `tests/celery_tasks.py` both record.
+        with suppress(PolicyPassError):
+            unregister_pass(policy_pass.name)
+
+
+#: The domain status column the synthetic rollup below declares, and what it
+#: holds when nobody contributes it.
+#:
+#: Named as a real epic would name it, so a failure reads as the thing it stands
+#: for. The default is `not_applicable` rather than the empty string for two
+#: reasons: it is distinguishable from "nothing was written", and it is
+#: *determinate enough to be a claim*, which is what makes an ungated default
+#: visible to a case rather than indistinguishable from a gated one.
+A_DOMAIN_STATUS: Final[str] = "licence_status"
+THE_COLUMN_DEFAULT: Final[str] = OutcomeState.NOT_APPLICABLE.value
+
+
+@memoized
+def rollup_with_a_domain_column() -> type[models.Model]:
+    """Return a synthetic rollup declaring one contributable column.
+
+    **The real rollup offers none, so several rules have no subject without
+    this.** `PackageHealth` declares its identity, its stamps and the confidence
+    and no domain status column, because `epics.md` says the table "grows as
+    passes are added" and no policy epic has run. The confidence gate applied to
+    a column, the full-row replace's defaulting, and every refusal about what a
+    pass may *return* therefore have nowhere to happen against it -- and
+    inventing a column on the real model is what this story forbids.
+
+    So the cases substitute this where `core/rollup.py` names the model. It is the
+    same device `tests/unit/django_apps/test_derived_status_writability_audit.py`
+    uses for the rule it was written before there was a table for: measure the
+    detector against a declaration built in the suite, so an empty repository
+    cannot make it pass vacuously.
+
+    It carries the stamp columns by name as plain fields, because
+    `contributable_columns()` subtracts `STAMP_COLUMNS` and the primary key from
+    the model's real fields -- a synthetic model missing them would offer six
+    columns instead of one, and every case would be measuring something else.
+    The status column declares `choices`, because `CPM-AD-5` requires them and
+    `permitted_values` reads them.
+
+    **`isolate_apps` is entered and left before the class is used**, for the
+    reason `tests/collectors.py` gives: a model declared in a case is otherwise
+    registered globally for the rest of the session, where
+    `tests/model_registry.py`'s sweeps and
+    `tests/unit/django_apps/test_migration_completeness.py` would both meet it.
+
+    Returns:
+        The synthetic rollup model. Cached, so every caller in the session gets
+        the same class.
+
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class SyntheticRollup(models.Model):  # noqa: DJ008 - a fixture table, never rendered anywhere
+            """The rollup as it will look once one policy epic has run."""
+
+            package = models.PositiveBigIntegerField()
+            policy_run = models.PositiveBigIntegerField()
+            computed_at = models.DateTimeField()
+            evidence_cutoff = models.DateTimeField()
+            confidence = models.CharField(max_length=_VERDICT_LENGTH)
+            policy_versions = models.JSONField(default=dict)
+            licence_status = models.CharField(
+                max_length=_VERDICT_LENGTH,
+                choices=OutcomeState.choices,
+                default=THE_COLUMN_DEFAULT,
+                editable=False,
+            )
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+
+    return SyntheticRollup

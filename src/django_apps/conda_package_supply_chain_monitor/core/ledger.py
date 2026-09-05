@@ -252,10 +252,51 @@ class RunHandle:
     so where it calls it.
     """
 
-    def __init__(self) -> None:
-        """Start with nothing declared, which finalizes as a success."""
+    def __init__(self, *, run: RunLedgerModel | None = None) -> None:
+        """Start with nothing declared, which finalizes as a success.
+
+        Args:
+            run: The ledger row this handle is for, supplied by `_recorded`. It
+                is what a body needs to *reference* the run it is inside --
+                `CPM-EVIDENCE-S07`'s passes key their derived rows
+                `(package, policy_run)` and the rollup is stamped with the run --
+                and the row is not otherwise reachable: it is created inside the
+                recorder, so a caller that went looking for it would have to
+                guess at "the newest running row", which is a different row the
+                moment two runs overlap.
+
+                Optional, and `None` by default, so a case can construct a bare
+                handle to exercise the declaration rules without a database.
+
+        """
+        self._run = run
         self._state: RunState | None = None
         self._detail: str = ""
+
+    @property
+    def run(self) -> RunLedgerModel:
+        """Return the ledger row this run is being recorded against.
+
+        Returns:
+            The saved row. It carries a primary key: `_recorded` inserts it
+            before yielding, which is the whole ordering guarantee this module
+            exists for.
+
+        Raises:
+            RunLedgerError: When this handle was constructed without a row --
+                which only a test does. Refused rather than answering `None`,
+                because every product caller reaches this through a recorder and
+                a `None` would push all of them into a check none of them needs.
+
+        """
+        if self._run is None:
+            message = (
+                "this handle was constructed without a ledger row, so there is no run to reference. "
+                "A run's row is created by the recorders in this module; a bare RunHandle() exists only "
+                "to exercise the declaration rules."
+            )
+            raise RunLedgerError(message)
+        return self._run
 
     @property
     def state(self) -> RunState | None:
@@ -410,7 +451,7 @@ def _recorded(run: RunLedgerModel, clock: Clock) -> Iterator[RunHandle]:
 
     """
     run.save()
-    handle = RunHandle()
+    handle = RunHandle(run=run)
     body_error: BaseException | None = None
     try:
         yield handle
