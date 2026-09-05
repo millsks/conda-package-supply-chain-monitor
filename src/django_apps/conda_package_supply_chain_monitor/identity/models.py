@@ -77,8 +77,36 @@ one row per `(package, kind)`, carrying why a value is absent and nothing the
 package row already holds. The established *values* stay here, because they are
 cross-ecosystem mappings and `CPM-AD-1` puts those on this row.
 
-**What is still deliberately absent, and whose it is.** The override model and
-its audit row are `CPM-IDENTITY-S05`'s (`CPM-AD-14`). Admin, serializers, views,
+**The audit row is here and it is evidence, which is the one model in this
+module that is.** `CPM-AD-14` puts the correction of a package identity on an
+audited override path, `CPM-FR-32` says the record of it is append-only and
+independently queryable, and `IdentityOverride` below is that record: it inherits
+`core.models.AppendOnlyModel`, so the base refuses a re-save, an `update()` and a
+`delete()` and the three registry audits reach it by construction. "Append-only"
+is then machinery rather than a docstring. The classification carries obligations
+-- `PROTECT` on every relation (`EVIDENCE.02-AUDIT-001`) and no unique constraint
+of any kind (`EVIDENCE.02-AUDIT-003`) -- and both are what an audit row wants
+anyway: deleting a user must not delete the record of what they decided, and two
+corrections of one package are two rows.
+
+**One row per human decision, never one per changed field.** An override may
+correct the canonical name and the display name in one act, and PRD Appendix A.2
+speaks of "prior value, new value" in the singular. One row per field would split
+a single human decision across rows that have to be read back together to
+reconstruct it; one row per decision, carrying each pair it changed, keeps "an
+override" and "a row" the same thing -- which is what an auditor reviewing a
+correction is actually looking for.
+
+**`IdentityConfidence` is declared next door, in `identity/confidence.py`, and
+re-exported from here.** It is still `identity`'s vocabulary and every importer
+still spells it `identity.models.IdentityConfidence`; what moved is only the
+*declaration*, into a leaf module that imports nothing, because `core/models.py`
+reads it while this module now reads `core.models.AppendOnlyModel` -- and those
+two edges together are an import cycle. That file records the reasoning at
+length; the short version is that the vocabulary is the half of the pair that
+depends on nothing, so it is the half that moves.
+
+**What is still deliberately absent, and whose it is.** Admin, serializers, views,
 URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package_id` stays the
 integer `CPM-AD-3` specifies and is not converted to a `ForeignKey` here -- see
 `CPM-IDENTITY-S01`'s design notes: the conversion changes `core/ledger.py`'s
@@ -90,18 +118,24 @@ from __future__ import annotations
 
 from typing import Final
 
+from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.outcomes import outcome_type
+from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 
 __all__ = [
     "ESTABLISHED",
     "ESTABLISHED_MEMBER",
     "MAPPED_FIELDS",
+    "OVERRIDE_READ_INDEX",
     "UNKNOWN",
     "Feedstock",
     "IdentityConfidence",
+    "IdentityOverride",
     "MappingKind",
     "MappingOutcome",
     "Package",
@@ -149,36 +183,31 @@ _CONFIDENCE_LENGTH: Final[int] = 32
 #: nothing distinguishes.
 _VOCABULARY_LENGTH: Final[int] = 32
 
+#: How wide the correlation identifier is. `CPM-AD-15` takes it from the active
+#: span formatted `032x`, so it is exactly 32 hexadecimal digits -- the same
+#: number `core/models.py` declares for `CollectionRun.trace_id` and
+#: `collectors/models.py` for `InventorySnapshot.trace_id`. Restated here rather
+#: than imported, on the terms that module states: those constants are private to
+#: their modules, and one spelling shared by import would still be three column
+#: declarations. What keeps them in step is that each is 32 because the format
+#: says 32, and `tests/integration/django_apps/test_run_ledger.py` pins the format.
+_TRACE_ID_LENGTH: Final[int] = 32
 
-class IdentityConfidence(models.TextChoices):
-    """How certain a package identity is, in the PRD's own spelling.
-
-    `verified`, `inventory-derived` and `unmapped`, verbatim from the PRD
-    glossary and `CPM-AD-4`'s table. The hyphen in the middle value is
-    deliberate and is not an oversight of `CPM-AD-5`'s fixed-lowercase rule:
-    that rule binds *derived-status* vocabularies, the ones composed from
-    `OutcomeState` and emitted verbatim on every read surface (`CPM-AD-24`).
-    Confidence is neither. It is identity provenance -- a property of what
-    resolution established, not a verdict a policy pass computed -- so it is a
-    plain `TextChoices` declared here rather than a type composed by
-    `core.outcomes.outcome_type`, and matching the governing document exactly is
-    what keeps `CPM-IDENTITY-S03`'s gate from translating between two spellings
-    of the same three values.
-
-    The order is the one `CPM-AD-4`'s table uses, most certain first. It is
-    presentation order and nothing reads it as a ranking: no precedence order
-    over these values exists, and `CPM-AD-5`'s single total order is over
-    `OutcomeState` and is `core`'s alone.
-
-    Labels are Django's own derivation from the member names, which is why
-    `INVENTORY_DERIVED` is spelled with an underscore while its *value* carries
-    the PRD's hyphen: the value is the contract and the label is a display
-    string.
-    """
-
-    VERIFIED = "verified"
-    INVENTORY_DERIVED = "inventory-derived"
-    UNMAPPED = "unmapped"
+#: The index the override history's one read needs, by name.
+#:
+#: An index is permitted on an evidence model and a unique *constraint* is not,
+#: and the difference is exactly the one `CPM-AD-2` draws: an index makes a read
+#: cheaper and changes no write, while a unique constraint would turn the second
+#: correction of one package into an `IntegrityError`.
+#: `tests/unit/django_apps/test_evidence_constraint_audit.py` reads
+#: `Meta.constraints` and the field flags, never `Meta.indexes`.
+#:
+#: It serves the question `CPM-FR-32` makes askable -- what has been overridden on
+#: this package, newest first -- in the order `Meta.ordering` asks it in. Django's
+#: automatic foreign-key index covers the filter alone and leaves the sort to a
+#: scan of that package's whole correction history. Django caps an index name at
+#: 30 characters, which is why it does not spell out `identity_override`.
+OVERRIDE_READ_INDEX: Final[str] = "identity_ovr_pkg_observed"
 
 
 class MappingKind(models.TextChoices):
@@ -696,3 +725,172 @@ class PackageMapping(models.Model):
         outcome = self.outcome or "(no outcome)"
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         return f"{kind} is {outcome} for {scope}"
+
+
+class IdentityOverride(AppendOnlyModel):
+    """One audited human correction of a package identity. Table `identity_overrides`.
+
+    `CPM-FR-3` makes this the only human write in the product that mutates
+    governed reference data, and `CPM-AD-14` puts the whole weight of the rule on
+    it: the override requires a permission, requires a reason, and writes this row
+    in the same transaction as the correction it records. See the module docstring
+    for why the row is evidence, and `identity/services.py`'s `override_identity`
+    for the one writer.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`). The
+    inherited column is called `observed_at` rather than `decided_at`, and it
+    means what the base says it means -- the moment *this* row's fact was
+    recorded. What was observed here is a decision a person made, and giving it a
+    second name would put this table outside the freshness, retention and
+    append-only machinery that reads that column across the whole product.
+
+    **The prior and new values are stored in pairs, and both halves are stored
+    even where nothing changed.** A row that recorded only what differed could not
+    say whether a field was left alone deliberately or was never considered, and
+    an auditor asking "what did this package read before" would have to
+    reconstruct it from the rows on either side. Three pairs, because three fields
+    are what an override may correct: the canonical name, the display name, and
+    the confidence -- which an override always raises to `verified`, because a
+    human establishing an identity is exactly what `CPM-AD-4` says that value
+    means.
+
+    **No `*_status` or `*_outcome` column, and no unique constraint.**
+    `tests/unit/django_apps/test_outcome_field_audit.py` sweeps the first by name
+    across every first-party model and
+    `tests/unit/django_apps/test_evidence_constraint_audit.py` the second across
+    every evidence one. Neither is a rule this row has to work around: a
+    confidence is identity provenance rather than a derived status, and two
+    corrections of one package are two facts.
+    """
+
+    #: The package this correction is about, by the integer primary key
+    #: `CPM-AD-3` fixes. `PROTECT` rather than `Feedstock`'s `CASCADE`:
+    #: `EVIDENCE.02-AUDIT-001` requires it of every relation on an evidence model,
+    #: because Django's deletion collector issues its `DELETE` through
+    #: `sql.DeleteQuery` and would go straight past every append-only refusal in
+    #: `core/models.py` on the way. It is independently right -- the record of a
+    #: correction outliving the row it corrected is the whole point of an audit --
+    #: and it agrees with `CPM-AD-25`, which says no package row is ever deleted.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="identity_overrides",
+        verbose_name=_("package"),
+    )
+
+    #: Who decided. `PROTECT` on the same terms and for a second reason of its
+    #: own: deleting a user must not delete the record of what they decided, and
+    #: an audit row whose actor had been cascaded away would say a correction
+    #: happened and refuse to say who made it.
+    #:
+    #: `settings.AUTH_USER_MODEL` rather than an import of
+    #: `django_service.users.models.User`. That is Django's own rule for a
+    #: relation to the user model, and here it also keeps a domain application
+    #: from importing the platform's model module at model-definition time.
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="identity_overrides",
+        verbose_name=_("actor"),
+    )
+
+    #: What the package was called before this correction, and what it is called
+    #: after. Equal when the override corrected no name, which is a state an
+    #: override may legitimately be in: raising a correct identity to `verified`
+    #: changes nothing about the name and is still a decision worth recording.
+    prior_canonical_name = models.CharField(_("prior canonical name"), max_length=_NAME_LENGTH)
+    new_canonical_name = models.CharField(_("new canonical name"), max_length=_NAME_LENGTH)
+
+    #: The display name on the same terms. Blank means missing rather than empty
+    #: (PRD Appendix A.1's data rules), on both sides of the pair -- so an
+    #: override that supplies a display name for the first time reads as `""` to
+    #: a name, which is exactly what happened.
+    prior_display_name = models.CharField(_("prior display name"), max_length=_NAME_LENGTH, blank=True, default="")
+    new_display_name = models.CharField(_("new display name"), max_length=_NAME_LENGTH, blank=True, default="")
+
+    #: How certain the identity was before this correction, and after. The second
+    #: is always `verified` today -- `override_identity` writes nothing else --
+    #: and it is stored rather than implied, because a row that recorded only the
+    #: prior value would stop being readable the day the override path learns to
+    #: record a second verdict.
+    prior_confidence = models.CharField(
+        _("prior confidence"),
+        max_length=_CONFIDENCE_LENGTH,
+        choices=IdentityConfidence.choices,
+    )
+    new_confidence = models.CharField(
+        _("new confidence"),
+        max_length=_CONFIDENCE_LENGTH,
+        choices=IdentityConfidence.choices,
+    )
+
+    #: Why. `CPM-AD-14` requires a reason and `override_identity` refuses a blank
+    #: one before it writes anything, so no stored row carries an empty reason --
+    #: which is why this field declares no `blank=True`. A `TextField` rather than
+    #: a bounded `CharField`: the reason is prose a person wrote, there is no
+    #: length at which one becomes wrong, and a bound would be refused in the
+    #: gate's PostgreSQL and truncated by the local SQLite (`R-5`).
+    reason = models.TextField(_("reason"))
+
+    #: The `trace_id` of the request or task the correction was made in, formatted
+    #: `032x` exactly as `config/observability/logging.py` formats it for every log
+    #: line (`CPM-AD-15`). Read from `core/ledger.py`'s `current_trace_id()`, which
+    #: never raises. Empty when no span was active, which never blocks the write:
+    #: an uncorrelated audit row is worth far more than a refused correction.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `identity_identityoverride` Django derives.
+
+        Rejected for the reason `Package.Meta` gives: the schema is named by the
+        architecture and the PRD rather than by which application declared the
+        model.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `EVIDENCE.02-AUDIT-003`).
+        Two corrections of one package are two facts, and a constraint spanning
+        the corrected fact would turn the second one into an `IntegrityError` --
+        the same history loss as an overwrite, arriving as a crash.
+
+        **Newest first, declared here rather than at each call site.**
+        `CPM-FR-32` makes the overrides independently queryable, and the question
+        anybody asks of an audit trail is "what happened, most recently first".
+        Written at each call site that ordering is one keystroke from being
+        omitted, and an unordered read of an append-only table returns rows in
+        whatever order the database chose. The tie-break on descending primary key
+        is what makes the answer total: two corrections can share an `observed_at`
+        -- one clock, two calls in one request -- and an unordered tie would make
+        the answer depend on the database's own arbitrary row order.
+        """
+
+        db_table = "identity_overrides"
+        verbose_name = _("identity override")
+        verbose_name_plural = _("identity overrides")
+        ordering = ("-observed_at", "-id")
+        indexes = [
+            models.Index(fields=["package", "-observed_at"], name=OVERRIDE_READ_INDEX),
+        ]
+        #: The permission `CPM-AD-14` requires of the actor, declared on the model
+        #: the write records itself in. The codename is `core/roles.py`'s, imported
+        #: rather than restated -- see that module for why the one spelling lives
+        #: there and not here.
+        permissions = [(IDENTITY_OVERRIDE_CODENAME, "Can override a package identity")]
+
+    def __str__(self) -> str:
+        """Return the correction, the package it was made against and when.
+
+        Returns:
+            A one-line summary. Read off `package_id` and `actor_id` rather than
+            off the related objects, because the related object of an unsaved
+            instance raises `RelatedObjectDoesNotExist` -- and a `__str__` that
+            raises breaks the two places a half-built object is most likely to be
+            rendered, a debugger and a traceback.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        who = "nobody" if self.actor_id is None else f"user {self.actor_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        prior = self.prior_canonical_name or "(no name)"
+        corrected = self.new_canonical_name or "(no name)"
+        return f"{prior} -> {corrected} on {scope} by {who} at {when}"

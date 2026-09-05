@@ -35,12 +35,32 @@ logger = structlog.get_logger(__name__)
 def forward(apps, schema_editor):
     """Provision the role groups the contract names, or nothing when it names none.
 
-    No `create_permissions` call, unlike `users/0003_provision_designated_groups`:
-    every role slot declares an empty permission tuple, so there is nothing to
-    resolve and nothing for the `post_migrate` ordering trap to catch. When
-    `CPM-EP-APP` attaches the first real codename, that call has to be added here
-    the way it was added there -- and the permission-unresolved warning is what
-    will say so.
+    **This pass attaches no permission at all, and it names none.** That was true
+    by accident when it was written -- every role slot declared an empty tuple --
+    and it is true by construction now: `role_group_permissions` is read for the
+    group *names* it resolves, and each is provisioned with an empty tuple of
+    codenames.
+
+    The reason is the rule a migration lives by. This file records what the schema
+    and the rows were asked to be *at the point it ran*, and reading the live
+    `ROLE_GROUP_PERMISSIONS` made its behaviour follow a declaration that keeps
+    moving. `CPM-IDENTITY-S05` attached the first real codename, and the symptom
+    was immediate and permanent: on a fresh database this migration runs before
+    `identity/0003` has created the model and long before `post_migrate` has
+    created the `Permission` row, so `_resolve_permissions` logged
+    `authorization.permission_unresolved` for `identity.override_package_identity`
+    on *every* fresh `migrate` and attached nothing -- a warning naming a real
+    misconfiguration, emitted for a state that is not one, which is how an
+    operator learns to ignore that event.
+
+    No `create_permissions` call, unlike `users/0003_provision_designated_groups`,
+    and now there never will be one here. This docstring used to say that when the
+    first real codename was attached, that call would have to be added here the
+    way it was added there. It was attached, and the call is not here:
+    `core/0004_grant_identity_override` creates the permission rows and attaches
+    the grant, because a data migration that has already run against a deployed
+    database is not re-run by editing it -- so a grant added to this file would
+    reach no database that had migrated before it.
 
     `preserve_existing=True` is what makes a name shared with the claims contract
     safe. Without it this pass would `set` its own empty declaration over that
@@ -68,7 +88,10 @@ def forward(apps, schema_editor):
         return
 
     provision_groups(
-        role_group_permissions(contract),
+        # The names the contract resolves, each asking for nothing. See the
+        # docstring: this migration provisions the rows a role claim resolves to,
+        # and the grants are `0004`'s.
+        dict.fromkeys(role_group_permissions(contract), ()),
         apps,
         declared_by="role_contract",
         preserve_existing=True,
