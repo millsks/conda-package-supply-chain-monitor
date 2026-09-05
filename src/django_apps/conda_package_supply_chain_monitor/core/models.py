@@ -103,6 +103,8 @@ from django.utils.translation import gettext_lazy as _
 
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_package_supply_chain_monitor.identity.models import Package
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -117,6 +119,7 @@ __all__ = [
     "AppendOnlyModel",
     "AppendOnlyQuerySet",
     "CollectionRun",
+    "PackageHealth",
     "PolicyRun",
     "RunLedgerModel",
     "RunLedgerQuerySet",
@@ -143,6 +146,19 @@ _RunModel = TypeVar("_RunModel", bound=models.Model)
 _STATUS_LENGTH: Final[int] = 16
 _TRACE_ID_LENGTH: Final[int] = 32
 _NAME_LENGTH: Final[int] = 128
+
+#: How wide the rollup's mirrored confidence column is.
+#:
+#: The same 32 `identity/models.py` argues for, because it holds the same
+#: vocabulary: `IdentityConfidence`, whose longest value is `inventory-derived`.
+#: It is a second declaration rather than an import because the identity module's
+#: constant is private to it and a cross-module private read is exactly what
+#: `SLF001` forbids -- and because a width is a property of a column, so the day
+#: the two columns legitimately differ this is where that is said. What stops the
+#: two drifting is not this comment: `tests/unit/django_apps/test_identity_models.py`
+#: reconciles the two fields' `max_length` directly, so a widened
+#: `Package.confidence` fails until this follows it.
+_CONFIDENCE_LENGTH: Final[int] = 32
 
 #: The column the recorder's `finally` writes, and therefore the one that exists
 #: exactly when a run has an ending. Both queryset methods below read it --
@@ -625,6 +641,28 @@ class RunLedgerQuerySet(models.QuerySet[_RunModel]):
         """
         return self.filter(**{f"{FINISHED_AT_FIELD}__isnull": True})
 
+    def finished(self) -> RunLedgerQuerySet[_RunModel]:
+        """Return the runs that have an ending, newest ending first.
+
+        The exact mirror of `unfinished()`, and it is here rather than spelled at
+        its one caller for the reason that method is: `CPM-AD-21` makes a policy
+        run's cut-off the `finished_at` of a *completed* collection run, and a
+        caller writing `filter(status=RunState.SUCCEEDED)` by hand would ask a
+        different question -- one that excludes a run which failed after writing
+        some evidence, and therefore chooses a cut-off *earlier* than evidence
+        the ledger actually holds. `finished_at` is the authority here for the
+        same reason it is there: it is what the recorder's `finally` writes, on
+        every exit path.
+
+        Returns:
+            Every row whose `finished_at` is not NULL, ordered by it descending,
+            whatever ending the row records. Ordered here rather than at the call
+            site because "the newest ending" is the only question this set is
+            asked, and an unordered read answers it differently on every call.
+
+        """
+        return self.filter(**{f"{FINISHED_AT_FIELD}__isnull": False}).order_by(f"-{FINISHED_AT_FIELD}")
+
     def failed(self) -> RunLedgerQuerySet[_RunModel]:
         """Return the runs that ended in failure, newest ending first.
 
@@ -845,3 +883,183 @@ class PolicyRun(RunLedgerModel):
         """
         cutoff = "no cut-off" if self.evidence_cutoff is None else self.evidence_cutoff.isoformat()
         return f"{self.policy_version} at {cutoff}: {self.status}"
+
+
+class PackageHealth(models.Model):
+    """The current derived health of one package. Table `package_health`.
+
+    `CPM-AD-11`: current package health is a **Django-managed rollup table in the
+    migration graph**, written only by the orchestrating policy run, carrying
+    `computed_at` and a per-domain policy version map. Every clause of that
+    sentence is load-bearing and each one rules something out.
+
+    **Django-managed, never a materialized view.** A view is refreshed by a
+    schedule nothing in the migration graph describes, so "when was this
+    computed" becomes a property of a cron entry rather than of the row, and a
+    replay (`CPM-FR-22`) has nothing to compare against. A table with
+    `computed_at` and a `policy_run` reference answers both questions from the
+    row itself.
+
+    **Exactly one row per `identity.Package`, unmapped ones included.** That is
+    what `unique=True` on the package reference makes a database rule rather than
+    a convention the writer is trusted to keep. `CPM-AD-4`'s gate is expressed as
+    *writing* `unknown` rather than as suppressing a row precisely so this stays
+    true: a missing row would be ambiguous between "not computed yet" and "not
+    confident enough to compute", and no read surface can tell those apart.
+
+    **A real `ForeignKey` here, where `CollectionRun` keeps an integer.** That
+    column's two recorded reasons -- the ledger's recorder is not ready for an
+    enforced key, and the conversion is a `RenameField`+`AlterField` pair rather
+    than one `AlterField` -- are both about a column that already exists and a
+    writer that already ships. Neither reaches a table being created now with a
+    writer being built in the same story to satisfy the constraint. Taking the
+    integer "for consistency" would leave the one table whose whole purpose is
+    *one row per inventory package* unable to say which packages those were.
+
+    **`PROTECT` on both relations.** `EVIDENCE.02-AUDIT-001`'s cascade rule binds
+    evidence models and this is not one, so the choice is argued rather than
+    inherited: a rollup row is the only statement this product makes about a
+    package's current health, and `CASCADE` would make deleting a policy run --
+    an operational tidy-up somebody will one day write -- silently empty the
+    table every read surface reads. `SET_NULL` is worse: the row would survive
+    claiming a health nothing can say where it came from.
+
+    **No domain status columns yet, and that is the honest state.** `epics.md`
+    says the rollup "composes whatever derived tables exist, so it grows as
+    passes are added", and today none exist. Inventing `currency_status` here
+    would be guessing at an epic that has not run, and `CPM-AD-5` forbids the
+    alternative of a JSON map keyed by domain -- a map would evade every audit
+    that reads column names. What ships is the identity, the stamps and the
+    confidence, plus the *mechanism* by which a pass contributes a column
+    (`core/policy.py` validates a declared contribution against this model's real
+    fields, and `core/rollup.py` is the one writer that applies it).
+
+    **The first column a pass contributes must be `editable=False`.**
+    `tests/unit/django_apps/test_derived_status_writability_audit.py` recognises
+    this model as derived state by `computed_at` and fails any field named
+    `status`/`outcome`, or ending `_status`/`_outcome`, that is still editable.
+    That audit was written before this table existed, deliberately, so the rule
+    would be shaped by `CPM-AD-11` rather than by whatever this writer happened
+    to do.
+
+    **It declares no `not_evidence`, and must not.** It carries none of the three
+    marks `tests/model_registry.py` reads -- it does not inherit
+    `AppendOnlyModel`, its app label is `core`, and it declares `computed_at`
+    rather than `observed_at`. The escape hatch is `CPM-AD-2`'s exemption *for a
+    model that carries a mark*, and
+    `tests/unit/django_apps/test_evidence_inheritance_audit.py` fails an unused
+    declaration. Derived state is not evidence and is not exempt from being
+    evidence; it is a third thing.
+    """
+
+    #: The package this row is the current health of. One row per package, which
+    #: the relation itself makes the database's rule rather than the writer's
+    #: promise.
+    #:
+    #: A `OneToOneField` rather than `ForeignKey(unique=True)`. The two build the
+    #: same column and the same unique index, and Django says so in
+    #: `fields.W342`; what differs is what they *say*. A `ForeignKey` gives
+    #: `package.health` a related manager, so every read surface projecting the
+    #: rollup would write `package.health.first()` and would have to decide what a
+    #: second row means -- a question `CPM-AD-11` has already answered. The
+    #: one-to-one gives them the row.
+    #:
+    #: `PROTECT` because a package is never deleted in this product (`CPM-AD-25`
+    #: records absence as an observation), so a cascade here would only ever fire
+    #: on an accident.
+    package = models.OneToOneField(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="health",
+        verbose_name=_("package"),
+    )
+
+    #: The policy run that computed this row. `CPM-FR-22`'s replay guarantee is
+    #: "re-run this version against this cut-off and get identical output", and a
+    #: row that cannot name the run it came from is a row no replay can be
+    #: compared against.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="rollup_rows",
+        verbose_name=_("policy run"),
+    )
+
+    #: When this row was computed, from the run's injected `Clock` (`CPM-AD-26`).
+    #: No `default` and no `auto_now_add`, for the reason `observed_at` and
+    #: `started_at` carry neither: both read the process wall clock where the row
+    #: is written, which `EVIDENCE.01-AUDIT-002` fails.
+    #:
+    #: It is also the mark by which `test_derived_status_writability_audit.py`
+    #: recognises a model as holding derived state, which `CPM-AD-11` asks for by
+    #: name -- so the column is not merely a timestamp, it is the declaration.
+    computed_at = models.DateTimeField(_("computed at"))
+
+    #: The instant the run read evidence as of, copied from the run rather than
+    #: joined to it. Copied because this is the column a read surface filters and
+    #: sorts on -- "what does the monitor currently believe, and how old is the
+    #: evidence behind it" is one question -- and a join to `policy_runs` for a
+    #: value that can never change once written buys nothing.
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"))
+
+    #: How certain the package's identity was when this row was computed
+    #: (`CPM-AD-4`). Recorded here rather than read through the relation because
+    #: it is the *provenance of this computation*: `identity.Package.confidence`
+    #: is mutable and a later resolution changes it, at which point the row would
+    #: claim to have been gated at a confidence it was not.
+    confidence = models.CharField(
+        _("confidence"),
+        max_length=_CONFIDENCE_LENGTH,
+        choices=IdentityConfidence.choices,
+    )
+
+    #: The policy version each domain's verdict was computed under
+    #: (`CPM-AD-11`, "a per-domain version map, not a scalar"). A scalar would
+    #: force every domain to be re-run whenever any one of them changed version,
+    #: or would lie about the ones that were not.
+    #:
+    #: Empty for a run in which no pass was registered, which is every run this
+    #: story can produce.
+    policy_versions = models.JSONField(_("policy versions"), default=dict, blank=True)
+
+    class Meta:
+        """The table the architecture names, not the `core_packagehealth` Django derives.
+
+        Rejected for the reason `CollectionRun.Meta` and `Package.Meta` reject
+        theirs: the schema is named by the architecture rather than by which
+        application happens to declare the model.
+        """
+
+        db_table = "package_health"
+        verbose_name = _("package health")
+        verbose_name_plural = _("package health")
+        indexes = [
+            # The two columns this model's own field comments call the ones a
+            # read surface reads. `evidence_cutoff` is what "how old is the
+            # evidence behind this" filters and sorts on -- it is copied onto the
+            # row rather than joined precisely so it can be -- and `computed_at`
+            # is the staleness column, the one "which packages has nothing
+            # recomputed lately" scans. Neither is indexed by anything else:
+            # `package` gets its index from the one-to-one and `policy_run` from
+            # the foreign key, and an argument in a docstring for a column nobody
+            # can query cheaply is an argument that stops being true at the first
+            # full inventory.
+            models.Index(fields=["evidence_cutoff"], name="package_health_cutoff"),
+            models.Index(fields=["computed_at"], name="package_health_computed"),
+        ]
+
+    def __str__(self) -> str:
+        """Return the package this row is about and when it was computed.
+
+        Returns:
+            A one-line summary naming the package and the instant the row was
+            computed at, or saying that either is absent. Read off `package_id`
+            rather than `package`, for the reason `Feedstock.__str__` is: the
+            related object of an unsaved instance raises
+            `RelatedObjectDoesNotExist`, and a `__str__` that raises is what a
+            failure message would have been.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        computed = "not computed" if self.computed_at is None else self.computed_at.isoformat()
+        return f"health of {scope} at {computed}"

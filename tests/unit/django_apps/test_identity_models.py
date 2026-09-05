@@ -33,6 +33,7 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
+from conda_package_supply_chain_monitor.core.models import PackageHealth
 from conda_package_supply_chain_monitor.identity.models import Feedstock
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
@@ -473,6 +474,29 @@ def test_confidence_keeps_the_prds_own_spelling_and_defaults_to_unmapped() -> No
     assert tuple(value for value, _label in field.choices) == EXPECTED_CONFIDENCE_VALUES
     assert field.default == IdentityConfidence.UNMAPPED
     assert field.null is False
+
+
+def test_the_rollup_mirrors_this_column_at_the_same_width() -> None:
+    """One vocabulary, two columns, and they must agree about how wide it is.
+
+    `CPM-EVIDENCE-S07`'s `core.PackageHealth` records the confidence a rollup row
+    was gated at, because `Package.confidence` is mutable and a later resolution
+    changes it -- so the rollup would otherwise claim to have been gated at a
+    confidence it was not. The two columns hold the same `IdentityConfidence`
+    values and are declared in two modules, each with its own private width
+    constant: `core` may not read `identity`'s, because a cross-module private
+    read is what `SLF001` forbids.
+
+    Two numbers that can disagree look exactly like one decision, right up until
+    a widened `IdentityConfidence` value is truncated on one of them. This is the
+    reconciliation, in the module that owns the vocabulary.
+    """
+    identity_column = Package._meta.get_field("confidence")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+    rollup_column = PackageHealth._meta.get_field("confidence")  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert rollup_column.max_length == identity_column.max_length
+    assert rollup_column.choices == identity_column.choices
+    assert max(len(value) for value in IdentityConfidence.values) <= identity_column.max_length
 
 
 def test_resolved_at_is_required_and_reads_no_wall_clock() -> None:
