@@ -667,6 +667,25 @@ precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", d
 # (AD-18), and this needs a container that no CI job for it declares.
 gate-postgres = { cmd = "bash scripts/gate-postgres.sh", default-environment = "dev", description = "Run the suite against a throwaway postgres:17, as the gate does" }
 
+# The cache half of the same parity check, and the one case in this repository
+# that a local run cannot execute at all. `core/rate_limit.py`'s add-then-incr
+# sequence exists so two worker *processes* racing a new window increment one
+# counter rather than one resetting the other; under LocMemCache each process
+# holds its own counter, so the property cannot fail and the reasoning is
+# unproven (`tests/integration/django_apps/test_shared_allowance.py`, which skips
+# without this).
+#
+# `CPM_TEST_REDIS_URL` is the whole mechanism, exactly as `DATABASE_URL` is for
+# the sibling above: `config/settings/test.py` selects django_redis when it is
+# set. The gate job sets it too, so the case runs on every pull request rather
+# than only when somebody remembers this command.
+#
+# A script rather than a `cmd` for the same reason: `deno_task_shell` has no
+# `for` and no `if`, and the readiness loop is the part that must not be dropped.
+# Not a gate step, for the same reason: `pixi run ci` stays the one sequence CI
+# runs (AD-18), and this needs a container it does not declare.
+gate-redis = { cmd = "bash scripts/gate-redis.sh", default-environment = "dev", description = "Run the suite against a throwaway redis:7, as the gate does" }
+
 ci = { depends-on = [
   "precommit",  # ruff format + ruff lint (auto-fix) + mypy, over every file
   "build",      # the package is distributable: catches import and packaging errors

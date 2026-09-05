@@ -30,6 +30,17 @@ table nothing may correct, and `bulk_create` never calls the `save()` that would
 have refused it. Both are checked by the base and both are exercised here against
 a real table, because a guard on a write is only a guard if the write is real.
 
+**Caching is proved from both ends** (`CPM-EVIDENCE-S08`). The behaviour that can
+go wrong quietly is proved through a recording fake -- what the conditional
+request carried, that a `304` writes the *cached* body, that a `304` with nothing
+behind it fails rather than writing an empty observation, that nothing is
+remembered until its evidence is written, and that `NO_CACHE` touches no cache at
+all. What cannot be proved that way is proved over a socket against the local
+server: a real origin declaring an `ETag`, a real conditional request, a real
+`304` with no body, and a real `User-Agent` read back off the request the server
+saw. A header is only shown to have crossed the wire by something on the other
+side of it.
+
 **The transport is proved against a local `http.server`.** That is exactly the
 division `CPM-AD-27` asks for: parse, `not_found` and `error` handling belong to
 the fast tier through a recorded payload, and what remains for the integration
@@ -70,30 +81,44 @@ from django.db import connection
 from conda_package_supply_chain_monitor.core import collection
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_FAILED_EVENT
+from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_MODIFIED_EVENT
+from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_REMEMBERED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_REFUSED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_SKIPPED_EVENT
 from conda_package_supply_chain_monitor.core.collection import EVENT_KEYS
+from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
 from conda_package_supply_chain_monitor.core.collection import CollectionWriteError
 from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
 from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
+from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
 from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from conda_package_supply_chain_monitor.core.transport import TransportError
 from tests.clocks import FIXED_INSTANT
+from tests.collectors import A_CACHED_BODY
+from tests.collectors import A_LAST_MODIFIED
+from tests.collectors import A_PAYLOAD_BODY
+from tests.collectors import AN_ETAG
 from tests.collectors import DETERMINATE_VALUE
+from tests.collectors import FIXTURE_CACHE_TTL
 from tests.collectors import FIXTURE_COLLECTOR
+from tests.collectors import FIXTURE_HEADERS
 from tests.collectors import FIXTURE_REQUEST_COST
 from tests.collectors import FIXTURE_SOURCE_PREFIX
 from tests.collectors import FIXTURE_TABLE
 from tests.collectors import FIXTURE_TIMEOUT
+from tests.collectors import FIXTURE_USER_AGENT
+from tests.collectors import FIXTURE_USER_AGENT_HEADER
 from tests.collectors import FIXTURE_WINDOW
 from tests.collectors import OTHER_FIXTURE_COLLECTOR
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordedTransport
+from tests.collectors import RecordingResponseCache
 from tests.collectors import breaking_collector_class
+from tests.collectors import cached_response
 from tests.collectors import cleared_cache
 from tests.collectors import collector_class
 from tests.collectors import empty_translation_collector_class
@@ -138,6 +163,35 @@ UNDECODABLE_PATH: Final[str] = "/undecodable"
 FLAKY_PATH: Final[str] = "/flaky"
 BROKEN_PATH: Final[str] = "/broken"
 
+#: The path that behaves as a caching source does: it declares an `ETag`, and it
+#: answers `304` to a request that sends the matching one back. Neither half is
+#: provable against a constructed payload -- what is under test is that this
+#: repository's request carries the validator the way a real origin expects to
+#: read it, and that the answer comes back as an answer.
+CONDITIONAL_PATH: Final[str] = "/conditional"
+
+#: The path that says what it was asked with. A header is only proved to have
+#: reached the socket by a server that saw it; every other assertion in this
+#: repository about headers reads a mapping on this side of the wire.
+ECHO_PATH: Final[str] = "/echo"
+
+#: The entity tag the conditional path declares, quoted as an origin sends one.
+SERVED_ETAG: Final[str] = '"served-v1"'
+
+#: How many times the conditional path has actually served a body, so a case can
+#: assert that the second collection transferred none. A module-level counter
+#: rather than handler state, for the reason `_flaky_attempts` is one: the
+#: handler class is instantiated per request, so there is nowhere else to keep
+#: it. It is what makes the round-trip case able to fail -- the served body is
+#: identical on both a `200` and a replay, so every assertion about the rows
+#: holds just as well if caching is entirely inert.
+_bodies_served: dict[str, int] = {}
+
+#: How many times the round-trip case collects: once to transfer the body and
+#: remember it, once to be told it has not changed. Named so the assertion reads
+#: as "both runs observed" rather than as a bare number.
+COLLECTIONS_IN_THE_ROUND_TRIP: Final[int] = 2
+
 #: What the local server says on the success path. Deliberately not ASCII: the
 #: encoding decision in `core/transport.py` is only observable on a body whose
 #: UTF-8 and ISO-8859-1 readings differ.
@@ -151,6 +205,11 @@ UNDECODABLE_BODY: Final[bytes] = b"\xff\xfe maintainer"
 
 #: Where a redirect points. Never followed, so nothing serves it.
 REDIRECT_TARGET: Final[str] = "http://169.254.169.254/latest/meta-data/"
+
+#: A second entity tag, for the revalidation that hands one back. An origin may
+#: rotate its tag on a `304` -- the body is unchanged, its identifier is not --
+#: and this is what the base must then remember instead of what it had.
+A_ROTATED_ETAG: Final[str] = '"served-v2"'
 
 #: An address nothing listens on, for the case where no answer arrives at all.
 #: Port 1 is privileged and unbound, so the connection is refused immediately
@@ -188,6 +247,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Answer according to the path, with a body only where there is one."""
+        if self.path in (CONDITIONAL_PATH, ECHO_PATH):
+            self._answer_from_the_request()
+            return
         if self.path == FLAKY_PATH:
             seen = _flaky_attempts.get(FLAKY_PATH, 0)
             _flaky_attempts[FLAKY_PATH] = seen + 1
@@ -209,6 +271,34 @@ class _Handler(BaseHTTPRequestHandler):
         if status is HTTPStatus.FOUND:
             self.send_header("Location", REDIRECT_TARGET)
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _answer_from_the_request(self) -> None:
+        """Answer the two paths whose answer depends on what was asked.
+
+        The conditional path is a caching origin in miniature: it declares an
+        `ETag` on every answer, and it answers `304` with no body when the
+        request sends that tag back. The echo path returns the `User-Agent` it
+        was given, which is the only way to show that a declared header crossed
+        the wire rather than merely reaching a mapping in this process.
+        """
+        if self.path == ECHO_PATH:
+            body = f'{{"user_agent": "{self.headers.get("User-Agent", "")}"}}'.encode()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        unchanged = self.headers.get("If-None-Match") == SERVED_ETAG
+        status = HTTPStatus.NOT_MODIFIED if unchanged else HTTPStatus.OK
+        body = b"" if unchanged else SERVED_BODY.encode()
+        if not unchanged:
+            _bodies_served[CONDITIONAL_PATH] = _bodies_served.get(CONDITIONAL_PATH, 0) + 1
+        self.send_response(status)
+        self.send_header("ETag", SERVED_ETAG)
+        if not unchanged:
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -320,9 +410,12 @@ def evidence_table(
 def _empty_cache() -> Iterator[None]:
     """Leave no rate-limit counter behind, in either direction.
 
-    Autouse, and the body lives in `tests/collectors.py` because the unit tier
-    needs the identical guard: two `autouse` fixtures that can drift apart are
-    exactly the duplication that module's own docstring argues against.
+    Autouse, and the body lives in `tests/collectors.py` because every module
+    that touches the cache needs the identical guard: `autouse` fixtures that
+    can drift apart are exactly the duplication that module's own docstring
+    argues against. How many there are is not stated, here or there -- it has
+    grown twice already, and a count in prose is a fact nobody has a reason to
+    come back and correct.
 
     Yields:
         Nothing; the fixture is entirely its two side effects.
@@ -771,17 +864,32 @@ def test_the_real_limiter_refuses_the_second_call_within_its_window(
 def test_a_translation_that_raises_still_leaves_an_error_row_and_a_finalized_ledger(
     evidence_table: type[AppendOnlyModel],
 ) -> None:
-    """The matrix's last row: the row is written, the ledger is final, the exception escapes.
+    """The row is written, the ledger is final, the exception escapes -- and nothing is cached.
 
-    All three, because dropping any one of them is a plausible implementation.
-    Swallowing the exception hides a broken parser; skipping the row leaves the
-    package looking clean; and leaving the ledger row `running` is exactly the
-    "started and never finished" state `CPM-EVIDENCE-S03` built the recorder to
-    make visible -- here it must say `failed`, because it did.
+    The first three, because dropping any one of them is a plausible
+    implementation. Swallowing the exception hides a broken parser; skipping the
+    row leaves the package looking clean; and leaving the ledger row `running` is
+    exactly the "started and never finished" state `CPM-EVIDENCE-S03` built the
+    recorder to make visible -- here it must say `failed`, because it did.
+
+    The fourth is `CPM-EVIDENCE-S08`'s ordering rule reaching the branch that
+    raises. The body arrived with a validator, so it is a body the base *could*
+    remember; remembering it here would make the failure permanent, because every
+    later run would send the validator, be answered `304`, replay the same
+    unparseable body and raise identically without ever re-reading the source.
+    The sibling cases pin the same rule for a parser that finds nothing and for a
+    write that fails; this one pins it for a parser that breaks, which is the
+    only one of the three that leaves by an exception rather than a return.
     """
+    store = RecordingResponseCache()
     built = breaking_collector_class(declared_model=fixture_evidence_model())
-    transport = RecordedTransport(payload=recorded_payload())
-    collector = built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
+    transport = RecordedTransport(payload=recorded_payload(etag=AN_ETAG))
+    collector = built(
+        clock=_clock(),
+        transport=transport,
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
 
     with pytest.raises(ValueError, match="malformed"):
         collector.collect(package_id=A_PACKAGE)
@@ -791,6 +899,7 @@ def test_a_translation_that_raises_still_leaves_an_error_row_and_a_finalized_led
     assert run.status == RunState.FAILED
     assert run.finished_at is not None
     assert "ValueError" in run.detail
+    assert store.writes == []
 
 
 @pytest.mark.django_db
@@ -1117,7 +1226,13 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
     Driven through a real run rather than asserted against the constants alone,
     so the keys checked are the keys actually emitted.
     """
-    for event in (COLLECTION_SKIPPED_EVENT, COLLECTION_REFUSED_EVENT, COLLECTION_FAILED_EVENT):
+    for event in (
+        COLLECTION_SKIPPED_EVENT,
+        COLLECTION_REFUSED_EVENT,
+        COLLECTION_FAILED_EVENT,
+        COLLECTION_NOT_MODIFIED_EVENT,
+        COLLECTION_NOT_REMEMBERED_EVENT,
+    ):
         assert event.split(".")[0] == "collection", event
 
     _record_run(collector=FIXTURE_COLLECTOR, package_id=A_PACKAGE, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
@@ -1147,3 +1262,558 @@ def test_a_body_that_will_not_decode_is_an_error_rather_than_a_string(
         served_transport.fetch(f"{served_url}{UNDECODABLE_PATH}")
 
     assert undecodable.value.status_code == HTTPStatus.OK
+
+
+def test_a_real_source_answers_a_real_conditional_request_with_no_body(
+    served_url: str,
+    served_transport: RequestsTransport,
+) -> None:
+    """`CPM-NFR-3`'s caching clause over a socket, which is where it either works or does not.
+
+    Two calls to one origin. The first is unconditional and comes back with a
+    body and an `ETag`; the second sends that tag and comes back `304` with
+    nothing at all. Every other case in this repository constructs the `304`,
+    and a constructed one cannot show that this repository's request carries the
+    validator in the form an origin reads -- which is the only part of caching
+    that can be wrong in a way nothing local would notice.
+    """
+    first = served_transport.fetch(f"{served_url}{CONDITIONAL_PATH}")
+
+    second = served_transport.fetch(
+        f"{served_url}{CONDITIONAL_PATH}",
+        headers={"If-None-Match": first.etag or ""},
+    )
+
+    assert first.not_modified is False
+    assert first.etag == SERVED_ETAG
+    assert first.body == SERVED_BODY
+    assert second.not_modified is True
+    assert second.status_code == HTTPStatus.NOT_MODIFIED
+    assert second.body == ""
+
+
+def test_a_declared_header_reaches_a_real_server(
+    served_url: str,
+    served_transport: RequestsTransport,
+) -> None:
+    """The header the collector declared, read back off the request the server saw.
+
+    conda-forge, PyPI and GitHub all expect a `User-Agent` and some enforce it,
+    so "the header travels" is a claim this product depends on rather than a
+    nicety. It is only provable by a server: everything on this side of the wire
+    is a mapping that a `requests` version, a session default or a merge order
+    could quietly drop between here and the socket.
+    """
+    payload = served_transport.fetch(f"{served_url}{ECHO_PATH}", headers={"User-Agent": FIXTURE_USER_AGENT})
+
+    assert FIXTURE_USER_AGENT in payload.body
+
+
+@pytest.mark.django_db
+def test_a_declared_header_reaches_a_real_server_through_the_base(
+    evidence_table: type[AppendOnlyModel],
+    served_url: str,
+) -> None:
+    """AC 2 end to end: the collector declares, the base sends, no collector opens anything.
+
+    The collector here does exactly two things -- it names a locator and it
+    translates a body -- and the `User-Agent` it declared still arrives at the
+    origin, because the base composed it and the transport issued it. The
+    evidence row carries what the server saw, so the assertion is made against a
+    row in a table rather than against a mapping this process built.
+    """
+    built = _served_collector(f"{served_url}{ECHO_PATH}")
+    collector = built(clock=_clock(), limiter=FixedLimiter(permitted=True))
+
+    try:
+        result = collector.collect(package_id=A_PACKAGE)
+    finally:
+        collector.close()
+
+    assert result.state is RunState.SUCCEEDED
+    assert FIXTURE_USER_AGENT in _rows(evidence_table)[0].body
+
+
+@pytest.mark.django_db
+def test_a_real_round_trip_replays_the_cached_body_and_writes_evidence(
+    evidence_table: type[AppendOnlyModel],
+    served_url: str,
+    captured_events: list[EventDict],
+) -> None:
+    """AC 1 end to end, against a real origin and the real cache-backed store.
+
+    Two collections of one locator, forced past the window. The first transfers
+    a body and remembers it; the second sends the validator, is answered `304`
+    with nothing, replays what it remembered, and writes a second evidence row
+    carrying the same body. Both runs are `succeeded`, because both observed:
+    re-observation inserts (`CPM-AD-2`), which is what makes a confirmed
+    unchanged fact advance freshness.
+
+    The response cache is the real one here, not the recording fake -- this is
+    the one case that proves the base and `core/response_cache.py` agree about
+    the key.
+
+    **The two assertions that make it able to fail at all.** Everything about
+    the rows is identical whether or not caching does anything: the origin
+    serves the same `SERVED_BODY` on a `200`, so a second full fetch produces an
+    indistinguishable second row, and a version of this base with caching
+    entirely inert would satisfy every assertion about the evidence and the
+    ledger. So the *saving* is asserted directly -- the origin served a body
+    exactly once across the two collections -- and so is the base's own account
+    of what happened, through `COLLECTION_NOT_MODIFIED_EVENT`. One says no body
+    crossed the wire the second time; the other says this repository knows why.
+    """
+    _bodies_served.clear()
+    built = _served_collector(f"{served_url}{CONDITIONAL_PATH}")
+    collector = built(clock=_clock(), limiter=FixedLimiter(permitted=True))
+
+    try:
+        first = collector.collect(package_id=A_PACKAGE, force=True)
+        second = collector.collect(package_id=A_PACKAGE, force=True)
+    finally:
+        collector.close()
+
+    assert first.state is RunState.SUCCEEDED
+    assert second.state is RunState.SUCCEEDED
+    assert _bodies_served[CONDITIONAL_PATH] == 1, (
+        "the origin served a body more than once, so the second collection re-fetched what it already had"
+    )
+    assert [event["event"] for event in captured_events] == [COLLECTION_NOT_MODIFIED_EVENT]
+    rows = _rows(evidence_table)
+    assert [row.body for row in rows] == [SERVED_BODY, SERVED_BODY]
+    assert [row.state for row in rows] == [DETERMINATE_VALUE, DETERMINATE_VALUE]
+    assert CollectionRun.objects.filter(status=RunState.SUCCEEDED).count() == COLLECTIONS_IN_THE_ROUND_TRIP
+
+
+@pytest.mark.django_db
+def test_a_conditional_request_is_composed_from_what_was_remembered(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The composed header set, read off the call the base made.
+
+    Both halves in one mapping: the `User-Agent` the collector declared and the
+    `If-None-Match` the base built from the entry. A base that sent only one of
+    them would either lose the collector's declaration or stop asking
+    conditionally, and neither failure changes any other assertion in this file.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    transport = RecordedTransport(payload=recorded_payload(not_modified=True))
+    collector = working_collector(
+        clock=_clock(),
+        transport=transport,
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    collector.collect(package_id=A_PACKAGE)
+
+    assert transport.sent_headers == [{FIXTURE_USER_AGENT_HEADER: FIXTURE_USER_AGENT, "If-None-Match": AN_ETAG}]
+    assert store.reads == [(FIXTURE_COLLECTOR, _fixture_source())]
+    assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_not_modified_answer_writes_the_cached_body_and_refreshes_the_entry(
+    evidence_table: type[AppendOnlyModel],
+    captured_events: list[EventDict],
+) -> None:
+    """The replay, and the three things about it that could each be wrong alone.
+
+    The row carries the *cached* body rather than the empty one the source sent
+    -- which is why `A_CACHED_BODY` differs from what a fresh fetch produces, so
+    the assertion cannot pass by coincidence. The ledger row is `succeeded`,
+    because the run observed. And the entry is written again rather than left
+    alone: the source has just confirmed it, so its lifetime starts from the
+    confirmation, and an implementation that skipped the write would let a
+    confirmed-good entry expire while the source kept saying it was current.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(not_modified=True, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.SUCCEEDED
+    row = _rows(evidence_table)[0]
+    assert row.body == A_CACHED_BODY
+    assert row.state == DETERMINATE_VALUE
+    assert row.observed_at == FIXED_INSTANT
+    assert [written[1] for written in store.writes] == [_fixture_source()]
+    assert store.writes[0][2] == cached_response()
+    assert _finished_run().status == RunState.SUCCEEDED
+    assert [event["event"] for event in captured_events] == [COLLECTION_NOT_MODIFIED_EVENT]
+
+
+@pytest.mark.django_db
+def test_a_not_modified_answer_with_nothing_cached_fails_the_run(
+    evidence_table: type[AppendOnlyModel],
+    captured_events: list[EventDict],
+) -> None:
+    """The source contradicting the request, and why an empty observation is not an option.
+
+    Nothing was remembered, so no validator was sent, so `304` is an answer to a
+    question nobody asked. There is no body and therefore no observation, and
+    writing a clean row with nothing in it is exactly the result `CPM-NFR-3`
+    forbids. So it is a `failed` run with an `error` row whose detail names the
+    source and what it did.
+    """
+    store = RecordingResponseCache()
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(not_modified=True, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.FAILED
+    assert [row.state for row in _rows(evidence_table)] == [OutcomeState.ERROR.value]
+    assert DETERMINATE_VALUE not in {row.state for row in _rows(evidence_table)}
+    run = _finished_run()
+    assert run.detail == result.detail
+    assert _fixture_source() in run.detail
+    assert store.writes == []
+    assert [event["event"] for event in captured_events] == [COLLECTION_FAILED_EVENT]
+
+
+@pytest.mark.django_db
+def test_a_body_is_remembered_only_after_its_evidence_is_written(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The story's central ordering claim, in the only shape that can show it.
+
+    The write fails, so nothing is remembered. Reverse the order and this passes
+    too -- but a malformed body would then be cached before the parse that
+    rejects it, every later run would send the validator, be answered `304`,
+    replay the same body and fail identically, and the collector would never read
+    its source again. The failure is permanent and silent, which is why the
+    ordering is asserted rather than reasoned about.
+    """
+    store = RecordingResponseCache()
+    built = unwritable_collector_class(declared_model=fixture_evidence_model())
+    collector = built(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(etag=AN_ETAG)),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    with pytest.raises(Exception, match=r"(?i)not null|integrity|constraint"):
+        collector.collect(package_id=ANOTHER_PACKAGE)
+
+    assert store.writes == []
+    assert evidence_table.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_translation_that_finds_nothing_remembers_nothing(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The other half of the ordering rule: a parser that no longer matches must not be cached.
+
+    This is the failure the ordering exists for, arriving without an exception:
+    the body parsed to nothing, the run is `failed`, and remembering the body
+    would mean every later run replayed it and found nothing again -- a
+    collector permanently broken by one bad body, with the source never asked
+    a second time.
+    """
+    store = RecordingResponseCache()
+    built = empty_translation_collector_class(declared_model=fixture_evidence_model())
+    collector = built(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(etag=AN_ETAG)),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.FAILED
+    assert store.writes == []
+    assert [row.state for row in _rows(evidence_table)] == [OutcomeState.ERROR.value]
+
+
+@pytest.mark.django_db
+def test_a_successful_answer_with_a_validator_is_remembered(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The positive control the ordering cases are measured against.
+
+    Without it, "nothing was written" proves only that this collector never
+    writes anything. The entry carries the body and both validators, and the
+    lifetime is the one the collector declared -- which is the number a later
+    run's conditional request lives or dies by.
+    """
+    store = RecordingResponseCache()
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(etag=AN_ETAG, last_modified=A_LAST_MODIFIED)),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    collector.collect(package_id=A_PACKAGE)
+
+    assert len(store.writes) == 1
+    name, source, entry, ttl = store.writes[0]
+    assert name == FIXTURE_COLLECTOR
+    assert source == _fixture_source()
+    assert entry == CachedResponse(body=A_PAYLOAD_BODY, etag=AN_ETAG, last_modified=A_LAST_MODIFIED)
+    assert ttl == int(FIXTURE_CACHE_TTL.total_seconds())
+    assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_source_that_offers_no_validator_is_not_remembered(
+    evidence_table: type[AppendOnlyModel],
+    captured_events: list[EventDict],
+) -> None:
+    """Nothing to revalidate against is nothing worth keeping, and it is said out loud.
+
+    A body cached with no validator could only ever be replayed unconfirmed,
+    which is stale evidence wearing a cache's name -- `core/response_cache.py`
+    refuses to build such an entry, and this is the base meeting that refusal on
+    the ordinary path rather than turning it into a failed run. The collection
+    itself succeeds: a source that offers no validator is a source this
+    collector will keep re-reading, not a defect.
+
+    The log line is the half that is asserted here rather than assumed, because
+    without it this is a swallowed exception wearing an early return. It is also
+    the only signal an operator has for the state it describes: a collector that
+    declared a cache lifetime, is working perfectly, and whose cache is
+    permanently empty for a reason nothing else records.
+    """
+    store = RecordingResponseCache()
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload()),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.SUCCEEDED
+    assert store.writes == []
+    assert evidence_table.objects.count() == 1
+    assert [event["event"] for event in captured_events] == [COLLECTION_NOT_REMEMBERED_EVENT]
+    assert {*EVENT_KEYS, "detail"} <= set(captured_events[0])
+    assert captured_events[0]["collector"] == FIXTURE_COLLECTOR
+    assert captured_events[0]["source"] == _fixture_source()
+    assert captured_events[0]["detail"] != ""
+
+
+@pytest.mark.django_db
+def test_a_revalidation_that_supplies_a_new_validator_refreshes_the_entry(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """An origin may hand back a *new* entity tag when it revalidates, and it is believed.
+
+    `304` means the body has not changed; it does not mean the validator has
+    not. A source that rotates its tag -- a rebuilt index, a changed
+    representation with identical bytes -- sends the new one on the `304`, and a
+    base that kept the old one would send the stale tag on the next request and
+    be answered `200` with the whole body, every run, for ever. The cache would
+    look configured, working and useless.
+
+    The body stays the remembered one, because a `304` carries none: that is the
+    saving, and taking the body from the payload here would remember an empty
+    one.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(
+            payload=recorded_payload(not_modified=True, body="", etag=A_ROTATED_ETAG),
+        ),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.SUCCEEDED
+    assert store.writes[0][2] == CachedResponse(body=A_CACHED_BODY, etag=A_ROTATED_ETAG)
+    assert _rows(evidence_table)[0].body == A_CACHED_BODY
+
+
+@pytest.mark.django_db
+def test_a_revalidation_that_supplies_no_validator_keeps_the_remembered_one(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The ordinary `304`, and the pair to the case above.
+
+    Most origins answer a revalidation with the status and nothing else. Taking
+    the payload's validators unconditionally would then write an entry carrying
+    neither -- which `core/response_cache.py` refuses to build, so the entry
+    would be dropped, the next run would be unconditional, and caching would
+    work exactly once per source.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(not_modified=True, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    collector.collect(package_id=A_PACKAGE)
+
+    assert store.writes[0][2] == cached_response()
+    assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_source_that_says_the_resource_is_gone_is_forgotten(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """A body kept past a `404` is a body waiting to be replayed as fact.
+
+    The locator may come back -- a package republished, a repository renamed
+    back -- and what comes back need not be what left. Forgetting is what keeps
+    the next observation an observation rather than a replay of something the
+    source has since disowned.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    collector = working_collector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(found=False, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.SUCCEEDED
+    assert [row.state for row in _rows(evidence_table)] == [OutcomeState.NOT_FOUND.value]
+    assert store.forgets == [(FIXTURE_COLLECTOR, _fixture_source())]
+    assert store.entries == {}
+
+
+@pytest.mark.django_db
+def test_nothing_is_forgotten_until_the_absence_is_written(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The ordering rule holds on the `not_found` path too, which is the one it nearly missed.
+
+    Every other cache mutation in this base happens after the evidence write,
+    for the reason the module docstring gives at length. Forgetting is a cache
+    mutation like any other, and doing it first is the same class of mistake in
+    the other direction: the run drops what it had, the write then fails, and
+    the next run is unconditional against a source that had already answered.
+    Cheap here and expensive at ten thousand packages.
+
+    The write is made to fail by a collector whose sentinel row the schema
+    refuses, which is the only way to observe an ordering from outside: with the
+    write succeeding, both orders look identical.
+    """
+    store = RecordingResponseCache(entries={(FIXTURE_COLLECTOR, _fixture_source()): cached_response()})
+    built = unwritable_sentinel_collector_class(declared_model=fixture_evidence_model())
+    collector = built(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(found=False, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    with pytest.raises(Exception, match=r"(?i)not null|integrity|constraint"):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert store.forgets == []
+    assert store.entries != {}
+    assert evidence_table.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_collector_that_declares_no_cache_never_touches_one(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """`NO_CACHE` means no read, no write and no conditional header -- three claims, all asserted.
+
+    "Disabled" implemented as a read that always misses would still consult a
+    shared backend once per package per sweep, and an implementation that wrote
+    but never read would fill it. The declaration says the collector is not in
+    the caching business at all, and this is that read literally.
+    """
+    store = RecordingResponseCache()
+    built = collector_class(declared_model=fixture_evidence_model(), declared_cache_ttl=NO_CACHE)
+    transport = RecordedTransport(payload=recorded_payload(etag=AN_ETAG))
+    collector = built(
+        clock=_clock(),
+        transport=transport,
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    )
+
+    result = collector.collect(package_id=A_PACKAGE)
+    absent = built(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(found=False, body="")),
+        limiter=FixedLimiter(permitted=True),
+        response_cache=store,
+    ).collect(package_id=ANOTHER_PACKAGE)
+
+    assert result.state is RunState.SUCCEEDED
+    assert absent.state is RunState.SUCCEEDED
+    assert store.reads == []
+    assert store.writes == []
+    # The `not_found` path forgets, and a collector that caches nothing must not
+    # reach even that: `NO_CACHE` means the collector is not in the caching
+    # business, not that it participates and then deletes.
+    assert store.forgets == []
+    assert transport.sent_headers == [dict(FIXTURE_HEADERS)]
+    assert evidence_table.objects.count() == 2  # noqa: PLR2004 - one determinate row, one not_found row
+
+
+def _fixture_source() -> str:
+    """Return the locator the fixture collector reads for `A_PACKAGE`.
+
+    Derived rather than written out, so a case asserting a cache key is
+    asserting the locator the collector actually asked for.
+
+    Returns:
+        The fixture locator for the package every case here collects.
+
+    """
+    return f"{FIXTURE_SOURCE_PREFIX}{A_PACKAGE}"
+
+
+def _served_collector(url: str) -> type[Collector]:
+    """Build a fixture collector that reads one real locator over a socket.
+
+    The three end-to-end cases need a collector whose `source_for` names the
+    local server rather than the unreachable fixture prefix, and need it to keep
+    every other declaration exactly as the fixture has it -- so the assertion is
+    about the base's behaviour and not about a second collector definition.
+
+    Args:
+        url: The whole locator to read, port included.
+
+    Returns:
+        A concrete `Collector` subclass reading that locator for every package.
+
+    """
+    ordinary = collector_class(declared_model=fixture_evidence_model())
+
+    class _ServedCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A fixture collector pointed at the local origin."""
+
+        def source_for(self, *, package_id: int) -> str:
+            """Return the served locator, whichever package is asked for.
+
+            Args:
+                package_id: The package being collected, which this locator does
+                    not vary by -- the subject is the call, not the URL.
+
+            Returns:
+                The served locator.
+
+            """
+            return url
+
+    return _ServedCollector

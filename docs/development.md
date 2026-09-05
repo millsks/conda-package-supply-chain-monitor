@@ -818,6 +818,44 @@ DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb \
 Every command here goes through `pixi run`; invoking `pytest` directly picks up
 a different environment than the gate uses.
 
+### The same gap for the cache, and the one test that cannot run without closing it
+
+Local runs use `LocMemCache`. **The gate uses Redis** — `.github/workflows/ci.yml`
+declares a `redis:7` service on the `gate` job and sets `CPM_TEST_REDIS_URL` at
+job level, and `config/settings/test.py` selects `django_redis.cache.RedisCache`
+when that variable is set. As with the database, the variable is the whole
+mechanism; nothing else in the settings chooses a backend.
+
+Most of the suite does not care. One test does, and it is the reason this exists:
+
+```sh
+pixi run gate-redis
+```
+
+`core/rate_limit.py` writes `add`-then-`incr` rather than read-compare-write so
+that two worker **processes** racing a new window both increment one counter
+instead of one of them resetting the other. Under `LocMemCache` each process has
+its own counter, so that property *cannot fail* — every case in
+`tests/unit/django_apps/test_rate_limit.py` passes against a limiter that loses
+the race, and the reasoning behind the sequence is unverified prose.
+`tests/integration/django_apps/test_shared_allowance.py` starts two real
+interpreters against a real Redis and is the case that can fail; without the
+variable it skips, and the skip message says so.
+
+The task is `scripts/gate-redis.sh` and it is the shape of `gate-postgres.sh`:
+it starts a throwaway `redis:7` on port **56379** — deliberately not 6379, which
+is often already taken by a local Redis that the suite's `cache.clear()` would
+then empty — waits for `redis-cli ping`, runs `test-cov` against it and stops the
+container again. It needs Docker running.
+
+A run that reports the shared-allowance case as **skipped** means the variable
+never reached pytest; the proof did not run. `pixi run gate-redis` is also worth
+reaching for after any change to the rate limiter or the response cache, since
+both read `django.core.cache` and neither may branch on which backend is behind
+it (`tests/unit/django_apps/test_rate_limit.py` and
+`tests/unit/django_apps/test_response_cache.py` assert that against the source,
+because a behavioural case never can).
+
 ## Tasks
 
 | Task | What it does |
@@ -837,6 +875,8 @@ a different environment than the gate uses.
 | `pixi run test` | Unit tests only (fast) |
 | `pixi run test-integration` | Integration tests only |
 | `pixi run test-cov` | Full suite, fails under 90% coverage |
+| `pixi run gate-postgres` | Full suite against a throwaway `postgres:17` — needs Docker, not a gate step |
+| `pixi run gate-redis` | Full suite against a throwaway `redis:7` — needs Docker, not a gate step |
 | `pixi run spike-storage` | R-1's `django-storages` fitness spike — not part of the gate |
 | `pixi run build` | Build the wheel and sdist |
 | `pixi run docs` | Build the documentation (`--strict`) |
@@ -844,8 +884,10 @@ a different environment than the gate uses.
 | `pixi run changelog` | Regenerate `CHANGELOG.md` with git-cliff |
 | `pixi run ci` | The gate — see below |
 
-`pixi task list` prints this table straight from `pixi.toml`, so it cannot
-drift from the manifest.
+`pixi task list` prints every task with its description straight from
+`pixi.toml`, which is the authority; the table above is a reading guide and has
+drifted from it before. Run the command rather than trusting the table when the
+question is "does this task exist".
 
 ## The gate
 
@@ -877,6 +919,11 @@ the workflow files, so the contract fails the build rather than drifting.
 The gate job declares a `postgres:17` service and runs against it, so the five
 steps above execute against the database the immovable core actually names —
 see [the parity gap](#the-parity-gap-between-local-runs-and-the-gate).
+
+It also declares a `redis:7` service and sets `CPM_TEST_REDIS_URL`, so the suite
+runs against a real cache there too. That is not only parity: the
+shared-allowance case skips without it, and a skipped case proves nothing — see
+[the same gap for the cache](#the-same-gap-for-the-cache-and-the-one-test-that-cannot-run-without-closing-it).
 
 A second job in `ci.yml` runs `pixi run test` and then `pixi run test-integration`
 across ubuntu, windows and macos. That job claims the reference application runs

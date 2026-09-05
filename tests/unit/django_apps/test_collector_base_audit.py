@@ -17,12 +17,23 @@ blocked until something upstream gives up. `timeout=None` is the same omission
 written out, and it is refused everywhere with no exemption -- a decision to wait
 forever is not one this product takes.
 
-**One module reads the cache.** `config/settings/local.py` argues that the LocMem
-substitution is a substitution because the cache API is preserved and no call
-site branches on the backend. Keeping the reads in `core/rate_limit.py` is what
-makes that one call site rather than eight, and
-`tests/unit/django_apps/test_rate_limit.py` holds the other half: that the one
+**Two modules read the cache, split by purpose and by nothing else.**
+`config/settings/local.py` argues that the LocMem substitution is a substitution
+because the cache API is preserved and no call site branches on the backend.
+Keeping the reads in `core/rate_limit.py` and `core/response_cache.py` is what
+makes that two call sites rather than eight, and
+`tests/unit/django_apps/test_rate_limit.py` and
+`tests/unit/django_apps/test_response_cache.py` hold the other half: that each
 module which does read it uses only the public API.
+
+The split is by *what is stored*, which is the only division that would not
+drift: one owns how many requests may be issued and the other owns what a request
+need not ask for again. They share a backend and share nothing else -- different
+key namespaces, different lifetimes, different failure modes (an expired counter
+is a fresh window; an unusable entry is a fetch). Folding them into one module
+would put a counter and a body under one `clear()`, and folding the rule into
+"any module in `core` may read the cache" would give the eight collectors the
+door this file exists to shut.
 
 **Every evidence write is inside a `transaction.atomic()`.** `CPM-AD-23` fixes
 one package as the atomic unit so that a later package's failure never rolls back
@@ -211,15 +222,27 @@ UNBOUNDED_TIMEOUT_FORM: Final[str] = "timeout=None"
 # value, which is what makes "every call carries a timeout" true by construction
 # rather than by every collector remembering. It constructs no session and issues
 # no request; only the keyword is licensed here.
-# core/rate_limit.py -- the one module that reads the cache. Three calls, which
+# core/rate_limit.py -- one of the two modules that read the cache, and the one
+# that owns the counter. Three calls, which
 # `tests/unit/django_apps/test_rate_limit.py` separately reconciles against the
 # cache's public API.
+# core/response_cache.py -- the other, and the one that owns the remembered
+# response (`CPM-EVIDENCE-S08`). Three calls, reconciled the same way by
+# `tests/unit/django_apps/test_response_cache.py`. It is a second entry rather
+# than a widened rule because the exemption is spent per occurrence per module:
+# a third module reaching the cache fails this file exactly as the second one
+# would have before this story recorded it.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "config/authorization/jwks.py": {"requests.get(...)": 1, STATED_TIMEOUT_FORM: 1},
     "django_apps/conda_package_supply_chain_monitor/core/collection.py": {STATED_TIMEOUT_FORM: 1},
     "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py": {
         "cache.add(...)": 1,
         "cache.incr(...)": 1,
+        "cache.set(...)": 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/core/response_cache.py": {
+        "cache.delete(...)": 2,
+        "cache.get(...)": 1,
         "cache.set(...)": 1,
     },
     "django_apps/conda_package_supply_chain_monitor/core/transport.py": {
@@ -234,12 +257,22 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
 #: the scan, so an exclusion added later cannot quietly take it out of view.
 AN_INHERITED_OUTBOUND_CALL: Final[str] = "config/authorization/jwks.py"
 
-#: The three modules this story wrote, named so that a scan which had stopped
-#: reaching them would fail here rather than report a clean repository.
+#: The modules `CPM-EVIDENCE-S05` and `CPM-EVIDENCE-S08` wrote, named so that a
+#: scan which had stopped reaching them would fail here rather than report a
+#: clean repository.
+#:
+#: The three that carry a detectable form are named individually as well, because
+#: `test_the_detectors_find_what_the_named_modules_actually_contain` measures the
+#: detectors against them -- and reaching them by tuple index made adding a
+#: fourth module a silent change of subject.
+THE_LIMITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py"
+THE_RESPONSE_CACHE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/response_cache.py"
+THE_TRANSPORT: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/transport.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
-    "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py",
-    "django_apps/conda_package_supply_chain_monitor/core/transport.py",
+    THE_LIMITER,
+    THE_RESPONSE_CACHE,
+    THE_TRANSPORT,
 )
 
 # Synthetic modules the detectors are measured against. Source text parsed here
@@ -839,8 +872,9 @@ def test_the_detectors_find_what_the_named_modules_actually_contain() -> None:
     """
     assert transport_forms(parse(SRC_ROOT / AN_INHERITED_OUTBOUND_CALL)) != []
     assert timeout_settings(parse(SRC_ROOT / AN_INHERITED_OUTBOUND_CALL)) != []
-    assert transport_forms(parse(SRC_ROOT / THE_NEW_MODULES[2])) != []
-    assert cache_reads(parse(SRC_ROOT / THE_NEW_MODULES[1])) != []
+    assert transport_forms(parse(SRC_ROOT / THE_TRANSPORT)) != []
+    assert cache_reads(parse(SRC_ROOT / THE_LIMITER)) != []
+    assert cache_reads(parse(SRC_ROOT / THE_RESPONSE_CACHE)) != []
 
 
 @pytest.mark.parametrize("relative", TRANSACTIONAL_WRITE_MODULES, ids=str)

@@ -61,6 +61,21 @@ TEST = "config.settings.test"
 # each other so that a change to one of them is a failure rather than a drift.
 LOCMEM_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
 
+# The deployed cache backend, named once. `config/settings/production.py`
+# declares it and `config/settings/test.py`'s Redis branch declares the same one,
+# which is the point: a proof run against a different client than the deployed
+# one proves something about a configuration nothing ships.
+REDIS_CACHE_BACKEND = "django_redis.cache.RedisCache"
+
+# The one variable that moves the suite off the in-process cache substitution,
+# and the whole mechanism that does it -- the shape `DATABASE_URL` already has
+# for the database (`tests/unit/test_database_selection.py`).
+CACHE_URL_VARIABLE = "CPM_TEST_REDIS_URL"
+
+# A URL naming a Redis nothing is listening on. These cases read the `CACHES`
+# dict the module builds; none of them connects.
+A_REDIS_URL = "redis://localhost:56379/0"
+
 
 @pytest.fixture(autouse=True)
 def _evict_settings_modules():
@@ -84,6 +99,20 @@ def _evict_settings_modules():
 def no_database_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("POSTGRES_DB", raising=False)
+
+
+@pytest.fixture
+def no_cache_url_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the cache selector so the substitution is what the module is read for.
+
+    The sibling of `no_database_env`, and it exists for the identical reason:
+    `config/settings/test.py` selects `django_redis.cache.RedisCache` when
+    `CPM_TEST_REDIS_URL` is set, and `pixi run gate-redis` and the CI gate job
+    both set it -- so a case asserting the *substitution* has to say which
+    environment it is asserting about, or it passes locally and fails on the two
+    runs that matter.
+    """
+    monkeypatch.delenv(CACHE_URL_VARIABLE, raising=False)
 
 
 @pytest.fixture
@@ -1004,7 +1033,7 @@ def test_local_executes_tasks_eagerly_and_propagates():
     assert local.CELERY_TASK_EAGER_PROPAGATES is True
 
 
-@pytest.mark.usefixtures("no_database_env")
+@pytest.mark.usefixtures("no_database_env", "no_cache_url_env")
 def test_the_test_settings_declare_the_same_substitutions_rather_than_inheriting_them():
     """The suite runs under `config.settings.test`, so it owes the same three.
 
@@ -1019,6 +1048,64 @@ def test_the_test_settings_declare_the_same_substitutions_rather_than_inheriting
     assert test_settings.CACHES["default"]["BACKEND"] == LOCMEM_CACHE_BACKEND
     assert test_settings.CELERY_TASK_ALWAYS_EAGER is True
     assert test_settings.CELERY_TASK_EAGER_PROPAGATES is True
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_a_declared_redis_url_selects_the_deployed_cache_backend(monkeypatch: pytest.MonkeyPatch):
+    """CPM-EVIDENCE-S08: one variable moves the suite onto a real cache, and nothing else does.
+
+    The shape `DATABASE_URL` already has for the database: no settings change,
+    no feature flag, one environment variable read in one place. It exists
+    because `core/rate_limit.py`'s add-then-incr sequence is written for two
+    *processes* sharing one counter, and under LocMem each process holds its own
+    -- so the property cannot fail and the reasoning is unproven until the suite
+    can be pointed at a real Redis.
+
+    The client class is asserted as well as the backend. `config/settings/
+    production.py` configures `DefaultClient`, and a proof run against a
+    different client than the deployed one would be a statement about a
+    configuration nothing ships.
+    """
+    monkeypatch.setenv(CACHE_URL_VARIABLE, A_REDIS_URL)
+
+    test_settings = importlib.import_module(TEST)
+
+    assert test_settings.CACHES["default"]["BACKEND"] == REDIS_CACHE_BACKEND
+    assert test_settings.CACHES["default"]["LOCATION"] == A_REDIS_URL
+    assert test_settings.CACHES["default"]["OPTIONS"]["CLIENT_CLASS"] == "django_redis.client.DefaultClient"
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_an_empty_redis_url_falls_back_rather_than_selecting_nothing(monkeypatch: pytest.MonkeyPatch):
+    """`CPM_TEST_REDIS_URL=""` is not a selection -- the branch is truthiness.
+
+    The sibling of `test_an_empty_database_url_falls_back_rather_than_selecting_nothing`,
+    and the same single edit: exported-but-empty is the one value that would
+    leave the variable present, every gate assertion green, and the suite back on
+    the substitution with AC 4's proof silently skipped.
+    """
+    monkeypatch.setenv(CACHE_URL_VARIABLE, "")
+
+    test_settings = importlib.import_module(TEST)
+
+    assert test_settings.CACHES["default"]["BACKEND"] == LOCMEM_CACHE_BACKEND
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_redis_branch_does_not_swallow_cache_errors(monkeypatch: pytest.MonkeyPatch):
+    """The one thing the suite's Redis configuration must *not* copy from production.
+
+    `config/settings/production.py` sets `IGNORE_EXCEPTIONS` so that a cache
+    outage degrades rather than fails, which is right for a deployment and wrong
+    for a gate: a suite that silently swallowed a Redis error would report a
+    passing run for a service that never came up, and AC 4's proof would be a
+    case that connected to nothing and agreed with itself.
+    """
+    monkeypatch.setenv(CACHE_URL_VARIABLE, A_REDIS_URL)
+
+    test_settings = importlib.import_module(TEST)
+
+    assert test_settings.CACHES["default"]["OPTIONS"].get("IGNORE_EXCEPTIONS") is not True
 
 
 # ---------------------------------------------------------------------------

@@ -70,13 +70,49 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # right backend for the wrong reason -- an implicit framework default that no
 # assertion can distinguish from a deliberate substitution, and that a future
 # `CACHES` key in base.py would silently replace.
+#
+# Two branches, in the shape `base.py` already selects a database in: one
+# environment variable decides, nothing else changes, and the default is the
+# in-process substitution. `CPM_TEST_REDIS_URL` is what `scripts/gate-redis.sh`
+# and the gate job set, and it exists because one property of
+# `core/rate_limit.py` cannot fail under LocMem: `add`-then-`incr` is written so
+# two *processes* racing a new window increment one counter rather than one
+# resetting the other, and under LocMem each process holds its own counter, so
+# the property is unobservable and the reasoning unproven
+# (`tests/integration/django_apps/test_shared_allowance.py`).
+#
+# The Redis branch is spelled exactly as `config/settings/production.py` spells
+# it -- `django_redis.cache.RedisCache` with `DefaultClient` -- because a proof
+# run against a different client than the deployed one proves something about a
+# configuration nothing ships. `IGNORE_EXCEPTIONS` is deliberately *not* carried
+# over: production sets it so a cache outage degrades rather than fails, and a
+# suite that silently swallowed a Redis error would report a passing gate for a
+# service that never came up.
 # https://docs.djangoproject.com/en/dev/ref/settings/#caches
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "",
-    },
-}
+#
+# The name carries a leading underscore, which is load-bearing rather than
+# stylistic: Django's settings object exposes every upper-case module-level name,
+# so `CPM_TEST_REDIS_URL = ...` would become `settings.CPM_TEST_REDIS_URL` -- a
+# setting that exists under the test module and under no other, which is exactly
+# the shape a later reader mistakes for part of the contract. `base.py` reads
+# `DATABASE_URL` inline and leaves no setting behind; this is the same decision,
+# spelled the only way a value used twice can be.
+_redis_url = env.str("CPM_TEST_REDIS_URL", default="")
+if _redis_url:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": _redis_url,
+            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        },
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "",
+        },
+    }
 
 # Celery
 # ------------------------------------------------------------------------------

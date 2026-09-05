@@ -9,12 +9,51 @@ rules would differ eight ways, and the difference that matters is not cosmetic:
 result", and a rate-limited source quietly producing an empty parse is exactly
 that failure.
 
-**What a subclass supplies, and what it never touches.** It declares six values
+**What a subclass supplies, and what it never touches.** It declares eight values
 -- `name`, `evidence_model`, `observation_window`, `timeout`, `retries`,
-`rate_limit` -- and implements three methods: which source to read, how to turn a
-payload into evidence rows, and how to shape one sentinel row for a table only it
-knows. It never sees a socket, a session, a retry policy, a cache or a clock
-read. Every one of those is applied here.
+`rate_limit`, `headers`, `response_cache_ttl` -- and implements three methods:
+which source to read, how to turn a payload into evidence rows, and how to shape
+one sentinel row for a table only it knows. It never sees a socket, a session, a
+retry policy, a cache or a clock read. Every one of those is applied here.
+
+**Caching is the fourth external-call rule, and it is this base's too.**
+`CPM-NFR-3` names four -- rate limiting, retry with backoff, request timeouts and
+caching -- and `CPM-AD-20` puts all four in one base. The first three arrived
+with `CPM-EVIDENCE-S05`; this is the fourth. The base reads what it remembered
+for a locator, composes the conditional request from the entry's validator,
+merges the collector's declared headers underneath it, and replays a `304`'s
+cached body through the collector's ordinary `translate`. A `304` is an
+**observation**: it writes evidence and finalizes a `succeeded` ledger row like
+any other answered call, because a confirmed-unchanged fact is a fact confirmed
+now (`CPM-AD-5`, `R-01`), and re-observation inserts (`CPM-AD-2`), which is what
+makes freshness advance without a body crossing the network.
+
+**The cache write is last, and the ordering is the guarantee:**
+
+```python
+payload = self._transport.fetch(source, headers=headers)   # conditional
+evidence = self.translate(payload, ...)                    # may raise, may be empty
+written = self._write_evidence(evidence, observed_at=observed_at)
+self._remember(...)                                        # only now
+```
+
+Caching before the parse would make one malformed body permanent: every later run
+sends the validator, is answered `304`, replays the same body and fails
+identically without ever re-reading the source. So nothing is remembered until
+the evidence for that payload is in the table.
+
+**A `304` with nothing cached fails.** It is the source contradicting the
+request: no validator was sent, so there is no body and no observation exists to
+record. Inventing an empty one is exactly the clean-looking result `CPM-NFR-3`
+forbids, so the run is `failed` with an `error` row naming the source and the
+misbehaviour.
+
+**Headers reach the socket only from here** (`CPM-AD-20`, `CPM-AD-27`). A
+collector declares what its source expects -- a `User-Agent`, an
+`Authorization` -- and declares *nothing conditional*: `If-None-Match` and
+`If-Modified-Since` are the base's, composed from what the response cache holds,
+and a collector declaring one is refused at construction. A collector forging a
+validator would be asking a question about a body this process does not have.
 
 **The order is the whole guarantee, and it is written out rather than implied:**
 
@@ -88,9 +127,11 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from math import isfinite
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Final
@@ -108,8 +149,15 @@ from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import CacheRateLimiter
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
+from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
+from conda_package_supply_chain_monitor.core.response_cache import CacheResponseCache
+from conda_package_supply_chain_monitor.core.response_cache import ResponseCacheError
+from conda_package_supply_chain_monitor.core.response_cache import conditional_headers
 from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
+from conda_package_supply_chain_monitor.core.transport import IF_MODIFIED_SINCE_HEADER
+from conda_package_supply_chain_monitor.core.transport import IF_NONE_MATCH_HEADER
+from conda_package_supply_chain_monitor.core.transport import Payload
 from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from conda_package_supply_chain_monitor.core.transport import TransportError
 
@@ -121,14 +169,18 @@ if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.clock import Clock
     from conda_package_supply_chain_monitor.core.ledger import RunHandle
     from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.transport import Payload
+    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
     from conda_package_supply_chain_monitor.core.transport import Transport
 
 __all__ = [
     "COLLECTION_FAILED_EVENT",
+    "COLLECTION_NOT_MODIFIED_EVENT",
+    "COLLECTION_NOT_REMEMBERED_EVENT",
     "COLLECTION_REFUSED_EVENT",
     "COLLECTION_SKIPPED_EVENT",
+    "CONDITIONAL_HEADERS",
     "EVENT_KEYS",
+    "NO_CACHE",
     "NO_WINDOW",
     "SUPPRESSING_STATES",
     "CollectionResult",
@@ -136,6 +188,7 @@ __all__ = [
     "Collector",
     "CollectorConfigurationError",
     "has_recent_success",
+    "request_headers",
     "window_query",
 ]
 
@@ -160,7 +213,23 @@ COLLECTION_REFUSED_EVENT: Final[str] = "collection.refused_by_rate_limit"
 #: not have to know which.
 COLLECTION_FAILED_EVENT: Final[str] = "collection.failed"
 
-#: The keys every one of the four events above carries, and the reason they are
+#: The event a confirmed-unchanged answer is logged under. Distinct from a
+#: success and from a skip, because it is neither: the source was asked and
+#: answered, and the answer was that nothing changed. An operator reading "why is
+#: this collector transferring nothing" needs to tell a working cache from a
+#: window that is suppressing runs.
+COLLECTION_NOT_MODIFIED_EVENT: Final[str] = "collection.not_modified"
+
+#: The event an answer that cannot be remembered is logged under. A source that
+#: offers neither an `ETag` nor a `Last-Modified` is not a defect and does not
+#: fail the run -- it is a source this collector will keep re-reading in full --
+#: but it is not nothing either: it is the reason a collector that declared a
+#: cache lifetime never sees a `304`, and an operator asking why is otherwise
+#: looking at a cache that is configured, working, and empty for no visible
+#: reason.
+COLLECTION_NOT_REMEMBERED_EVENT: Final[str] = "collection.not_remembered"
+
+#: The keys every one of the five events above carries, and the reason they are
 #: named here. A `detail` that is an exception's `"Type: message"` on two paths
 #: and a sentence on the third is two schemas wearing one key, and a log query
 #: written against either would be wrong half the time. So the value is fixed as
@@ -184,6 +253,33 @@ NO_WINDOW: Final[timedelta] = timedelta(0)
 #: a set rather than written into the query so the decision is one a reader meets
 #: rather than one they infer from a keyword.
 SUPPRESSING_STATES: Final[frozenset[RunState]] = frozenset({RunState.SUCCEEDED})
+
+#: The response-cache lifetime that means "do not cache". Zero, and it is a
+#: *declaration* on the same terms `NO_WINDOW` is: a collector whose source
+#: offers no validator, or whose body must be re-read every time, says so where a
+#: reader can see it rather than by omitting the value.
+#:
+#: Short-circuited rather than handed to the cache. Django reads a `timeout` of
+#: `0` as *do not cache* and `None` as *never expire*, so passing this value
+#: through would happen to produce the right behaviour by way of a rule nobody
+#: reading this line would have to know -- and one `int()` away from the opposite
+#: one. `_require_cache_ttl` refuses everything between zero and a whole second
+#: for the same reason: it truncates to `0`, which is a collector that declared
+#: caching and silently caches nothing.
+NO_CACHE: Final[timedelta] = timedelta(0)
+
+#: The request headers this base owns and no collector may declare.
+#:
+#: They are composed from what the response cache holds, so a collector
+#: declaring one would be asking a source about a body this process does not
+#: have -- and would be answered `304` for it, which the base would then have no
+#: entry to replay. Refused at construction, where the answer already exists.
+CONDITIONAL_HEADERS: Final[frozenset[str]] = frozenset({IF_NONE_MATCH_HEADER, IF_MODIFIED_SINCE_HEADER})
+
+#: The same set, lowered once at import. HTTP header names are case-insensitive
+#: on the wire, so the refusal has to be, and computing the comparison set per
+#: declared header would be rebuilding a constant inside a loop.
+_LOWERED_CONDITIONAL_HEADERS: Final[frozenset[str]] = frozenset(header.lower() for header in CONDITIONAL_HEADERS)
 
 
 class CollectorConfigurationError(ValueError):
@@ -323,6 +419,38 @@ def has_recent_success(*, collector: str, package_id: int, since: datetime) -> b
     return CollectionRun.objects.filter(window_query(collector=collector, package_id=package_id, since=since)).exists()
 
 
+def request_headers(*, declared: Mapping[str, str], entry: CachedResponse | None) -> dict[str, str]:
+    """Return the headers one outbound call carries, from both of their sources.
+
+    Two sources and one order. What the collector declared -- the `User-Agent`
+    its source expects, the `Authorization` its API requires -- goes down first;
+    the conditional request the response cache asks for goes on top. The base's
+    headers therefore win, which is belt and braces rather than a live conflict:
+    a collector declaring a conditional header is already refused at
+    construction, and this order means a refusal that was ever bypassed would
+    still not let a forged validator reach a source.
+
+    Returned as a plain mapping rather than applied here, for the reason
+    `window_query` is returned as a `Q`: the composition is one dictionary merge
+    away from being wrong in a way no behavioural case would notice -- a lost
+    declaration, or a conditional header overwritten by the collector's own --
+    and `tests/unit/django_apps/test_collection.py` asserts the shape without a
+    socket.
+
+    Args:
+        declared: What the collector declared, already checked at construction.
+        entry: The remembered response for this locator, or `None` for a miss,
+            for a collector that caches nothing, and for a run that is not
+            allowed to ask conditionally.
+
+    Returns:
+        The merged headers. Empty when a collector declares none and nothing is
+        remembered, which is the same request `CPM-EVIDENCE-S05` issued.
+
+    """
+    return {**declared} if entry is None else {**declared, **conditional_headers(entry)}
+
+
 class Collector(ABC):
     """The base every collector inherits, and the only code that makes a call.
 
@@ -395,12 +523,29 @@ class Collector(ABC):
     #: collector gets to opt out of by omission.
     rate_limit: ClassVar[RateLimit | None] = None
 
+    #: The request headers this collector's source expects -- a `User-Agent`, an
+    #: `Authorization`. Declared rather than sent: the base merges them under the
+    #: conditional request and hands the result to the transport, which is the
+    #: only place a header reaches a socket (`CPM-AD-20`, `CPM-AD-27`). Empty is
+    #: a complete statement, so unlike the six declarations above this one has a
+    #: usable default; what is *refused* is a conditional header, which belongs
+    #: to the base and to the entry it is composed from.
+    headers: ClassVar[Mapping[str, str]] = MappingProxyType({})
+
+    #: How long a remembered response may be replayed before it is re-read.
+    #: Required, on the same terms `observation_window` is: `NO_CACHE` says
+    #: "fetch a body every time" and a reader can see it, while omitting the
+    #: value says nothing at all. The *value* is a per-collector decision like
+    #: the window's and is not chosen here.
+    response_cache_ttl: ClassVar[timedelta | None] = None
+
     def __init__(
         self,
         *,
         clock: Clock,
         transport: Transport | None = None,
         limiter: RateLimiter | None = None,
+        response_cache: ResponseCache | None = None,
     ) -> None:
         """Check the declared configuration and build what it describes.
 
@@ -416,6 +561,10 @@ class Collector(ABC):
             limiter: The rate limiter, defaulting to the shared cache-backed one.
                 Substituted in a test that wants a refusal without arranging a
                 cache state.
+            response_cache: Where answers are remembered between runs, defaulting
+                to the shared cache-backed one. A seam for the same reason the
+                limiter is one: a case about the replay should not have to
+                arrange a cache entry through a key it then has to compute.
 
         Raises:
             CollectorConfigurationError: When any declared value is absent, of
@@ -430,6 +579,8 @@ class Collector(ABC):
         self._timeout = _require_timeout(self.timeout, label=label)
         self._retries = _require_retries(self.retries, label=label)
         self._rate_limit = _require_rate_limit(self.rate_limit, label=label)
+        self._headers = _require_headers(self.headers, label=label)
+        self._cache_ttl = _require_cache_ttl(self.response_cache_ttl, label=label)
         self._clock: Clock = clock
         # Ownership is tracked so `close()` releases only what this object
         # built. Closing a transport the caller supplied would take a pool away
@@ -440,6 +591,7 @@ class Collector(ABC):
             RequestsTransport(timeout=self._timeout, retries=self._retries) if transport is None else transport
         )
         self._limiter: RateLimiter = CacheRateLimiter() if limiter is None else limiter
+        self._response_cache: ResponseCache = CacheResponseCache() if response_cache is None else response_cache
 
     def __enter__(self) -> Self:
         """Return this collector, so a caller can scope its connection pool.
@@ -561,13 +713,31 @@ class Collector(ABC):
 
         """
 
-    def collect(self, *, package_id: int, force: bool = False) -> CollectionResult:
+    def collect(  # noqa: PLR0911 - one return per terminal path; see below
+        self,
+        *,
+        package_id: int,
+        force: bool = False,
+    ) -> CollectionResult:
         """Collect one package, applying every rule this base owns.
 
         The recorder is opened first and nothing wraps it -- see the module
         docstring for why that ordering is the whole of `CPM-EVIDENCE-S03`'s
-        deferred constraint. Inside it: the window, the rate limit, the call,
-        and one `transaction.atomic()` around the evidence write.
+        deferred constraint. Inside it: the window, the rate limit, the cache
+        read, the call, and one `transaction.atomic()` around the evidence write.
+
+        **Seven returns, one per terminal path, and that is what the `noqa`
+        licenses.** They are the I/O matrix's rows: the window suppressed the
+        run; the allowance was spent; the source did not answer; it answered
+        `304` with nothing behind the request; it answered that the resource is
+        absent; the parser found nothing; the observation was written. Each
+        declares its own `detail`, which is the string the ledger row and the
+        returned result both carry, so collapsing two of them into a shared
+        return would mean a shared explanation -- and a reader asking "why did
+        this collect nothing" would get a sentence written for a different
+        reason. The alternative shape, a helper returning `Payload | CollectionResult`
+        for the caller to type-test, moves the ordering this module's docstring
+        is written about out of the method it is written about.
 
         Args:
             package_id: The package to collect, by the integer primary key
@@ -639,8 +809,15 @@ class Collector(ABC):
                 )
                 return self._failed(run_detail=detail, package_id=package_id, observed_at=observed_at, run=run)
 
+            # Read after the allowance is granted rather than before it: a
+            # collection that is not going to happen has no use for an entry,
+            # and the cache is a shared resource like the counter beside it.
+            remembered = self._remembered(source)
             try:
-                payload = self._transport.fetch(source)
+                payload = self._transport.fetch(
+                    source,
+                    headers=request_headers(declared=self._headers, entry=remembered),
+                )
             except TransportError as failure:
                 detail = f"{type(failure).__name__}: {failure}"
                 logger.warning(
@@ -651,6 +828,30 @@ class Collector(ABC):
                     detail=detail,
                 )
                 return self._failed(run_detail=detail, package_id=package_id, observed_at=observed_at, run=run)
+
+            if payload.not_modified:
+                if remembered is None:
+                    detail = (
+                        f"{source} answered that nothing has changed, but nothing asked it what changed: this "
+                        f"run sent no validator and holds no cached body, so there is no observation to "
+                        f"record. Inventing an empty one is the clean-looking result CPM-NFR-3 forbids."
+                    )
+                    logger.warning(
+                        COLLECTION_FAILED_EVENT,
+                        collector=self._name,
+                        package_id=package_id,
+                        source=source,
+                        detail=detail,
+                    )
+                    return self._failed(run_detail=detail, package_id=package_id, observed_at=observed_at, run=run)
+                logger.info(
+                    COLLECTION_NOT_MODIFIED_EVENT,
+                    collector=self._name,
+                    package_id=package_id,
+                    source=source,
+                    detail=f"{source} confirmed the cached response still holds; the body was not transferred.",
+                )
+                payload = _replayed(payload, remembered=remembered, source=source)
 
             if not payload.found:
                 detail = f"{source} reports that the resource does not exist"
@@ -665,6 +866,14 @@ class Collector(ABC):
                     ],
                     observed_at=observed_at,
                 )
+                # After the write, as every cache mutation on every path is. The
+                # locator answered "gone", so what is remembered for it is gone
+                # too -- a body kept past that answer would be replayed the day
+                # the locator came back, and what comes back need not be what
+                # left. Doing it *before* the write would make the ordering rule
+                # this module states hold on three paths out of four, which is
+                # not a rule anybody could then rely on.
+                self._forget(source)
                 # `succeeded`, not `failed`: the source answered, and the answer
                 # was "no such thing". `CPM-AD-5` keeps the two distinguishable
                 # precisely so a reader is never asked to infer which happened.
@@ -720,6 +929,10 @@ class Collector(ABC):
                 return self._failed(run_detail=detail, package_id=package_id, observed_at=observed_at, run=run)
 
             written = self._write_evidence(evidence, observed_at=observed_at)
+            # Last, and only now. Everything above can still fail; a body
+            # remembered before its evidence was written would be replayed
+            # forever by a validator this run had already sent.
+            self._remember(source, payload, package_id=package_id, remembered=remembered)
             return CollectionResult(state=RunState.SUCCEEDED, evidence_rows=written, detail="")
 
     def _inside_window(self, *, package_id: int, now: datetime) -> bool:
@@ -745,6 +958,107 @@ class Collector(ABC):
         if self._window <= NO_WINDOW:
             return False
         return has_recent_success(collector=self._name, package_id=package_id, since=now - self._window)
+
+    def _remembered(self, source: str) -> CachedResponse | None:
+        """Return what was cached for this locator, if this collector caches.
+
+        `NO_CACHE` short-circuits rather than reading, which is the same shape
+        `_inside_window` uses for a zero window and is what makes "caching
+        disabled" mean *no cache read, no cache write and no conditional
+        header* rather than "a read that always misses".
+
+        Args:
+            source: The locator about to be read.
+
+        Returns:
+            The remembered response, or `None` for a miss and for a collector
+            that declared `NO_CACHE`.
+
+        """
+        if self._cache_ttl <= NO_CACHE:
+            return None
+        return self._response_cache.read(collector=self._name, source=source)
+
+    def _remember(
+        self,
+        source: str,
+        payload: Payload,
+        *,
+        package_id: int,
+        remembered: CachedResponse | None,
+    ) -> None:
+        """Record this answer, or refresh the entry a `304` confirmed.
+
+        Called after the evidence write and nowhere else -- see the module
+        docstring for why a body cached before its parse becomes permanent.
+
+        A `304` writes its entry again rather than nothing: the source has
+        confirmed it, so the lifetime starts from the confirmation. The *body*
+        is the remembered one -- there was none to transfer -- but the
+        validators are taken from the `304` where it supplied them, because a
+        source is entitled to hand back a new `ETag` or `Last-Modified` on a
+        revalidation and the next conditional request must carry what the source
+        last said rather than what it said before that. Where the `304` supplies
+        neither, the remembered validators are kept, which is the ordinary case.
+
+        A `200` carrying no validator writes nothing: an entry with no validator
+        can never be revalidated and `core/response_cache.py` refuses to build
+        one, so there is nothing to store that a later run could use. That is a
+        property of the source rather than a defect, so it does not fail the
+        run -- but it is logged, because it is the reason a collector that
+        declared a cache lifetime never sees a `304`, and an operator asking why
+        would otherwise be looking at a cache that is configured, working and
+        permanently empty.
+
+        Args:
+            source: The locator that was asked, which is what the entry is
+                keyed on. Taken from the run rather than from `payload.source`:
+                the payload's locator is data a transport supplied, and a key
+                built from it would be a key a source could choose.
+            payload: What the source said, or the replayed answer a `304`
+                produced.
+            package_id: The package the observation is about. Carried only so
+                the log line below has the key set every event this module emits
+                has (`EVENT_KEYS`) -- a log query written against those keys must
+                not be wrong for one of the five.
+            remembered: The entry this run was holding, whose body a `304`
+                keeps.
+
+        """
+        if self._cache_ttl <= NO_CACHE:
+            return
+        try:
+            entry = _entry_to_remember(payload, remembered=remembered)
+        except ResponseCacheError as unrevalidatable:
+            # Never swallowed: reported with the reason and the locator, and the
+            # run continues. A source this collector must keep re-reading in
+            # full is what a cache with nothing to revalidate against would have
+            # produced anyway.
+            logger.info(
+                COLLECTION_NOT_REMEMBERED_EVENT,
+                collector=self._name,
+                package_id=package_id,
+                source=source,
+                detail=f"{type(unrevalidatable).__name__}: {unrevalidatable}",
+            )
+            return
+        self._response_cache.write(
+            collector=self._name,
+            source=source,
+            response=entry,
+            ttl_seconds=int(self._cache_ttl.total_seconds()),
+        )
+
+    def _forget(self, source: str) -> None:
+        """Drop whatever is remembered for a locator the source says is gone.
+
+        Args:
+            source: The locator to forget.
+
+        """
+        if self._cache_ttl <= NO_CACHE:
+            return
+        self._response_cache.forget(collector=self._name, source=source)
 
     def _failed(
         self,
@@ -938,6 +1252,71 @@ class Collector(ABC):
             raise CollectorConfigurationError(message)
 
 
+def _replayed(payload: Payload, *, remembered: CachedResponse, source: str) -> Payload:
+    """Return the answer a `304` stands for, with the body this process kept.
+
+    **What the collector sees, stated exactly.** The `body`, the `source` and
+    the `found` flag are indistinguishable from a `200` carrying the same body,
+    which is what matters: `translate` is a pure function from a recorded
+    payload to evidence rows (`CPM-AD-27`), and a collector that had to know
+    where its body came from would be a second parsing path to keep correct.
+    What *is* visible is that this was a revalidation -- `not_modified` stays
+    `True` and `status_code` stays `304` -- and both are deliberate. The base
+    reads the flag to decide that the entry is being refreshed rather than
+    replaced, and rewriting the status to `200` would be this module telling a
+    collector something the source did not say, in a field whose whole purpose
+    is to record what the source said.
+
+    The validators are the source's latest: the `304`'s where it supplied them,
+    the remembered ones otherwise. An origin may hand back a new `ETag` on a
+    revalidation, and the next conditional request has to carry what the source
+    last said.
+
+    Args:
+        payload: The not-modified answer, carrying no body.
+        remembered: The entry whose body is replayed.
+        source: The locator that was asked.
+
+    Returns:
+        A payload carrying the cached body, as though the source had served it
+        again, and the validators that now describe it.
+
+    """
+    return Payload(
+        source=source,
+        found=True,
+        body=remembered.body,
+        status_code=payload.status_code,
+        not_modified=True,
+        etag=payload.etag or remembered.etag,
+        last_modified=payload.last_modified or remembered.last_modified,
+    )
+
+
+def _entry_to_remember(payload: Payload, *, remembered: CachedResponse | None) -> CachedResponse:
+    """Return the entry one answered call leaves behind.
+
+    Args:
+        payload: What the source said, or the replayed answer a `304` produced.
+        remembered: The entry this run was holding.
+
+    Returns:
+        For a `304`, the remembered body with whatever validators now describe
+        it -- `_replayed` has already resolved those, so this reads them off the
+        payload like any other answer, and the one thing it must not take from
+        there is the body, which a `304` does not carry. For anything else, the
+        answer as served.
+
+    Raises:
+        ResponseCacheError: When the result would carry no validator and so
+            could never be revalidated. `core/response_cache.py` refuses such an
+            entry for everybody; the caller logs it and moves on.
+
+    """
+    body = remembered.body if payload.not_modified and remembered is not None else payload.body
+    return CachedResponse(body=body, etag=payload.etag, last_modified=payload.last_modified)
+
+
 def _require_name(name: str, *, label: str) -> str:
     """Refuse a collector that does not say what it is called.
 
@@ -1091,3 +1470,140 @@ def _require_rate_limit(limit: RateLimit | None, *, label: str) -> RateLimit:
         )
         raise CollectorConfigurationError(message)
     return limit
+
+
+def _require_headers(headers: Mapping[str, str], *, label: str) -> Mapping[str, str]:
+    """Refuse declared headers that are unusable, injectable, or the base's to send.
+
+    Four refusals, and the middle two are about the fact that HTTP header names
+    are case-insensitive on the wire while a Python mapping's keys are not.
+
+    Args:
+        headers: The declared header mapping.
+        label: The class's own name, for the message.
+
+    Returns:
+        A read-only copy, so a collector cannot widen its own header set at run
+        time by mutating the class attribute after construction -- the same
+        reason `RateLimit` is frozen.
+
+    Raises:
+        CollectorConfigurationError: When the declaration is not a mapping of
+            strings to strings; when a name or a value carries a carriage return
+            or a line feed; when two names differ only in case; or when it names
+            one of `CONDITIONAL_HEADERS`.
+
+            The line-break refusal is the security one. A header value is
+            terminated by CRLF, so a newline inside one *is* the start of the
+            next header -- and these values are assembled from configuration
+            (`Authorization: Bearer $TOKEN` is the obvious shape), which is
+            exactly where an attacker-influenced string arrives. `requests`
+            refuses some of these at call time and not all of them, and a
+            refusal in a worker halfway through a sweep is not the same thing as
+            a refusal where the collector is written.
+
+            The duplicate-name refusal is the silent one. `{"user-agent": ...,
+            "User-Agent": ...}` is two keys to Python and one header to every
+            origin, so one of the two declarations is discarded by whichever
+            merge happens to run last -- and which one survives is not
+            something the declaring collector can see.
+
+            The conditional refusal is `CPM-AD-20`'s: a collector sending its
+            own `If-None-Match` asks a source about a body this process does not
+            hold, and the `304` it earns has no entry behind it and fails the
+            run.
+
+    """
+    if not isinstance(headers, Mapping) or any(
+        not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()
+    ):
+        message = (
+            f"{label} declares headers={headers!r}, which is not a mapping of header names to values. Headers "
+            f"reach the socket through this base and nowhere else (CPM-AD-27); declare an empty mapping to "
+            f"send none."
+        )
+        raise CollectorConfigurationError(message)
+    broken = sorted(name for name, value in headers.items() if _has_line_break(name) or _has_line_break(value))
+    if broken:
+        message = (
+            f"{label} declares the header(s) {broken} carrying a carriage return or a line feed. A header is "
+            f"terminated by CRLF, so a line break inside one is the start of another header -- and these "
+            f"values are assembled from configuration, which is where an injected string arrives."
+        )
+        raise CollectorConfigurationError(message)
+    lowered = [name.lower() for name in headers]
+    duplicated = sorted({name for name in lowered if lowered.count(name) > 1})
+    if duplicated:
+        message = (
+            f"{label} declares the header name(s) {duplicated} more than once, differing only in case. HTTP "
+            f"header names are case-insensitive on the wire and a mapping's keys are not, so one of the "
+            f"declarations is discarded by whichever merge runs last and the collector cannot see which."
+        )
+        raise CollectorConfigurationError(message)
+    forged = sorted(name for name in headers if name.lower() in _LOWERED_CONDITIONAL_HEADERS)
+    if forged:
+        message = (
+            f"{label} declares the conditional header(s) {forged}. Conditional requests are composed by this "
+            f"base from what the response cache holds (CPM-AD-20): a collector-supplied validator asks a "
+            f"source about a body this process does not have, and the 304 it earns has no entry to replay."
+        )
+        raise CollectorConfigurationError(message)
+    return MappingProxyType(dict(headers))
+
+
+def _has_line_break(text: str) -> bool:
+    """Report whether a header name or value carries a CR or an LF.
+
+    Args:
+        text: The declared name or value.
+
+    Returns:
+        True when it contains either, which makes it two headers rather than
+        one.
+
+    """
+    return "\r" in text or "\n" in text
+
+
+def _require_cache_ttl(ttl: timedelta | None, *, label: str) -> timedelta:
+    """Refuse a response-cache lifetime that is absent, mistyped, negative or sub-second.
+
+    Args:
+        ttl: The declared lifetime.
+        label: The class's own name, for the message.
+
+    Returns:
+        The lifetime, unchanged.
+
+    Raises:
+        CollectorConfigurationError: When it is not a non-negative `timedelta`,
+            or when it is positive and shorter than the whole second the cache
+            counts in. Absence is refused for the reason `observation_window`'s
+            is: `NO_CACHE` says "read a body every run" and a reader can see it,
+            while omitting the value says nothing and would leave the base
+            guessing which of the two a collector meant. The sub-second refusal
+            is `RateLimit.per`'s, arriving at the other value handed to the same
+            API and failing the other way round: the lifetime is truncated to
+            whole seconds, so anything under a second becomes `0`, which Django
+            reads as *do not cache* -- a collector that declared caching, passed
+            every check, and quietly caches nothing. `NO_CACHE` is the way to say
+            that on purpose, and it is the one value below a second that is
+            permitted.
+
+    """
+    if not isinstance(ttl, timedelta) or ttl < NO_CACHE:
+        message = (
+            f"{label} declares response_cache_ttl={ttl!r}, which is not a lifetime a cached response can be "
+            f"held for. Declare NO_CACHE to fetch a body every run; omitting the value, or declaring a number "
+            f"of unstated units, is not the same statement."
+        )
+        raise CollectorConfigurationError(message)
+    if ttl > NO_CACHE and int(ttl.total_seconds()) < 1:
+        message = (
+            f"{label} declares response_cache_ttl={ttl!r}, which is shorter than the whole second the cache "
+            f"counts in. It truncates to a zero-second lifetime, which Django reads as 'do not cache' -- so "
+            f"the collector would look like it caches and would remember nothing. Declare NO_CACHE if that is "
+            f"what was meant, and at least a second if it was not."
+        )
+        raise CollectorConfigurationError(message)
+    return ttl
