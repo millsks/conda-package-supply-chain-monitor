@@ -1,5 +1,12 @@
+from typing import Final
+
 from django.apps import AppConfig
 from django.utils.translation import gettext_lazy as _
+
+#: The setting `config/settings/base.py` assigns the selected watchlist to.
+#: Spelled once, here, so the refusal below names the same thing the read asks
+#: for -- a literal in each would be two names that can drift apart.
+WATCHLIST_PATH_SETTING: Final[str] = "INVENTORY_WATCHLIST_PATH"
 
 
 class CollectorsConfig(AppConfig):
@@ -45,12 +52,22 @@ class CollectorsConfig(AppConfig):
     verbose_name = _("Collectors")
 
     def ready(self) -> None:
-        """Adopt this application's collectors, declared one by one (AD-8).
+        """Adopt this application's collectors and its inventory source, one by one (AD-8).
 
         Registration is a side effect of adoption rather than of import: nothing
         self-registers and nothing is discovered by entry point or module walk,
         so "which collectors does this component run" is answered by the lines
-        below and by no other mechanism.
+        below and by no other mechanism. The inventory source adapter is declared
+        on exactly the same terms (`CPM-AD-29`): one call, in a place a reader
+        can see it, and no entry point, module scan or import walk anywhere.
+
+        **The watchlist path is read from settings rather than selected here.**
+        `CPM-AD-29` selects the file by `config.locality.is_local()`, and `AD-4`
+        forbids anything under `src/django_apps/` importing `config` --
+        `config/settings/base.py` performs the read and assigns
+        `INVENTORY_WATCHLIST_PATH`, in the shape `ROLE_CONTRACT` already
+        establishes. What is here is the settings *access*, which is a read of a
+        value the platform composed and not a second selection rule.
 
         **Adopting the same class twice is a no-op, and that is not a softening
         of `core/registry.py`'s duplicate-name refusal.** That refusal is about
@@ -62,16 +79,63 @@ class CollectorsConfig(AppConfig):
         `AppConfig.ready` is Django's to call, a second `django.setup()` in one
         process calls it again, and a `CollectorRegistryError` out of a boot hook
         is a component that will not start for no reason anybody chose.
+
+        **The adapter declaration is guarded the same way and for the same
+        reason.** `declare_inventory_adapter` refuses a second declaration --
+        deliberately, because a second one silently replacing the first is how a
+        deployed component comes to ingest a development subset and record every
+        package outside it as absent -- so a `ready()` that ran twice would abort
+        boot. The guard is as narrow as the registration's beside it: it passes
+        only for a `WatchlistAdapter` **already reading the very file settings
+        selected**. An adapter of another kind, and a watchlist adapter bound to
+        another path, both reach `declare_inventory_adapter` and are both
+        refused, because "which file is this component's inventory" is exactly
+        the question `CPM-AD-29` will not have answered by import order.
+
+        Raises:
+            ImproperlyConfigured: When the settings module declares no
+                `INVENTORY_WATCHLIST_PATH`. Refused rather than left to an
+                `AttributeError`: a settings module that dropped the assignment
+                is a misconfiguration like every other one here, and a bare
+                attribute error out of a boot hook says nothing about which
+                setting is missing or what declares it.
+
         """
         # Imported here rather than at module scope: `AppConfig` classes are
         # imported during `django.setup()` *before* the app registry is
         # populated, and this module reaches models through the collector it
         # registers -- a module-scope import would raise `AppRegistryNotReady`.
+        from django.conf import settings  # noqa: PLC0415 - see above
+        from django.core.exceptions import ImproperlyConfigured  # noqa: PLC0415 - see above
+
         from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
             InventoryIngestionCollector,
+        )
+        from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
+            declare_inventory_adapter,
+        )
+        from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
+            declared_inventory_adapter,
+        )
+        from conda_package_supply_chain_monitor.collectors.watchlist import (  # noqa: PLC0415 - see above
+            WatchlistAdapter,
         )
         from conda_package_supply_chain_monitor.core.registry import register  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.core.registry import registrations  # noqa: PLC0415 - see above
 
         if registrations().get(InventoryIngestionCollector.name) is not InventoryIngestionCollector:
             register(InventoryIngestionCollector)
+
+        selected = getattr(settings, WATCHLIST_PATH_SETTING, None)
+        if selected is None:
+            message = (
+                f"{WATCHLIST_PATH_SETTING} is not configured, so this component has no inventory source "
+                f"file to declare an adapter for. config/settings/base.py assigns it as "
+                f"watchlist_path(local=is_local()) -- locality selects the file and fails closed toward "
+                f"production (CPM-AD-29)."
+            )
+            raise ImproperlyConfigured(message)
+
+        declared = declared_inventory_adapter()
+        if not (isinstance(declared, WatchlistAdapter) and declared.path == selected):
+            declare_inventory_adapter(WatchlistAdapter(path=selected))

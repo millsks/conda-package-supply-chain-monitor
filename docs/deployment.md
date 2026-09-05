@@ -714,3 +714,35 @@ database, including the two boundaries a review will not catch — an epoch reco
 whose expiry was never readable is *not* prunable by expiry and survives, and one
 whose token is still inside the configured clock-skew leeway survives too, because
 the Bearer path would still accept it.
+
+## The inventory watchlist ships unpopulated
+
+The inventory source is a reviewed CSV file the component ships
+(`CPM-AD-29`), and which file it reads is selected by locality:
+`COMPONENT_RUNTIME=local` reads `watchlist-development.csv` and **everything
+else** — absent, empty, or a value like `dev` — reads `watchlist.csv`. Selection
+fails closed toward production for the same reason locality itself does: a
+deployed component that read the development subset would find every package
+outside that subset missing and record each one as *absent*, permanently, in an
+append-only log nothing may correct.
+
+`watchlist.csv` ships with its header and **no rows**. Which packages your
+organization tracks is your decision, not this component's, so nothing is
+invented for you. The consequence to plan for: **inventory ingestion fails on
+every run until that file is reviewed in.** The task raises an
+`ImproperlyConfigured` naming the file, the run's ledger row finalizes `failed`,
+and no package and no snapshot is written.
+
+That failure is the intended behaviour rather than a gap. An inventory naming
+nothing is indistinguishable from a source that has broken, and a sweep that
+accepted one would record every package the inventory has ever named as departed.
+A loud failure on day one is the alternative to a silently corrupted evidence log.
+
+Populate it by pull request. The column contract, the bounds and the editing
+rules are documented beside the files, in
+`src/django_apps/conda_package_supply_chain_monitor/collectors/data/README.md`.
+Both files ship inside the wheel, under
+`conda_package_supply_chain_monitor/collectors/data/`;
+`tests/integration/test_import_resolution.py` asserts that against the built
+artifact, because a build that dropped them fails nowhere else until the first
+deployed sweep.

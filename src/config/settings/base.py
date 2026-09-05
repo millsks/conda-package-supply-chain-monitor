@@ -9,9 +9,11 @@ from typing import Any
 import environ
 from django.urls import reverse_lazy
 
+from conda_package_supply_chain_monitor.collectors.watchlist import watchlist_path
 from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core.roles import load_role_contract
 from config.authorization.claims import load_claims_contract
+from config.locality import is_local
 from config.observability.logging import build_logging_config
 from config.observability.logging import configure_structlog
 
@@ -280,6 +282,27 @@ CLAIMS_CONTRACT = load_claims_contract(env)
 # See src/django_apps/conda_package_supply_chain_monitor/core/roles.py and
 # docs/authentication.md.
 ROLE_CONTRACT = load_role_contract(env)
+# The inventory source's file (CPM-AD-29, CPM-FR-42): the versioned watchlist the
+# declared adapter reads, selected by locality.
+#
+# The read is *here* for the same reason ROLE_CONTRACT's is, and the split is the
+# same one. CPM-AD-29 names config.locality.is_local() as the selector and AD-4
+# forbids a domain application importing config, so the application owns the
+# contract and a pure function -- watchlist_path(local=...) reads no environment
+# variable and touches no filesystem -- and this module performs the read.
+#
+# Selection fails closed toward production, which is is_local()'s own default:
+# only COMPONENT_RUNTIME=local selects the development subset, and absent, empty
+# and unrecognized all read the production watchlist. That direction is
+# load-bearing. A deployed component reading the development subset would find
+# every package outside it missing and record each one as absent -- permanently,
+# in an append-only log nothing may correct.
+#
+# Read at settings-import time, so it freezes for the process. That is what a
+# declared adapter is: CollectorsConfig.ready() binds one file at boot, and a
+# component that has to read a different one restarts.
+# See src/django_apps/conda_package_supply_chain_monitor/collectors/watchlist.py.
+INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
 
 # PASSWORDS
 # ------------------------------------------------------------------------------
