@@ -347,8 +347,15 @@ def test_a_ledger_row_starts_running_and_finishes_nowhere(model: type[RunLedgerM
 def test_the_package_reference_is_a_nullable_indexed_integer() -> None:
     """`CPM-AD-3`'s integer key, and the NULL that means "not one package".
 
-    Not a `ForeignKey`: `identity.Package` does not exist -- `CPM-EP-IDENTITY` is
-    backlog -- and a relation to an uninstalled application cannot be migrated.
+    Not a `ForeignKey`, and this pin is a recorded decision rather than a stale
+    premise. `identity.Package` landed with `CPM-IDENTITY-S01` and the
+    application is installed, so the relation *could* be migrated now. It is not,
+    because a real foreign key is enforced immediately while `core/ledger.py`'s
+    recorder still accepts any positive integer as a package key and its tests
+    pass keys for packages no test creates -- so the conversion changes the
+    recorder's contract rather than swapping a field, and it belongs to
+    `CPM-IDENTITY-S06`, the story that first makes packages exist to point at.
+
     The column carries exactly the value `CPM-AD-3` specifies today, and NULL
     means the run was not scoped to one package rather than standing in for a
     package that could not be found.

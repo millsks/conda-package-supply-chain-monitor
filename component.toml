@@ -57,13 +57,14 @@
 # explicit and is two lines, never one -- a `pixi.toml` dependency and an entry
 # here. For an in-repo application the dependency line is already made: the
 # editable self-install in `pixi.toml` [pypi-dependencies] installs a finder
-# that resolves `conda_package_supply_chain_monitor`, so
-# `conda_package_supply_chain_monitor.core` is satisfied by construction rather
-# than skipped. Nothing self-registers, and entry-point
+# that resolves `conda_package_supply_chain_monitor`, so any application that is
+# a subpackage of that distribution is satisfied by construction rather than
+# skipped -- which is why this list, and not a comment, is the record of what has
+# been adopted. Nothing self-registers, and entry-point
 # discovery is forbidden (AD-8). Epic 9 is the consumer; no discovery, scanning
 # or `INSTALLED_APPS` inference is implemented against it here -- which is why
 # `src/config/settings/base.py` also lists the application in `LOCAL_APPS`.
-adopted_apps = [ "conda_package_supply_chain_monitor.core" ]
+adopted_apps = [ "conda_package_supply_chain_monitor.core", "conda_package_supply_chain_monitor.identity" ]
 
 # The features this combination selected (AD-28).
 #

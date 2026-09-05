@@ -732,14 +732,25 @@ class CollectionRun(RunLedgerModel):
     Named by `CPM-AD-2` in so many words, and written by
     `core/ledger.py`'s `collection_run` recorder.
 
-    **The package reference is an integer, and that is forced rather than
-    chosen.** `CPM-AD-3` says every row references the package by its integer
-    primary key -- but `identity.Package` does not exist yet (`CPM-EP-IDENTITY`
-    is two epics away), and a `ForeignKey` to a model in an uninstalled
-    application cannot be migrated. `package_id` therefore carries exactly the
-    value `CPM-AD-3` specifies, as the integer it specifies, and
-    `CPM-EP-IDENTITY` converts it to a `ForeignKey(..., on_delete=PROTECT)` when
-    the model lands.
+    **The package reference is an integer, and the conversion is deferred for a
+    reason that outlived the model's absence.** `CPM-AD-3` says every row
+    references the package by its integer primary key. `identity.Package` has
+    landed (`CPM-IDENTITY-S01`) and the application is installed, so "the model
+    does not exist yet" is no longer why this column is not a
+    `ForeignKey(..., on_delete=PROTECT)`. What stands in the way now is that a
+    real foreign key is enforced from the moment it is migrated, and this
+    ledger's writer is not ready for that: `core/ledger.py`'s recorder accepts
+    any positive integer as a package key, and its tests pass keys for packages
+    no test creates. Converting the column would therefore change the recorder's
+    contract and break those tests -- which is a ledger story with its own
+    acceptance criteria, not a field swap. It belongs to `CPM-IDENTITY-S06`, the
+    story that first makes packages exist to point at.
+
+    The conversion is also not a single `AlterField`: the attribute is named
+    `package_id`, so a `ForeignKey` named `package` reads to the autodetector as
+    a remove-and-add, and preserving the column needs a hand-written
+    `RenameField` plus `AlterField` pair. `package_id` carries exactly the value
+    `CPM-AD-3` specifies in the meantime, as the integer it specifies.
 
     NULL means "this run was not scoped to one package" and nothing else. A
     sweep across the whole inventory writes no package reference rather than a
@@ -755,7 +766,9 @@ class CollectionRun(RunLedgerModel):
     #: The package this run was scoped to, by the integer primary key `CPM-AD-3`
     #: fixes, or NULL for a run that was not scoped to one. Indexed because "what
     #: has been collected for this package" is the question the coverage view
-    #: asks. See the class docstring for why this is not a `ForeignKey` yet.
+    #: asks. `identity.Package` exists now, so this is not a `ForeignKey` because
+    #: the conversion would enforce a key this ledger's recorder does not yet
+    #: require -- see the class docstring, and `CPM-IDENTITY-S06`.
     package_id = models.PositiveBigIntegerField(_("package id"), null=True, blank=True, default=None, db_index=True)
 
     class Meta:

@@ -250,8 +250,10 @@ def fixture_evidence_model() -> type[AppendOnlyModel]:
         class CollectedFact(AppendOnlyModel):
             #: The package the observation is about, by the integer primary key
             #: `CPM-AD-3` fixes. Not a `ForeignKey`, for the reason
-            #: `CollectionRun.package_id` is not one: `identity.Package` does
-            #: not exist yet.
+            #: `CollectionRun.package_id` is not one: `identity.Package` exists
+            #: now, but a real relation is enforced immediately and neither the
+            #: ledger's recorder nor this fixture creates the packages its keys
+            #: name (`CPM-IDENTITY-S06`).
             package_id = models.PositiveBigIntegerField()
 
             #: The `OutcomeState` value this row carries, emitted verbatim

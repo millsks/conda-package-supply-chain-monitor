@@ -283,12 +283,21 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     present-and-empty by `test_a_present_but_empty_adopted_app_list_loads_as_empty`
     and absent by `test_an_absent_adopted_app_list_loads_as_empty`, which are
     different inputs and are asserted separately. What this asserts is the repository's
-    own state: `conda_package_supply_chain_monitor.core` is adopted, which is the
+    own state: `conda_package_supply_chain_monitor.core` and
+    `conda_package_supply_chain_monitor.identity` are adopted, which is the
     declaration half of the adoption whose installing half is `LOCAL_APPS` in
     `src/config/settings/base.py`.
+
+    Exact equality, and deliberately so: the list is frozen here on purpose, so
+    adopting an application is an edit to this case rather than a silent
+    widening. Order is load-bearing (AD-8 appends contributions in it), which is
+    why this compares a list rather than a set.
     """
     assert isinstance(document["adopted_apps"], list)
-    assert document["adopted_apps"] == ["conda_package_supply_chain_monitor.core"]
+    assert document["adopted_apps"] == [
+        "conda_package_supply_chain_monitor.core",
+        "conda_package_supply_chain_monitor.identity",
+    ]
 
 
 def test_selected_features_is_the_reference_combination(document: dict[str, Any]) -> None:
@@ -508,7 +517,10 @@ def test_the_package_imports_no_django_settings() -> None:
 def test_the_loader_reads_the_repositorys_own_declaration(declaration: ComponentDeclaration) -> None:
     """The no-argument path resolves the root file without importing settings."""
     assert declaration.name == "conda-package-supply-chain-monitor"
-    assert declaration.adopted_apps == ("conda_package_supply_chain_monitor.core",)
+    assert declaration.adopted_apps == (
+        "conda_package_supply_chain_monitor.core",
+        "conda_package_supply_chain_monitor.identity",
+    )
     assert declaration.selected_features == REFERENCE_FEATURES
     assert tuple(process.name for process in declaration.processes) == EXPECTED_PROCESSES
     assert declaration.databases[0].migrate == ("migrate --database default --noinput",)
