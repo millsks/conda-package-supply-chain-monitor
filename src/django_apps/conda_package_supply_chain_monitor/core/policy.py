@@ -404,9 +404,7 @@ def _require_derived_model(policy_pass: type[PolicyPass], *, name: str) -> None:
         )
         raise PolicyPassError(message)
 
-    sharing = [
-        registered for registered, declared in _REGISTERED.items() if declared.derived_model is derived
-    ]
+    sharing = [registered for registered, declared in _REGISTERED.items() if declared.derived_model is derived]
     if sharing:
         message = (
             f"policy pass {name!r} declares the derived table {derived._meta.label}, which {sharing} already "  # noqa: SLF001 - `_meta` is Django's own public-by-convention API

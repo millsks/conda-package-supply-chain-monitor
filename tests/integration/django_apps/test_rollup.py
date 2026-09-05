@@ -385,7 +385,7 @@ def test_deleting_a_run_or_a_package_a_rollup_row_names_is_refused_by_the_databa
 
 @pytest.mark.django_db
 def test_a_second_rollup_row_for_one_package_is_refused_by_the_database() -> None:
-    """"Exactly one row per package" is a unique index, not a promise the writer keeps.
+    """ "Exactly one row per package" is a unique index, not a promise the writer keeps.
 
     `CPM-AD-11`'s whole shape depends on it: `package.health` is a single object
     rather than a set, the writer's `update_or_create` matches on it, and every
