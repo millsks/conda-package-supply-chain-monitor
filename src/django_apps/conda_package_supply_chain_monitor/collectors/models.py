@@ -158,11 +158,16 @@ class InventorySnapshot(AppendOnlyModel):
     """
 
     #: The package this observation is about, by the integer primary key
-    #: `CPM-AD-3` fixes. A real `ForeignKey` rather than
-    #: `CollectionRun.package_id`'s plain integer, and the difference is that
-    #: this table's writer creates the package before it writes the row: the
-    #: shell and the snapshot commit together (`CPM-AD-25`, `CPM-AD-23`), so
-    #: there is never a key here pointing at nothing.
+    #: `CPM-AD-3` fixes -- a real `ForeignKey`, as every reference to a package
+    #: in this product now is (`core.CollectionRun`'s became one in
+    #: `CPM-EVIDENCE-S09`).
+    #:
+    #: Non-nullable, which is the difference that matters here: an observation is
+    #: always *about* a package, and this table's writer creates the package
+    #: before it writes the row -- the shell and the snapshot commit together
+    #: (`CPM-AD-25`, `CPM-AD-23`). A run ledger's reference is nullable because a
+    #: sweep is scoped to no package; an observation of no package is not a thing
+    #: that happens.
     package = models.ForeignKey(
         Package,
         on_delete=models.PROTECT,

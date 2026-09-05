@@ -16,6 +16,14 @@ recorder never swallows and never logs-and-continues, which inherited `CG-3`
 requires. `EVIDENCE.03-INT-002` is the case that proves both halves at once --
 the row is there, and the caller still sees its own exception.
 
+**The recorder reads before it writes.** Since `CPM-EVIDENCE-S09` made the
+ledger's package reference a real relation, `collection_run` issues a `SELECT`
+against `packages` before it inserts anything, to refuse a key that names no
+package with a message rather than with the constraint's. So this module is no
+longer callable without a database even for a run it is going to reject, and its
+validation can fail with a `DatabaseError` of its own -- which is a widening of
+the contract rather than a detail, and both recorders' docstrings say so.
+
 **Why the guarantee is really about autocommit, and why that is stated rather
 than enforced.** The row survives a killed worker only because the insert is
 committed before the outbound call. A caller that wraps a recorder in
@@ -63,6 +71,7 @@ from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.models import PolicyRun
 from conda_package_supply_chain_monitor.core.runs import RunLedgerError
 from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_package_supply_chain_monitor.identity.models import Package
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -195,14 +204,38 @@ def _require_aware(instant: datetime, *, field: str) -> datetime:
 
 
 def _require_package_key(package_id: int | None) -> int | None:
-    """Refuse a package reference that cannot be a primary key.
+    """Refuse a package reference that cannot be, or is not, a package's primary key.
 
-    `CPM-AD-3` fixes the package reference as an integer primary key, and Django
-    declares the column `PositiveBigIntegerField` -- but PostgreSQL enforces that
-    through a check constraint and SQLite does not enforce it at all, so a
-    negative value is a row on a developer machine and an `IntegrityError` in the
-    gate. Refusing here makes the two agree, and makes them agree *before* the
-    row is written rather than at the insert.
+    Two refusals, and they are different failures. A **negative** key cannot be a
+    primary key at all: Django declared the old column `PositiveBigIntegerField`,
+    PostgreSQL enforced that through a check constraint and SQLite did not
+    enforce it at all, so a negative value was a row on a developer machine and
+    an `IntegrityError` in the gate. An **unknown** key is a well-formed integer
+    that names no package -- `CPM-EVIDENCE-S09` made the column a real
+    `ForeignKey`, so a row carrying one is a row the database refuses.
+
+    **The unknown key is refused here rather than left to the constraint**, for
+    the reason the negative one is: the two backends do not agree about when the
+    refusal arrives. Django declares its SQLite foreign keys
+    `DEFERRABLE INITIALLY DEFERRED`, so a violation surfaces at `COMMIT` -- which
+    inside a test's transaction, or a task that goes on to do more work, is a
+    long way from the call that caused it. Refusing before the insert makes both
+    backends answer at the same moment, with a message naming the key rather than
+    with the backend's own text naming a constraint.
+
+    It costs one `SELECT` per package-scoped run, which is the right trade: a run
+    is already about to make an outbound call, and a ledger row pointing at a
+    package that does not exist is exactly what `CPM-AD-3` exists to prevent.
+
+    **It is a check-then-act and it is not serialized**, which is worth saying
+    rather than waving at. `CPM-AD-25` says no package row is ever deleted, but
+    that is a rule about what this product's writers may do -- nothing enforces
+    it, and `Package.delete()` is a method Django will happily run. A package
+    removed between this query and the insert would leave the row to the foreign
+    key, which refuses it at the constraint: the failure is then an
+    `IntegrityError` naming a constraint instead of this message naming the key,
+    which is worse to read and still correct. The relation is the backstop; this
+    is the message.
 
     Args:
         package_id: The key the caller supplied, or `None` for a run that is not
@@ -210,16 +243,31 @@ def _require_package_key(package_id: int | None) -> int | None:
 
     Returns:
         The key, unchanged. `None` stays `None`: it means the run was not scoped
-        to one package, which is a legitimate run and not a missing key.
+        to one package, which is a legitimate run and not a missing key, so it is
+        never looked up.
 
     Raises:
-        RunLedgerError: When the key is negative.
+        RunLedgerError: When the key is negative, or when it names no package.
+        DatabaseError: From the lookup itself, unchanged. This function is
+            validation that reads, so a database that is unreachable or refusing
+            fails here rather than at the insert -- earlier than before, and
+            still before any row is written.
 
     """
-    if package_id is not None and package_id < 0:
+    if package_id is None:
+        return None
+    if package_id < 0:
         message = (
             f"package_id={package_id!r} is not a package primary key. `CPM-AD-3` fixes the reference as an "
             f"integer primary key; omit it entirely for a run that is not scoped to one package."
+        )
+        raise RunLedgerError(message)
+    if not Package.objects.filter(pk=package_id).exists():
+        message = (
+            f"package_id={package_id!r} names no package, so the run cannot be recorded against it. "
+            f"`CPM-AD-3` makes this reference a real relation; resolve the package first (identity's "
+            f"resolution service creates the shell), or omit the key for a run that is not scoped to one "
+            f"package."
         )
         raise RunLedgerError(message)
     return package_id
@@ -512,9 +560,10 @@ def collection_run(
             traceable to the code that performed it (`CPM-FR-39`).
         clock: The clock both instants are read from (`CPM-AD-26`).
         package_id: The package this run is scoped to, by the integer primary key
-            `CPM-AD-3` fixes. Omitted for a run that is not scoped to one
-            package, which writes NULL rather than a placeholder and stays
-            answerable by `unfinished()`.
+            `CPM-AD-3` fixes -- and, since `CPM-EVIDENCE-S09`, by a real relation
+            that the package must already exist for. Omitted for a run that is
+            not scoped to one package, which writes NULL rather than a
+            placeholder and stays answerable by `unfinished()`.
 
     Yields:
         The handle the body declares `partial`, `skipped`, `failed` or
@@ -522,9 +571,14 @@ def collection_run(
         `succeeded`.
 
     Raises:
-        RunLedgerError: When `collector` names nothing, or when `package_id` is
-            not a possible primary key. Refused before the row is written, so a
-            misrecorded run leaves no row rather than an unusable one.
+        RunLedgerError: When `collector` names nothing, when `package_id` is not
+            a possible primary key, or when it names no package. Refused before
+            the row is written, so a misrecorded run leaves no row rather than an
+            unusable one.
+        DatabaseError: From either database operation -- the lookup that checks
+            the package key, or the insert. The lookup is the new one: a
+            package-scoped run cannot be opened without a database now, not even
+            to be refused.
 
     """
     run = CollectionRun(
@@ -565,7 +619,10 @@ def policy_run(
         RunLedgerError: When `policy_version` names nothing, or when
             `evidence_cutoff` is naive. Refused before the row is written: a run
             recorded against an uninterpretable cut-off is one whose replay reads
-            a different evidence set every time.
+            a different evidence set every time. Both checks are pure -- a policy
+            run carries no package reference, so nothing here looks one up.
+        DatabaseError: From the insert. Not from validation, which is the one
+            way this recorder differs from `collection_run`.
 
     """
     run = PolicyRun(

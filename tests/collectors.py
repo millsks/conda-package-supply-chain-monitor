@@ -273,11 +273,14 @@ def fixture_evidence_model() -> type[AppendOnlyModel]:
 
         class CollectedFact(AppendOnlyModel):
             #: The package the observation is about, by the integer primary key
-            #: `CPM-AD-3` fixes. Not a `ForeignKey`, for the reason
-            #: `CollectionRun.package_id` is not one: `identity.Package` exists
-            #: now, but a real relation is enforced immediately and neither the
-            #: ledger's recorder nor this fixture creates the packages its keys
-            #: name (`CPM-IDENTITY-S06`).
+            #: `CPM-AD-3` fixes. Not a `ForeignKey`, and that is forced rather
+            #: than chosen -- `tests/passes.py` gives the reason at length:
+            #: `isolate_apps` patches `Options.default_apps` with a registry
+            #: `identity.Package` is not in, so a `ForeignKey(Package)` declared
+            #: here resolves against nothing. Every *real* model references the
+            #: package by a relation, `core.CollectionRun` included since
+            #: `CPM-EVIDENCE-S09`; `core/freshness.py` accepts either spelling
+            #: precisely so a fixture built this way is still askable.
             package_id = models.PositiveBigIntegerField()
 
             #: The `OutcomeState` value this row carries, emitted verbatim

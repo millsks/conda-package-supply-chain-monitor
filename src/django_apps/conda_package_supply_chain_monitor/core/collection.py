@@ -960,9 +960,19 @@ class Collector(ABC):
                 point -- one path, one set of rules, one difference.
 
         Returns:
-            What the run did, mirroring the ledger row it wrote.
+            What the run did, mirroring the ledger row it wrote. Every path that
+            returns has written one; the refusals below are the paths that do
+            not return at all.
 
         Raises:
+            RunLedgerError: When `package_id` names no package. The recorder
+                checks the key before it writes the opening row
+                (`CPM-EVIDENCE-S09`), so this one leaves *nothing* behind -- no
+                ledger row, no log line, no evidence -- and is the one exit from
+                this method that does not mirror a ledger row, because there is
+                no run to mirror. A collector reaches it by being handed a key
+                for a package that was never resolved, which is a caller defect
+                rather than a collection outcome.
             CollectorConfigurationError: When a row this collector produced does
                 not carry the instant it was handed, or when a sentinel row does
                 not carry the state it was asked for. Both are defects in the

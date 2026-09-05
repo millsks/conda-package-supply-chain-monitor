@@ -54,6 +54,7 @@ from conda_package_supply_chain_monitor.core.models import RunLedgerQuerySet
 from conda_package_supply_chain_monitor.core.runs import TERMINAL_STATES
 from conda_package_supply_chain_monitor.core.runs import RunLedgerError
 from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_package_supply_chain_monitor.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.model_registry import OBSERVED_AT_FIELD
 
@@ -359,28 +360,83 @@ def test_a_ledger_row_starts_running_and_finishes_nowhere(model: type[RunLedgerM
     assert status.blank is False
 
 
-def test_the_package_reference_is_a_nullable_indexed_integer() -> None:
-    """`CPM-AD-3`'s integer key, and the NULL that means "not one package".
+def test_the_package_reference_is_a_protected_nullable_relation() -> None:
+    """AC 1: a real `ForeignKey` to `identity.Package`, `PROTECT`, still nullable.
 
-    Not a `ForeignKey`, and this pin is a recorded decision rather than a stale
-    premise. `identity.Package` landed with `CPM-IDENTITY-S01` and the
-    application is installed, so the relation *could* be migrated now. It is not,
-    because a real foreign key is enforced immediately while `core/ledger.py`'s
-    recorder still accepts any positive integer as a package key and its tests
-    pass keys for packages no test creates -- so the conversion changes the
-    recorder's contract rather than swapping a field, and it belongs to
-    `CPM-IDENTITY-S06`, the story that first makes packages exist to point at.
+    `CPM-AD-3` says every evidence, rollup and workflow row references the
+    package by its integer primary key, and this was the last table meeting that
+    with a bare integer. `CPM-EVIDENCE-S09` converted it, which was a change to
+    `core/ledger.py`'s recorder contract rather than a field swap -- and is why
+    two earlier stories declined it.
 
-    The column carries exactly the value `CPM-AD-3` specifies today, and NULL
-    means the run was not scoped to one package rather than standing in for a
-    package that could not be found.
+    `PROTECT` is asserted for `CPM-AD-25`'s reason rather than
+    `EVIDENCE.02-AUDIT-001`'s: that audit's cascade rule binds evidence models
+    and this is a run ledger, so nothing else in the project would notice a
+    `CASCADE` here. Deleting a package would then delete the record that anything
+    was ever collected for it, which is exactly the history `CPM-AD-25` says is
+    never removed.
+
+    Nullable, because an inventory-wide sweep genuinely has no package -- see
+    `test_a_run_with_no_package_writes_null_and_stays_answerable` in the
+    integration module for the run that proves it stays an ordinary state.
     """
-    package_id = field_of(CollectionRun, "package_id")
+    package = field_of(CollectionRun, "package")
 
-    assert isinstance(package_id, models.PositiveBigIntegerField)
-    assert package_id.null is True
-    assert package_id.db_index is True
-    assert package_id.is_relation is False
+    assert isinstance(package, models.ForeignKey)
+    assert package.related_model is Package
+    assert package.remote_field.on_delete is models.PROTECT
+    assert package.null is True
+    assert package.db_index is True
+    # `blank` and the default are the other half of "still nullable", and they
+    # are not decoration: `blank=False` would make an unscoped run fail form and
+    # `full_clean()` validation, and no default would make `CollectionRun()`
+    # carry `None` by Django's accident rather than by this column's declaration.
+    # A sweep writes no package reference, so both have to say so.
+    assert package.blank is True
+    assert package.has_default() is True
+    assert package.get_default() is None
+
+
+def test_a_package_names_the_runs_recorded_against_it() -> None:
+    """`related_name` is public API the moment it is declared, so it is pinned.
+
+    `package.collection_runs` is now the supported way to ask what has been
+    collected for a package, and it is the name a coverage view will reach for.
+    Left undeclared, Django would call it `collectionrun_set`; renamed later, every
+    caller breaks at runtime rather than here.
+
+    Asserted through the descriptor on `Package` rather than through the field's
+    own `related_name` attribute, because the accessor is the thing callers use:
+    a `related_name` that was declared but shadowed -- by a property, or by a
+    second relation claiming the same name -- would satisfy the attribute check
+    and still not be reachable.
+
+    The manager it hands back is exercised against a real table in
+    `tests/integration/django_apps/test_run_ledger.py`; this is the declaration.
+    """
+    package = field_of(CollectionRun, "package")
+
+    assert package.remote_field.get_accessor_name() == "collection_runs"
+    assert hasattr(Package, "collection_runs")
+
+
+def test_the_relation_keeps_the_column_the_integer_had() -> None:
+    """AC 1's second half, and the reason nothing else in the product changed.
+
+    Django names a `ForeignKey`'s column by its `attname`, so `package` is stored
+    in `package_id` -- the same column the `PositiveBigIntegerField` declared.
+    That is what let `core/collection.py`'s `window_query`, `core/freshness.py`'s
+    `PACKAGE_FIELD` and every `row.package_id` reader carry on untouched, and it
+    is what the migration preserves rather than drops and re-adds.
+
+    Asserted through `get_field`, which resolves a relation by either spelling,
+    so this stays true of the *column* rather than of one way of naming it.
+    """
+    package = field_of(CollectionRun, "package")
+
+    assert package.attname == "package_id"
+    assert package.column == "package_id"
+    assert field_of(CollectionRun, "package_id") is package
 
 
 def test_a_policy_run_states_the_cut_off_it_read_evidence_at() -> None:
@@ -500,17 +556,22 @@ def test_a_policy_run_refuses_a_naive_evidence_cutoff() -> None:
 
 
 def test_a_collection_run_refuses_a_package_key_that_cannot_be_one() -> None:
-    """A negative key is a developer-machine row and a gate failure, which is worse.
+    """A negative key cannot be a primary key at all, and is refused without a lookup.
 
-    The column is `PositiveBigIntegerField`: PostgreSQL enforces that with a
-    check constraint and SQLite does not enforce it at all, so a negative value
-    writes a row locally and raises an `IntegrityError` in CI. Refusing here
-    makes both behave the same way, and makes them behave that way before the
-    insert rather than at it.
+    The refusal predates the relation and outlived it. The column *was* a
+    `PositiveBigIntegerField`: PostgreSQL enforced that with a check constraint
+    and SQLite did not enforce it at all, so a negative value wrote a row locally
+    and raised an `IntegrityError` in CI, and refusing here made the two agree.
+    Since `CPM-EVIDENCE-S09` the column is a relation and a negative key would be
+    refused by the foreign key too -- but only after a round trip, and with the
+    constraint's message rather than one naming the key.
 
-    That the *absent* key is not refused is asserted where it costs a row, in
-    `tests/integration/django_apps/test_run_ledger.py` -- along with `0`, which
-    is a falsy value and a perfectly good primary key.
+    It stays a *unit* test because it stays pure: a negative integer is not a
+    primary key by inspection, so this refusal is reached before the lookup that
+    the unknown-key refusal needs. That the two are different refusals with
+    different messages is asserted in
+    `tests/integration/django_apps/test_run_ledger.py`, along with the absent key
+    and `0`, which is a falsy value and a perfectly good primary key.
     """
     with (
         pytest.raises(RunLedgerError, match="not a package primary key"),

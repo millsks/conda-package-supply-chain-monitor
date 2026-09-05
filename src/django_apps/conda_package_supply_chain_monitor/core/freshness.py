@@ -302,15 +302,22 @@ def _require_package_reference(evidence_model: type[AppendOnlyModel]) -> None:
     Raises:
         FreshnessError: When it declares no `package_id` column.
 
-            Both `name` and `attname` are accepted, and the difference is a
-            dated trap rather than defensiveness. Today every evidence model
-            declares a plain `package_id` integer, because `CPM-AD-3`'s package
-            table does not exist yet and `core/models.py` records why the column
-            is not a `ForeignKey`. When `CPM-EP-IDENTITY` builds that table and
-            these become `package = models.ForeignKey(...)`, Django names the
-            field `package` and its column `package_id` -- so a check reading
-            only `name` would refuse every correctly declared model, at the
-            moment the product finally had a package to refer to.
+            Both `name` and `attname` are accepted, and both spellings are now
+            in use rather than one being anticipated. `collectors.InventorySnapshot`
+            declares `package = models.ForeignKey(identity.Package, ...)`, whose
+            field name is `package` and whose column is `package_id`, so a check
+            reading only `name` would refuse the one real evidence table this
+            repository has. A fixture model built inside `isolate_apps` cannot
+            declare the relation at all (`tests/passes.py` says why) and declares
+            the plain integer named `package_id`, so a check reading only
+            `attname` would refuse those. Accepting either is what makes this
+            predicate about the *reference* rather than about which registry the
+            model happened to be built in.
+
+            `core.CollectionRun` is not an example either way: its reference
+            became a relation in `CPM-EVIDENCE-S09`, but it is a run ledger
+            rather than evidence and this function's parameter is an
+            `AppendOnlyModel`, so it can never be the argument.
 
     """
     meta = evidence_model._meta  # noqa: SLF001 - `_meta` is Django's own public-by-convention API

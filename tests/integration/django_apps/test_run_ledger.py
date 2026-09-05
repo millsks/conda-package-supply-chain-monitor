@@ -32,6 +32,14 @@ that the row carries what the platform's own log processor would emit
 (`CPM-AD-15`), and a fabricated span context could satisfy both sides of a
 comparison this module wrote itself. `recorded_spans` supplies the real one.
 
+**The package reference is a real relation, and both of its refusals need a
+table.** `CPM-EVIDENCE-S09` converted the column, so a key that names no package
+is refused by the recorder before the insert and a package with runs against it
+cannot be deleted -- one is a query the recorder makes, the other is Django's
+deletion collector consulting `PROTECT`, and neither is visible from a model
+declaration. The declaration itself is pinned in the unit module; what those
+refusals *do* is here.
+
 Every test here rolls back. `@pytest.mark.django_db` wraps each in a
 transaction, which is what leaves the database as found -- and it is also why
 `core/ledger.py` records the autocommit constraint in prose rather than guarding
@@ -41,12 +49,14 @@ open.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 from typing import Final
 
 import pytest
 import structlog
 from django.db import DatabaseError
+from django.db.models import ProtectedError
 from opentelemetry import trace
 
 from conda_package_supply_chain_monitor.core import ledger
@@ -58,8 +68,10 @@ from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.models import PolicyRun
 from conda_package_supply_chain_monitor.core.runs import RunLedgerError
 from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_package_supply_chain_monitor.identity.models import Package
 from config.observability.logging import add_otel_context
 from tests.clocks import FIXED_INSTANT
+from tests.packages import packages_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -68,10 +80,13 @@ if TYPE_CHECKING:
     from structlog.typing import EventDict
 
 #: The collector name the cases record, and the package key a scoped run uses.
-#: An integer rather than a relation, because `CPM-AD-3`'s package table does not
-#: exist yet -- `core/models.py` records why the column is not a `ForeignKey`.
+#: `CPM-EVIDENCE-S09` made the column a real `ForeignKey`, so the key names a
+#: package `_monitored_packages` creates at exactly this primary key -- the
+#: constant stays the authority, which is what makes `row.package_id ==
+#: A_PACKAGE_ID` say that the recorder wrote the key it was handed.
 A_COLLECTOR: Final[str] = "pypi"
 A_PACKAGE_ID: Final[int] = 4269
+
 
 #: The policy version and cut-off a recorded policy run carries. The cut-off is
 #: the stopped clock's instant, which is what `CPM-AD-21` makes it in production:
@@ -83,9 +98,25 @@ A_POLICY_VERSION: Final[str] = "licence-2026.09"
 TWO_RUNS: Final[int] = 2
 
 #: A falsy package key that is nonetheless a key. `0` is what a guard written as
-#: `if package_id:` silently drops, and the column is `PositiveBigIntegerField`,
-#: which permits it.
+#: `if package_id:` silently drops, and it is a perfectly good primary key -- one
+#: no sequence will ever issue, which is exactly why the package behind it is
+#: created at this key rather than allocated.
 A_FALSY_PACKAGE_ID: Final[int] = 0
+
+#: A key of the right shape that names no package.
+#:
+#: Derived from the keys that *are* created rather than written out, so it cannot
+#: quietly become one of them: a literal chosen to sit above them would still be
+#: a literal, and a later case adding a package at that number would turn the
+#: refusal case into a success case with nothing to notice it. The case that uses
+#: it asserts the absence directly as well -- deriving states the intent, the
+#: assertion checks it.
+AN_UNKNOWN_PACKAGE_ID: Final[int] = max(A_PACKAGE_ID, A_FALSY_PACKAGE_ID) + 1
+
+#: A key that cannot be a primary key at all, as opposed to one that merely names
+#: nothing. The two are refused by different branches with different messages,
+#: and this is the value that reaches the first of them.
+A_NEGATIVE_PACKAGE_ID: Final[int] = -1
 
 #: The event `_capture_control` logs to prove the capture is live before a case
 #: asserts over what it caught. `tests/unit/test_drain.py` establishes the
@@ -149,6 +180,22 @@ def failing_finalization(monkeypatch: pytest.MonkeyPatch) -> None:
         original(self, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(CollectionRun, "save", flaky)
+
+
+#: The packages the scoped cases record against, created inside each case's own
+#: transaction by `tests/packages.py`'s shared fixture.
+#:
+#: Autouse, so the arrangement is stated once rather than in a dozen signatures,
+#: and bound from a factory rather than written out here because
+#: `test_collection.py` and `test_collector_health.py` need the identical thing
+#: -- three copies of one fixture is the duplication that module exists to
+#: prevent.
+#:
+#: Both keys are created, `0` included: it is the falsy one, and a module that
+#: only created `A_PACKAGE_ID` would turn
+#: `test_a_falsy_package_key_is_a_key_and_an_absent_one_is_not_refused` into a
+#: test of the refusal instead of a test of the key.
+monitored_packages = packages_fixture(A_PACKAGE_ID, A_FALSY_PACKAGE_ID)
 
 
 @pytest.fixture
@@ -392,6 +439,179 @@ def test_a_falsy_package_key_is_a_key_and_an_absent_one_is_not_refused(stopped_c
         pass
 
     assert [row.package_id for row in CollectionRun.objects.order_by("pk")] == [A_FALSY_PACKAGE_ID, None]
+
+
+@pytest.mark.django_db
+def test_a_run_against_a_package_that_does_not_exist_is_refused_and_leaves_no_row(
+    stopped_clock: FixedClock,
+) -> None:
+    """AC 3: the write is refused rather than stored, and the refusal names the key.
+
+    The whole cost `CPM-EVIDENCE-S09` paid, in one case. Before it, this run was
+    recorded happily against an integer nothing backed, and the row sat in the
+    ledger claiming that something had been collected for a package that has
+    never existed -- which is precisely the state `CPM-AD-3` makes every other
+    table incapable of.
+
+    **Refused by the recorder rather than by the constraint, and that is what is
+    asserted.** A `RunLedgerError` before the insert is a different fact from an
+    `IntegrityError` at some later commit: the two backends disagree about *when*
+    the constraint speaks (Django declares its SQLite foreign keys
+    `DEFERRABLE INITIALLY DEFERRED`, so a violation surfaces at `COMMIT`, which
+    inside this transaction is never), and neither of them names the key in a way
+    a caller can act on. Leaving it to the database would make this case pass on
+    one backend and not the other, which is the shape
+    `tests/unit/test_suite_policy.py` exists to keep out of the suite.
+
+    The empty table is the second half and is not decoration: a recorder that
+    refused *after* `run.save()` would satisfy `pytest.raises` and still leave the
+    row the refusal exists to prevent.
+
+    Both halves of the message are pinned -- the key, and what to do about it --
+    because a refusal that names the key and offers nothing leaves the reader
+    where it found them. `re.escape` because `pytest.raises(match=...)` takes a
+    regex, and an unescaped `package_id=0` would match `package_id` followed by
+    any character.
+    """
+    assert Package.objects.filter(pk=AN_UNKNOWN_PACKAGE_ID).exists() is False, (
+        "the key this case refuses names a real package, so the refusal under test cannot happen"
+    )
+
+    with (
+        pytest.raises(RunLedgerError) as refusal,
+        collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=AN_UNKNOWN_PACKAGE_ID),
+    ):
+        pytest.fail("the recorder should have refused before the body ran")
+
+    assert re.search(re.escape(f"package_id={AN_UNKNOWN_PACKAGE_ID} names no package"), str(refusal.value))
+    assert re.search(re.escape("resolve the package first"), str(refusal.value))
+    assert CollectionRun.objects.exists() is False
+
+
+@pytest.mark.django_db
+def test_the_two_package_key_refusals_do_not_say_the_same_thing(stopped_clock: FixedClock) -> None:
+    """Two refusals, two failures, two messages -- and nothing else checks the second one.
+
+    A negative key cannot be a primary key by inspection; an unknown key is a
+    perfectly well-formed one that names nothing. The first is refused without a
+    lookup and the second only after one, and a reader handed the wrong message
+    goes looking for the wrong problem -- "omit it entirely for a run that is not
+    scoped to one package" is advice for somebody who passed a sentinel, and
+    "resolve the package first" is advice for somebody who passed a key.
+
+    Without this case the two could converge on one text with nothing noticing:
+    the unit tier asserts the negative refusal's *type* and one phrase, this
+    module asserts the unknown one's, and neither would see the other's message
+    change underneath it. So both are read here, from one run, and asserted
+    different.
+    """
+    with (
+        pytest.raises(RunLedgerError) as negative,
+        collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=A_NEGATIVE_PACKAGE_ID),
+    ):
+        pytest.fail("the recorder should have refused before the body ran")
+
+    with (
+        pytest.raises(RunLedgerError) as unknown,
+        collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=AN_UNKNOWN_PACKAGE_ID),
+    ):
+        pytest.fail("the recorder should have refused before the body ran")
+
+    assert "is not a package primary key" in str(negative.value)
+    assert "omit it entirely" in str(negative.value)
+    assert "names no package" in str(unknown.value)
+    assert str(negative.value) != str(unknown.value)
+
+
+@pytest.mark.django_db
+def test_a_package_with_runs_against_it_cannot_be_deleted(stopped_clock: FixedClock) -> None:
+    """AC 5: `PROTECT` is what makes `CPM-AD-25` true rather than merely intended.
+
+    `CPM-AD-25` says no package row is ever deleted -- a package the inventory
+    stops naming is recorded as *absent*, with a timestamp, because absence is an
+    observation. That is a rule about the product's own writers, and nothing in
+    `core` or `identity` deletes a package today, so as a rule it is currently
+    kept by the absence of a caller.
+
+    `PROTECT` is what makes it survive the first caller. It is asserted here
+    rather than left to the field declaration for a reason the field cannot show:
+    Django's deletion collector issues its `DELETE` through `sql.DeleteQuery`,
+    never through `Model.delete()`, so the refusal is the collector's and it is
+    raised in Python before any statement is sent -- which is why this holds on
+    the SQLite substitution as well as in the PostgreSQL gate.
+
+    The run is recorded through the recorder rather than written directly, so
+    what protects the package is a row the product itself would have written.
+    """
+    with collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=A_PACKAGE_ID):
+        pass
+
+    package = Package.objects.get(pk=A_PACKAGE_ID)
+
+    with pytest.raises(ProtectedError):
+        package.delete()
+
+    assert Package.objects.filter(pk=A_PACKAGE_ID).exists()
+    assert CollectionRun.objects.get().package_id == A_PACKAGE_ID
+
+
+@pytest.mark.django_db
+def test_only_the_package_a_run_names_is_protected_from_deletion(stopped_clock: FixedClock) -> None:
+    """The control for the case above, and it controls for what it names.
+
+    A `Package.delete()` that refused for some *other* reason -- an override on
+    the model, a signal, a permission -- would satisfy the case above while
+    saying nothing about the ledger's relation. So both packages are here and one
+    run is recorded, against `A_PACKAGE_ID` only: the package that is named is
+    refused, the package that is not goes, and the difference between them is the
+    run. Asserting only the deletion would leave the two facts in different cases
+    with different arrangements, which is not a control.
+
+    A package is deleted here and nowhere else in the product, which is exactly
+    `CPM-AD-25`'s point: the capability exists in Django and the architecture says
+    no writer may use it. This case is the only caller, and it is a test.
+    """
+    with collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=A_PACKAGE_ID):
+        pass
+
+    Package.objects.get(pk=A_FALSY_PACKAGE_ID).delete()
+
+    with pytest.raises(ProtectedError):
+        Package.objects.get(pk=A_PACKAGE_ID).delete()
+
+    assert Package.objects.filter(pk=A_FALSY_PACKAGE_ID).exists() is False
+    assert Package.objects.filter(pk=A_PACKAGE_ID).exists() is True
+
+
+@pytest.mark.django_db
+def test_a_package_lists_the_runs_recorded_against_it(
+    stopped_clock: FixedClock,
+    monitored_packages: list[Package],
+) -> None:
+    """`related_name` is reachable, and it answers about one package rather than all.
+
+    `package.collection_runs` is the supported way to ask what has been collected
+    for a package -- the question `CollectionRun.package`'s index exists for --
+    so it is exercised rather than left to the declaration the unit module pins.
+
+    Two packages and two runs, because a reverse accessor that had lost its
+    filter would return both and a case with one package could not tell. The
+    unscoped run is the third: it belongs to neither package's list, which is
+    what NULL means here and is the half a `related_name` cannot get wrong but a
+    later `null=False` could.
+
+    The packages come from the fixture's return value rather than a second query,
+    so the rows this asserts about are the rows it was handed.
+    """
+    named, other = monitored_packages
+
+    with collection_run(collector=A_COLLECTOR, clock=stopped_clock, package_id=named.pk):
+        pass
+    with collection_run(collector=A_COLLECTOR, clock=stopped_clock):
+        pass
+
+    assert [run.package_id for run in named.collection_runs.all()] == [named.pk]
+    assert list(other.collection_runs.all()) == []
 
 
 @pytest.mark.django_db

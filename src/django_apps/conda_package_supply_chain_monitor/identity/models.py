@@ -79,11 +79,10 @@ cross-ecosystem mappings and `CPM-AD-1` puts those on this row.
 
 **What is still deliberately absent, and whose it is.** The override model and
 its audit row are `CPM-IDENTITY-S05`'s (`CPM-AD-14`). Admin, serializers, views,
-URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package_id` stays the
-integer `CPM-AD-3` specifies and is not converted to a `ForeignKey` here -- see
-`CPM-IDENTITY-S01`'s design notes: the conversion changes `core/ledger.py`'s
-recorder contract, and it belongs to the story that first makes packages exist to
-point at.
+URLs and tasks are `CPM-EP-APP`'s. `core.CollectionRun.package` is a real
+`ForeignKey` onto this row and is not converted here or owed by anybody: the
+conversion changed `core/ledger.py`'s recorder contract rather than swapping a
+field, so it was `CPM-EVIDENCE-S09`'s, in the epic that owns the run ledger.
 """
 
 from __future__ import annotations

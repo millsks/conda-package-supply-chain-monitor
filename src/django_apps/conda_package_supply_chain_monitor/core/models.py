@@ -775,30 +775,36 @@ class CollectionRun(RunLedgerModel):
     Named by `CPM-AD-2` in so many words, and written by
     `core/ledger.py`'s `collection_run` recorder.
 
-    **The package reference is an integer, and the conversion is deferred for a
-    reason that outlived the model's absence.** `CPM-AD-3` says every row
-    references the package by its integer primary key. `identity.Package` has
-    landed (`CPM-IDENTITY-S01`) and the application is installed, so "the model
-    does not exist yet" is no longer why this column is not a
-    `ForeignKey(..., on_delete=PROTECT)`. What stands in the way now is that a
-    real foreign key is enforced from the moment it is migrated, and this
-    ledger's writer is not ready for that: `core/ledger.py`'s recorder accepts
-    any positive integer as a package key, and its tests pass keys for packages
-    no test creates. Converting the column would therefore change the recorder's
-    contract and break those tests -- which is a ledger story with its own
-    acceptance criteria, not a field swap. It belongs to `CPM-IDENTITY-S06`, the
-    story that first makes packages exist to point at.
+    **The package reference is a real relation, and `CPM-AD-3` is now met by
+    every table rather than by all but one.** `CPM-EVIDENCE-S03` declared this
+    column an integer and said `CPM-EP-IDENTITY` would convert it "when the model
+    lands"; the model landed with `CPM-IDENTITY-S01` and packages first existed
+    with `CPM-IDENTITY-S06`, and both stories declined the conversion for the
+    same sound reason -- that it is not a field swap but a change to
+    `core/ledger.py`'s recorder contract. Two hand-offs is where a deferral stops
+    being one, so `CPM-EVIDENCE-S09` made the change and paid that cost: the
+    recorder now refuses a key that names no package, and every case that used to
+    pass a literal key creates the package first.
 
-    The conversion is also not a single `AlterField`: the attribute is named
-    `package_id`, so a `ForeignKey` named `package` reads to the autodetector as
-    a remove-and-add, and preserving the column needs a hand-written
-    `RenameField` plus `AlterField` pair. `package_id` carries exactly the value
-    `CPM-AD-3` specifies in the meantime, as the integer it specifies.
+    **The attribute is `package` and the column is still `package_id`.** Django
+    names a `ForeignKey`'s column by its `attname`, so every reader and writer
+    spelling `row.package_id`, `filter(package_id=...)` or
+    `CollectionRun(package_id=...)` goes on working unchanged -- which is what
+    let `core/collection.py`'s window query and `core/freshness.py`'s
+    `PACKAGE_FIELD` stay exactly as they were.
+
+    **`PROTECT` is `CPM-AD-25`'s, not `EVIDENCE.02-AUDIT-001`'s.** This is a
+    run-ledger model rather than evidence (`not_evidence = True`), so that
+    audit's cascade rule does not bind it. The behaviour is still right, for a
+    different reason: `CPM-AD-25` says no package row is ever deleted -- absence
+    is recorded as an observation -- and `PROTECT` is what makes that true rather
+    than merely intended.
 
     NULL means "this run was not scoped to one package" and nothing else. A
     sweep across the whole inventory writes no package reference rather than a
     placeholder, and it stays answerable by `unfinished()` exactly as a
-    package-scoped run does.
+    package-scoped run does -- and it is an ordinary state rather than a refused
+    one, which is why the relation stays nullable.
     """
 
     #: Which collector ran. A name rather than a relation: collectors are code,
@@ -809,10 +815,22 @@ class CollectionRun(RunLedgerModel):
     #: The package this run was scoped to, by the integer primary key `CPM-AD-3`
     #: fixes, or NULL for a run that was not scoped to one. Indexed because "what
     #: has been collected for this package" is the question the coverage view
-    #: asks. `identity.Package` exists now, so this is not a `ForeignKey` because
-    #: the conversion would enforce a key this ledger's recorder does not yet
-    #: require -- see the class docstring, and `CPM-IDENTITY-S06`.
-    package_id = models.PositiveBigIntegerField(_("package id"), null=True, blank=True, default=None, db_index=True)
+    #: asks -- and a `ForeignKey` carries `db_index=True` by itself, so the index
+    #: the integer column declared explicitly is still there and is not declared
+    #: twice.
+    #:
+    #: `PROTECT` for `CPM-AD-25`'s reason rather than
+    #: `EVIDENCE.02-AUDIT-001`'s, and nullable because an inventory-wide sweep
+    #: genuinely has no package -- see the class docstring for both.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="collection_runs",
+        verbose_name=_("package"),
+    )
 
     class Meta:
         """The table `CPM-AD-2` names, rather than the `core_collectionrun` Django would derive."""
@@ -907,14 +925,16 @@ class PackageHealth(models.Model):
     true: a missing row would be ambiguous between "not computed yet" and "not
     confident enough to compute", and no read surface can tell those apart.
 
-    **A real `ForeignKey` here, where `CollectionRun` keeps an integer.** That
-    column's two recorded reasons -- the ledger's recorder is not ready for an
-    enforced key, and the conversion is a `RenameField`+`AlterField` pair rather
-    than one `AlterField` -- are both about a column that already exists and a
-    writer that already ships. Neither reaches a table being created now with a
-    writer being built in the same story to satisfy the constraint. Taking the
-    integer "for consistency" would leave the one table whose whole purpose is
-    *one row per inventory package* unable to say which packages those were.
+    **A real relation, as every table in this product now has.** This one was
+    declared as a relation from the start rather than converted into one: it was
+    a table being created with a writer built in the same story to satisfy the
+    constraint, so neither reason `CollectionRun.package` was deferred over --
+    a shipping recorder that did not require the key, and a column whose rows a
+    remove-and-add would have lost -- ever reached it. Taking an integer "for
+    consistency" would have left the one table whose whole purpose is *one row
+    per inventory package* unable to say which packages those were.
+    `CPM-EVIDENCE-S09` has since closed the gap from the other end, so `CPM-AD-3`
+    is met by every table.
 
     **`PROTECT` on both relations.** `EVIDENCE.02-AUDIT-001`'s cascade rule binds
     evidence models and this is not one, so the choice is argued rather than
