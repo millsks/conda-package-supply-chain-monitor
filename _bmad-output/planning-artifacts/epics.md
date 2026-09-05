@@ -7,7 +7,7 @@ inputDocuments:
   - _bmad-output/planning-artifacts/briefs/brief-conda-package-supply-chain-monitor-2026-09-02/brief.md
   - _bmad-output/planning-artifacts/briefs/brief-conda-package-supply-chain-monitor-2026-09-02/addendum.md
   - _bmad-output/test-artifacts/test-design/conda-package-supply-chain-monitor-handoff.md
-uxDesignContract: none
+uxDesignContract: _bmad-output/planning-artifacts/ux-designs/ux-conda-package-supply-chain-monitor-2026-09-04/
 ---
 
 # Conda Package Supply Chain Monitor — Epic Breakdown
@@ -15,8 +15,10 @@ uxDesignContract: none
 ## Overview
 
 This document decomposes the PRD requirements and the architecture spine's invariants into
-implementable stories. There is no UX design contract; `CPM-EP-APP` builds views against
-the PRD's user journeys and the spine's surface rules alone.
+implementable stories. `CPM-EP-APP` builds views against the PRD's user journeys, the
+spine's surface rules, and the UX design contract at `_bmad-output/planning-artifacts/ux-designs/ux-conda-package-supply-chain-monitor-2026-09-04/` — two peer spines, `DESIGN.md`
+for visual identity and `EXPERIENCE.md` for behaviour, information architecture, states and
+accessibility.
 
 ## Identifier Scheme
 
@@ -160,13 +162,30 @@ the mechanism that reads them as versioned data, but must not fabricate their co
 
 ### UX Design Requirements
 
-None. No UX design contract exists for this product. `CPM-EP-APP` derives its surface
-behaviour from the PRD's three user journeys (`CPM-UJ-1`–`CPM-UJ-3`), the role table in
-brief §2, and the spine's surface invariants (`CPM-AD-9`–`CPM-AD-14`, `CPM-AD-22`,
-`CPM-AD-24`).
+A UX design contract exists at `_bmad-output/planning-artifacts/ux-designs/ux-conda-package-supply-chain-monitor-2026-09-04/`. It was written after this document, ahead of
+`CPM-EP-APP`, and it binds: where a story and the contract disagree about presentation,
+the contract wins.
 
-**This is a known gap, not an omission.** See the open question raised at the end of this
-step.
+- **`DESIGN.md`** — the visual identity. The token system, the status chip vocabulary and
+  its marker geometry, typography, spacing, elevation, and the contrast and target-size
+  floors.
+- **`EXPERIENCE.md`** — behaviour. Information architecture, voice and tone, state patterns
+  (including the empty, refused, in-progress and error states no source had designed),
+  interaction primitives, the accessibility floor, and the three journeys as key flows.
+
+Both derive from the PRD's three user journeys (`CPM-UJ-1`–`CPM-UJ-3`), the role table in
+brief §2, and the spine's surface invariants (`CPM-AD-9`–`CPM-AD-14`, `CPM-AD-22`,
+`CPM-AD-24`). Neither states a value the sources withhold: the p95 latency budget,
+`PAGE_SIZE`, `CPM_SYNC_EXPORT_MAX_ROWS`, per-collector freshness targets and the content of
+`P1`–`P10` remain Open Questions 5, 7 and 8.
+
+**Eighteen open gaps are registered in `EXPERIENCE.md`, each with a recommendation.** Four
+bear on stories in this document and should be settled before those stories are written:
+`G-15` (the queue-to-role mapping is the contract's assumption, not this document's, and
+`CPM-FR-25`'s list order implies the opposite pairing), `G-16` (the HTMX and Alpine boundary
+is codified in the contract but no spine invariant protects it), and `G-9` / `G-18` (the
+coverage view and the feedstock-gap report are journey entry surfaces with no requirement
+behind them).
 
 ### FR Coverage Map
 
@@ -324,8 +343,9 @@ console. This epic is where `CPM-UJ-1`, `CPM-UJ-2` and `CPM-UJ-3` become real.
 **NFRs covered:** `CPM-NFR-4`, `CPM-NFR-5`, `CPM-NFR-6`, `CPM-NFR-11`
 **Depends on:** `CPM-EP-PRIORITY`
 **Governed by:** `CPM-AD-9` – `CPM-AD-14`, `CPM-AD-22`, `CPM-AD-24`
-**No UX design contract exists.** Stories specify behaviour, data and acceptance criteria;
-presentation is the implementer's.
+**Governed by the UX design contract** at `_bmad-output/planning-artifacts/ux-designs/ux-conda-package-supply-chain-monitor-2026-09-04/`. Stories specify behaviour, data and
+acceptance criteria; the contract specifies presentation, and it is binding rather than
+advisory.
 
 ### `CPM-EP-NL`: Governed natural-language investigation
 
@@ -1348,8 +1368,9 @@ So that I can reproduce exactly what the system concluded at a point in time.
 
 ## CPM-EP-APP: The surface the three roles actually work in
 
-No UX design contract exists. These stories fix behaviour, data and acceptance criteria;
-layout and interaction detail are the implementer's.
+These stories fix behaviour, data and acceptance criteria. Layout and interaction detail
+are fixed by the UX design contract at `_bmad-output/planning-artifacts/ux-designs/ux-conda-package-supply-chain-monitor-2026-09-04/`; where a story and the contract disagree
+about presentation, the contract wins.
 
 ### CPM-APP-S01: Pagination and role checks, configured once
 
