@@ -717,9 +717,19 @@ src/
 - **Priority rule set and scoring function content** (`CPM-FR-20`). `CPM-AD-8` fixes that
   they are versioned data with explainable output; what the rules *say* encodes an
   organizational risk posture that does not exist yet. PRD Open Question 8.
-- **Per-collector freshness targets and observation windows** (`CPM-FR-38`, `CPM-AD-7`).
-  Needed before the first collector ships, not before `CPM-EP-CURRENCY` starts. PRD Open
-  Question 7.
+- ~~**Per-collector freshness targets and observation windows**~~ (`CPM-FR-38`, `CPM-AD-7`) —
+  **no longer deferred.** PRD Open Question 7 was resolved on 2026-09-05, at the moment it
+  said it would be needed: `CPM-IDENTITY-S06` ships the first collector. A target is derived
+  rather than picked — `cadence x (1 + tolerated_missed_runs) + one sweep duration` — which
+  leaves one judgement per *signal class* instead of one number per collector, and makes the
+  cadences `CPM-NFR-2` already fixed the input to the arithmetic. The target is always
+  strictly greater than its cadence; equal makes evidence stale exactly when the next run is
+  due. Observation windows follow, because `CPM-AD-7` makes the freshness target a window's
+  default. What remains open is narrower and is recorded as 7b, 7c and 7d in the PRD: the
+  sweep-duration measurement the values still owe, the on-demand Python 3.14 collector that
+  has no cadence to derive from, and whether `freshness_target` should be data the way
+  cadence is rather than a `ClassVar` — the last of which is this pass's to answer, and
+  until it does, `CPM-AD-28` is unchanged.
 - **The p95 latency budget and `CPM_SYNC_EXPORT_MAX_ROWS`** (`CPM-NFR-5`, `CPM-AD-9`).
   Both are structurally enforced; their values need a populated inventory to measure
   against. PRD Open Question 5.
