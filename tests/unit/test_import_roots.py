@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 from tests.source_scan import REPO_ROOT
+from tests.source_scan import parse
 from tests.source_scan import project_files
 
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -86,6 +87,13 @@ EXPECTED_WHEEL_SOURCES = {
 # *inside* it would be the per-application enumeration this table exists to
 # avoid.
 APPLICATION_ROOT = "src/django_apps"
+
+# The platform package the applications under that root may not import (AD-4),
+# and a module that legitimately imports it -- the settings module, which is
+# where every environment read the applications are forbidden to perform lives.
+# See "The direction imports may run" at the foot of this module.
+PLATFORM_PACKAGE = "config"
+A_MODULE_THAT_IMPORTS_THE_PLATFORM = "src/config/settings/base.py"
 
 # Spelled out rather than derived from `EXPECTED_WHEEL_SOURCES`: a count taken
 # from that mapping would agree with the file automatically whenever the mapping
@@ -611,3 +619,123 @@ def test_the_serve_tasks_still_serve_the_asgi_application(pixi_manifest: dict[st
     assert "config.asgi:application" in serve_reload, serve_reload
     assert "--app-dir" not in serve_reload, serve_reload
     assert "--reload-dir src" in serve_reload, serve_reload
+
+
+# ---------------------------------------------------------------------------
+# The direction imports may run (AD-4).
+# ---------------------------------------------------------------------------
+#
+# AD-7 is about *where* Python looks for this project's source; AD-4 is about
+# which way the two roots under it may point. They belong together: the second
+# import root exists so the domain applications can be lifted into another
+# component, and that is only true while none of them reaches back into `config`.
+# The rule is enforced here rather than beside the story that first needed it --
+# `CPM-IDENTITY-S07` wanted `config.locality.is_local()` from a collector -- because
+# the next story to want an environment value will be somewhere else entirely,
+# and a sweep living in one feature's test module is a sweep the next feature
+# never runs.
+
+
+def _module_scope_statements(node: ast.AST) -> list[ast.stmt]:
+    """Return the statements that execute when a module is imported.
+
+    Descends into `if`, `try`, `with` and class bodies, which all execute at
+    import; stops at a function or method body, which does not. That distinction
+    is load bearing rather than incidental:
+    `collectors/apps.py` imports what it needs *inside* `AppConfig.ready()`,
+    deliberately, because a module-scope import there raises
+    `AppRegistryNotReady` during `django.setup()`. A sweep that could not tell a
+    deferred import from a module-scope one would either forbid that pattern or
+    permit the thing this rule is about.
+
+    Args:
+        node: The module, or a statement inside one.
+
+    Returns:
+        Every statement reached without entering a function body.
+
+    """
+    found: list[ast.stmt] = []
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        if isinstance(child, ast.stmt):
+            found.append(child)
+        found.extend(_module_scope_statements(child))
+    return found
+
+
+def _imports_platform_package(tree: ast.Module) -> bool:
+    """Report whether a module imports `config` at module scope.
+
+    Args:
+        tree: The parsed module.
+
+    Returns:
+        True when an `import config...` or `from config... import ...` executes
+        at import time.
+
+    """
+    for statement in _module_scope_statements(tree):
+        if isinstance(statement, ast.Import) and any(
+            alias.name == PLATFORM_PACKAGE or alias.name.startswith(f"{PLATFORM_PACKAGE}.") for alias in statement.names
+        ):
+            return True
+        if isinstance(statement, ast.ImportFrom) and statement.module is not None:
+            root = statement.module.split(".", 1)[0]
+            if root == PLATFORM_PACKAGE:
+                return True
+    return False
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(project_files(REPO_ROOT / APPLICATION_ROOT, skip_migrations=True)),
+    ids=lambda path: str(path.relative_to(REPO_ROOT)),
+)
+def test_no_application_module_imports_the_platform_package(path: Path) -> None:
+    """AD-4: nothing under `src/django_apps/` imports `config`.
+
+    The direction is one-way and the wheel is why: `config` may import a domain
+    application -- `config/settings/base.py` reads `core/roles.py`'s contract and
+    `collectors/watchlist.py`'s selection function, and does the environment
+    reading itself -- while an application that reached back would stop resolving
+    the moment it shipped into a component with a different platform layer. That
+    failure arrives at the first import in a container and nowhere earlier.
+
+    **Migrations are excluded, and that is a decision rather than an oversight.**
+    `skip_migrations=True` skips `migrations/`, whose contents Django's own
+    autogenerator writes; failing this gate on generated code would mean
+    hand-editing it forever. It costs nothing here because a migration that
+    imported `config` would be a migration importing settings at
+    `makemigrations` time, which Django itself will not produce.
+    """
+    assert not _imports_platform_package(parse(path)), f"{path} imports {PLATFORM_PACKAGE} at module scope"
+
+
+def test_the_platform_import_detector_finds_an_import_that_is_there() -> None:
+    """The anti-vacuity half: a detector that stopped detecting looks like a clean tree.
+
+    `config/settings/base.py` is the honest positive control rather than a
+    synthetic one -- it is where the environment reads the applications are
+    forbidden to perform actually live.
+    """
+    assert _imports_platform_package(parse(REPO_ROOT / A_MODULE_THAT_IMPORTS_THE_PLATFORM))
+
+
+def test_the_platform_import_detector_ignores_a_function_scope_import() -> None:
+    """The distinction the rule depends on, asserted rather than assumed.
+
+    A deferred import inside `AppConfig.ready()` is not a module-scope one, and
+    the whole tree relies on that being allowed.
+    """
+    deferred = ast.parse("def f():\n    from config.locality import is_local\n    return is_local()\n")
+
+    assert not _imports_platform_package(deferred)
+
+
+def test_the_platform_import_scan_reaches_the_application_tree() -> None:
+    """A scan over an empty tree passes every case above and asserts nothing."""
+    scanned = project_files(REPO_ROOT / APPLICATION_ROOT, skip_migrations=True)
+
+    assert len(scanned) > 1, scanned

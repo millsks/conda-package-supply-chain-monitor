@@ -58,6 +58,7 @@ from conda_package_supply_chain_monitor.collectors.tasks import INGEST_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import INVENTORY_SOURCE
 from conda_package_supply_chain_monitor.collectors.tasks import MAX_COUNT
 from conda_package_supply_chain_monitor.collectors.tasks import OPTIONAL_SIGNALS
+from conda_package_supply_chain_monitor.collectors.tasks import PACKAGE_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import RECORD_FIELDS
 from conda_package_supply_chain_monitor.collectors.tasks import REQUIRED_SIGNALS
 from conda_package_supply_chain_monitor.collectors.tasks import SOURCE_PACKAGE_KEY
@@ -66,6 +67,7 @@ from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngesti
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecord
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecordError
 from conda_package_supply_chain_monitor.collectors.tasks import declare_inventory_adapter
+from conda_package_supply_chain_monitor.collectors.tasks import declared_inventory_adapter
 from conda_package_supply_chain_monitor.collectors.tasks import ingest_inventory
 from conda_package_supply_chain_monitor.collectors.tasks import inventory_adapter
 from conda_package_supply_chain_monitor.collectors.tasks import records_in
@@ -81,6 +83,7 @@ from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.registry import registrations
 from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
+from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
 from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import RecordedTransport
@@ -152,6 +155,7 @@ INVENTORY_CADENCE: Final[timedelta] = timedelta(days=1)
 #: case about a *missing* one differs from this by exactly the key it is about.
 A_RECORD: Final[dict[str, Any]] = {
     SOURCE_PACKAGE_KEY: "internal/numpy",
+    PACKAGE_NAME: "numpy",
     "internal_component_count": 3,
     "internal_lob_count": 2,
     "apps": 7,
@@ -319,13 +323,26 @@ def test_adopting_the_collector_twice_is_not_a_second_registration() -> None:
     registry repopulated by a test, or a second app-registry population in one
     process would raise `CollectorRegistryError` out of `ready()` and take
     startup down over an adoption that had already succeeded.
+
+    The hook also declares `CPM-IDENTITY-S07`'s watchlist adapter, which is why
+    this leaves by a `finally`: the declaration is process-global exactly as the
+    registry is, and an adapter left behind by *this* case would be the source
+    every later case in the session ingests through.
     """
     config = apps.get_app_config(COLLECTORS_APP_LABEL)
 
-    config.ready()
-    config.ready()
+    try:
+        config.ready()
+        config.ready()
 
-    assert registrations()[COLLECTOR_NAME] is InventoryIngestionCollector
+        assert registrations()[COLLECTOR_NAME] is InventoryIngestionCollector
+    finally:
+        # Guarded rather than unconditional. A `ready()` that failed *before*
+        # declaring leaves the slot empty, and an unconditional withdrawal would
+        # then raise out of the teardown and replace the real failure with a
+        # complaint about there being nothing to withdraw.
+        if declared_inventory_adapter() is not None:
+            withdraw_inventory_adapter()
 
 
 def test_the_task_declares_a_collect_namespace_name() -> None:
@@ -581,24 +598,46 @@ def test_a_document_naming_no_packages_is_refused() -> None:
     assert "naming no packages" in str(refused.value)
 
 
-def test_a_source_package_key_wider_than_a_package_name_refuses_the_whole_document() -> None:
+def test_a_source_package_key_wider_than_its_column_refuses_the_whole_document() -> None:
     """`CPM-FR-42`: no run partially ingests a malformed source.
 
     `resolve_package_shell` refuses the same key, but it refuses it one package at
     a time and halfway through a sweep -- which is a `partial` run over a document
     that was malformed before the first row was written. The contract is where the
     document is judged whole, so the bound is applied here as well as there.
+
+    The bound is `associator_key`'s, which is the column the key lands in since
+    `CPM-IDENTITY-S07` separated it from the name. That is *wider* than
+    `canonical_name`, so a key between the two lengths is accepted here and
+    refused only if somebody re-fuses the two.
     """
     with pytest.raises(InventoryRecordError) as refused:
         records_in(
             recorded_payload(
                 source=INVENTORY_SOURCE,
-                body=_document({**A_RECORD, SOURCE_PACKAGE_KEY: "n" * (CANONICAL_NAME_LENGTH + 1)}),
+                body=_document({**A_RECORD, SOURCE_PACKAGE_KEY: "n" * (ASSOCIATOR_KEY_LENGTH + 1)}),
             ),
         )
 
     assert SOURCE_PACKAGE_KEY in str(refused.value)
-    assert str(CANONICAL_NAME_LENGTH) in str(refused.value)
+    assert str(ASSOCIATOR_KEY_LENGTH) in str(refused.value)
+
+
+def test_a_source_package_key_wider_than_a_package_name_is_accepted() -> None:
+    """The two bounds are separate, and this is the case that would fail if they were fused.
+
+    A key longer than `canonical_name` holds is perfectly usable: it goes to
+    `associator_key`, which is wider. Refusing it would reject a legitimate
+    source key for a column it does not occupy -- which is the confusion this
+    story split the two values to remove, and the shape it would come back in.
+    """
+    long_key = "n" * (CANONICAL_NAME_LENGTH + 1)
+
+    records = records_in(
+        recorded_payload(source=INVENTORY_SOURCE, body=_document({**A_RECORD, SOURCE_PACKAGE_KEY: long_key})),
+    )
+
+    assert records[0].source_package_key == long_key
 
 
 def test_a_count_larger_than_the_column_holds_is_refused() -> None:
@@ -654,8 +693,8 @@ def test_the_record_fields_are_exactly_the_declared_signals() -> None:
     """
     declared = {field.name for field in dataclasses.fields(InventoryRecord)}
 
-    assert declared == {SOURCE_PACKAGE_KEY, *REQUIRED_SIGNALS, *OPTIONAL_SIGNALS}
-    assert declared == set(RECORD_FIELDS) | {SOURCE_PACKAGE_KEY}
+    assert declared == {SOURCE_PACKAGE_KEY, PACKAGE_NAME, *REQUIRED_SIGNALS, *OPTIONAL_SIGNALS}
+    assert declared == set(RECORD_FIELDS) | {SOURCE_PACKAGE_KEY, PACKAGE_NAME}
 
 
 @pytest.mark.parametrize(
@@ -725,6 +764,48 @@ def test_a_record_naming_no_package_is_refused() -> None:
         records_in(recorded_payload(source=INVENTORY_SOURCE, body=_document({**A_RECORD, SOURCE_PACKAGE_KEY: "   "})))
 
     assert SOURCE_PACKAGE_KEY in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [pytest.param(None, id="omitted"), pytest.param("   ", id="blank"), pytest.param(7, id="not-a-string")],
+)
+def test_a_record_giving_its_package_no_name_is_refused(name: object) -> None:
+    """The name is required of every record, and it is not the key.
+
+    `CPM-IDENTITY-S07` separated the two: the key becomes `associator_key` and
+    the name becomes `canonical_name`, so a record carrying a usable key no
+    longer implies a usable name. Refused in the contract rather than at
+    resolution, because the document is decoded whole before the first write --
+    `CPM-FR-42`'s "no run partially ingests a malformed source".
+    """
+    record = {key: value for key, value in A_RECORD.items() if key != PACKAGE_NAME}
+    if name is not None:
+        record[PACKAGE_NAME] = name
+
+    with pytest.raises(InventoryRecordError) as refused:
+        records_in(recorded_payload(source=INVENTORY_SOURCE, body=_document(record)))
+
+    assert PACKAGE_NAME in str(refused.value)
+
+
+def test_a_package_name_wider_than_the_column_fails_the_whole_document() -> None:
+    """The same bound the key is measured against, on the column the name lands in.
+
+    Refused here rather than left to resolution for the reason the key's own
+    bound is: resolution refuses it one package at a time and halfway through a
+    sweep, which is a `partial` run over a source that was malformed from the
+    start.
+    """
+    with pytest.raises(InventoryRecordError) as refused:
+        records_in(
+            recorded_payload(
+                source=INVENTORY_SOURCE,
+                body=_document({**A_RECORD, PACKAGE_NAME: "n" * (CANONICAL_NAME_LENGTH + 1)}),
+            ),
+        )
+
+    assert PACKAGE_NAME in str(refused.value)
 
 
 def test_a_field_the_contract_does_not_define_is_refused_rather_than_ignored() -> None:

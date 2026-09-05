@@ -84,6 +84,7 @@ from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
 from conda_package_supply_chain_monitor.core.transport import Transport
+from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
 from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
 from conda_package_supply_chain_monitor.identity.services import ResolutionError
 from conda_package_supply_chain_monitor.identity.services import resolve_package_shell
@@ -103,6 +104,7 @@ __all__ = [
     "INVENTORY_SOURCE",
     "MAX_COUNT",
     "OPTIONAL_SIGNALS",
+    "PACKAGE_NAME",
     "REQUIRED_SIGNALS",
     "SOURCE_PACKAGE_KEY",
     "InventoryAdapterError",
@@ -110,6 +112,7 @@ __all__ = [
     "InventoryRecord",
     "InventoryRecordError",
     "declare_inventory_adapter",
+    "declared_inventory_adapter",
     "ingest_inventory",
     "inventory_adapter",
     "records_in",
@@ -152,6 +155,22 @@ INVENTORY_SOURCE: Final[str] = "inventory://declared-adapter"
 SOURCE_PACKAGE_KEY: Final[str] = "source_package_key"
 REQUIRED_SIGNALS: Final[tuple[str, ...]] = ("internal_component_count", "internal_lob_count")
 
+#: The record field naming the *package*, as against the key the source filed it
+#: under, and every record carries one.
+#:
+#: The two are different facts and were the same value until `CPM-IDENTITY-S07`.
+#: `source_package_key` is what the inventory calls this entry -- stable, the
+#: thing a later sweep matches on, and never corrected -- while the name is what
+#: the package is called, which `CPM-IDENTITY-S02` corrects when it establishes a
+#: real identity. Writing one value into both `canonical_name` and
+#: `associator_key` made the correction invisible: a lookup keyed on the
+#: corrected name no longer matches the key the source still sends, and the next
+#: sweep creates a second shell for the same package. Separating them does not by
+#: itself close that trap -- resolution still has to match on
+#: `(identity_source, associator_key)` -- but it stops the two values being
+#: indistinguishable, which is what hid it.
+PACKAGE_NAME: Final[str] = "package_name"
+
 #: The signals a record may omit. Open Question 3b: they are score inputs for
 #: `CPM-FR-20`, whose function is itself undecided, and no hand-authored source
 #: can state them credibly -- so missing is an ordinary state and is stored as
@@ -163,7 +182,9 @@ OPTIONAL_SIGNALS: Final[tuple[str, ...]] = ("apps", "platforms", "downloads", "v
 #: field ignored, because ingestion never asserts a mapping (`CPM-FR-42`,
 #: `CPM-FR-1`) and a silently dropped column is a source that believes it is
 #: supplying one.
-RECORD_FIELDS: Final[frozenset[str]] = frozenset({SOURCE_PACKAGE_KEY, *REQUIRED_SIGNALS, *OPTIONAL_SIGNALS})
+RECORD_FIELDS: Final[frozenset[str]] = frozenset(
+    {SOURCE_PACKAGE_KEY, PACKAGE_NAME, *REQUIRED_SIGNALS, *OPTIONAL_SIGNALS},
+)
 
 #: What an absence row says in its own words. Named so the row the sweep writes
 #: and the case that reads it back cannot drift.
@@ -258,9 +279,13 @@ class InventoryRecord:
     written.
 
     Attributes:
-        source_package_key: The key the source used for this package. It is also
-            what the shell's canonical name is created from, because it is the
-            only name ingestion has.
+        source_package_key: The key the source used for this package. It becomes
+            the shell's `associator_key`: the stable thing a later sweep, and a
+            later resolution, matches this package back on.
+        package_name: What the source calls the package. It becomes the shell's
+            `canonical_name`, which is the one *correctable* name --
+            `CPM-IDENTITY-S02` rewrites it when it establishes a real identity,
+            and the key above is what survives that rewrite.
         internal_component_count: How many internal components use the package.
         internal_lob_count: How many internal lines of business use it.
         apps: How many applications name it, or `None` where the source did not
@@ -272,6 +297,7 @@ class InventoryRecord:
     """
 
     source_package_key: str
+    package_name: str
     internal_component_count: int
     internal_lob_count: int
     apps: int | None = None
@@ -339,6 +365,28 @@ def withdraw_inventory_adapter() -> None:
         )
         raise InventoryAdapterError(message)
     del _DECLARED[_ADAPTER_SLOT]
+
+
+def declared_inventory_adapter() -> Transport | None:
+    """Return the declared inventory source adapter, or `None` when there is none.
+
+    The read `inventory_adapter` below refuses on, without the refusal. It exists
+    for one caller shape and is shaped after `core/registry.py`'s `registrations`,
+    which `CollectorsConfig.ready()` already reads for the same reason: a boot
+    hook has to be able to *ask* whether the declaration it is about to make has
+    already been made, because `AppConfig.ready` is Django's to call and a second
+    `django.setup()` in one process calls it again. Asking through
+    `inventory_adapter` would mean catching the refusal as control flow, and
+    declaring unconditionally would abort boot over a declaration that had
+    already succeeded.
+
+    Returns:
+        The adapter this component reads its inventory through, or `None` when
+        nothing is declared. `None` is an answer here and never a default: a
+        caller that wants the run refused calls `inventory_adapter`.
+
+    """
+    return _DECLARED.get(_ADAPTER_SLOT)
 
 
 def inventory_adapter() -> Transport:
@@ -439,8 +487,8 @@ def _record(entry: object, *, position: int) -> InventoryRecord:
 
     Raises:
         InventoryRecordError: When the entry is not an object, carries an
-            undefined field, names no package, or carries a signal that is not a
-            non-negative integer.
+            undefined field, names no package, gives that package no name, or
+            carries a signal that is not a non-negative integer.
 
     """
     if not isinstance(entry, dict):
@@ -466,19 +514,24 @@ def _record(entry: object, *, position: int) -> InventoryRecord:
         )
         raise InventoryRecordError(message)
     name = key.strip()
-    if len(name) > CANONICAL_NAME_LENGTH:
+    if len(name) > ASSOCIATOR_KEY_LENGTH:
         # Refused *here*, in the contract, rather than left to resolution.
         # `resolve_package_shell` refuses the same key, but it refuses it one
         # package at a time and halfway through a sweep -- which is a `partial`
         # run over a source that was malformed from the start, and `CPM-FR-42`
         # says no run partially ingests a malformed source. A document is either
         # ingestable whole or refused whole.
+        #
+        # The bound is `associator_key`'s, which is the column the key lands in
+        # since `CPM-IDENTITY-S07` separated it from the name. The name has its
+        # own, narrower bound below.
         message = (
-            f"inventory record {position} declares a {SOURCE_PACKAGE_KEY} of {len(name)} characters, and a "
-            f"package name holds {CANONICAL_NAME_LENGTH}. The document is refused rather than ingested "
-            f"until this record: no run partially ingests a malformed source (CPM-FR-42)."
+            f"inventory record {position} declares a {SOURCE_PACKAGE_KEY} of {len(name)} characters, and "
+            f"the column that holds it takes {ASSOCIATOR_KEY_LENGTH}. The document is refused rather than "
+            f"ingested until this record: no run partially ingests a malformed source (CPM-FR-42)."
         )
         raise InventoryRecordError(message)
+    package_name = _require_package_name(entry.get(PACKAGE_NAME), position=position)
     # Written out rather than unpacked from two mappings built over
     # `REQUIRED_SIGNALS` and `OPTIONAL_SIGNALS`. The mapping form needed a
     # blanket `# type: ignore[arg-type]` -- `dict[str, int | None]` cannot be
@@ -489,6 +542,7 @@ def _record(entry: object, *, position: int) -> InventoryRecord:
     # bought and is cheaper than what it cost.
     return InventoryRecord(
         source_package_key=name,
+        package_name=package_name,
         internal_component_count=_required_count(
             entry.get("internal_component_count"),
             field="internal_component_count",
@@ -500,6 +554,52 @@ def _record(entry: object, *, position: int) -> InventoryRecord:
         downloads=_optional_count(entry.get("downloads"), field="downloads", key=name),
         versions=_optional_count(entry.get("versions"), field="versions", key=name),
     )
+
+
+def _require_package_name(value: object, *, position: int) -> str:
+    """Return the name the record gives its package, or refuse the record.
+
+    Required of every record, and refused *here* for the reason the key's own
+    bound is refused here: the document is decoded whole before the first row is
+    written, so a record that could not produce a usable identity fails the run
+    with nothing ingested rather than one package at a time halfway through a
+    sweep (`CPM-FR-42`).
+
+    The bound is `canonical_name`'s, because that is the column the name lands
+    in. It is the same number the key is measured against above and it is checked
+    against a different column: SQLite ignores `max_length` and PostgreSQL
+    refuses, so an over-long name is a stored row on a developer's machine and a
+    failed run in the gate unless it is refused where the value enters (`R-5`).
+
+    Args:
+        value: What the record carried for the name, or `None` when it carried
+            nothing.
+        position: Where the record sat, for the message.
+
+    Returns:
+        The name with surrounding whitespace removed.
+
+    Raises:
+        InventoryRecordError: When the record names no package, or names one
+            longer than the column that has to hold it.
+
+    """
+    if not isinstance(value, str) or not value.strip():
+        message = (
+            f"inventory record {position} declares {PACKAGE_NAME}={value!r} and gives its package no name. "
+            f"The name is what the shell's canonical name is created from, and a package with no name "
+            f"cannot be corrected, exported or found again (CPM-FR-2)."
+        )
+        raise InventoryRecordError(message)
+    name = value.strip()
+    if len(name) > CANONICAL_NAME_LENGTH:
+        message = (
+            f"inventory record {position} declares a {PACKAGE_NAME} of {len(name)} characters, and a "
+            f"package name holds {CANONICAL_NAME_LENGTH}. The document is refused rather than ingested "
+            f"until this record: no run partially ingests a malformed source (CPM-FR-42)."
+        )
+        raise InventoryRecordError(message)
+    return name
 
 
 def _required_count(value: object, *, field: str, key: str) -> int:
@@ -762,6 +862,7 @@ class InventoryIngestionCollector(Collector):
         with transaction.atomic():
             package = resolve_package_shell(
                 source_package_key=record.source_package_key,
+                package_name=record.package_name,
                 identity_source=COLLECTOR_NAME,
                 clock=self._clock,
             )
@@ -837,8 +938,9 @@ class InventoryIngestionCollector(Collector):
         # package, and it is PostgreSQL-only while this suite runs on SQLite
         # locally -- so the fold is here. Rows for a key this document still
         # names are excluded first: a package keeps one key for its whole life
-        # (the key is what its `canonical_name` was created from), so a named key
-        # is a package that cannot be absent.
+        # (the key is what its `associator_key` was created from, and unlike its
+        # `canonical_name` nothing corrects it), so a named key is a package that
+        # cannot be absent.
         latest: dict[int, tuple[str, str]] = {
             package_id: (state, key)
             for package_id, state, key in InventorySnapshot.objects.exclude(source_package_key__in=named)
@@ -995,6 +1097,16 @@ def ingest_inventory(*, force: bool = False) -> str:
             refused rather than half-ingested (`CPM-FR-42`); the ledger row is
             finalized to `failed` by the recorder on the way out, so the run is
             on the record even though nothing else is.
+        ImproperlyConfigured: When the declared adapter refuses its *source*
+            before it has produced a document at all -- `CPM-IDENTITY-S07`'s
+            watchlist adapter raises `WatchlistError`, an `ImproperlyConfigured`,
+            for a file that is missing, malformed or awaiting review. It leaves
+            by the same route and with the same consequence as the line above:
+            the base's transport handling catches `TransportError` and nothing
+            else, so a misconfigured *source file* is not a recorded transport
+            failure, it is a refused run. The distinction is the point --
+            `CPM-AD-14` makes a bad watchlist a misconfigured deployment, and an
+            operator is sent to the file rather than to a broken remote.
         CollectorConfigurationError: When the rows this collector reports writing
             are not the rows the base wrote. A defect in this class rather than
             in a source, and refused rather than recorded.

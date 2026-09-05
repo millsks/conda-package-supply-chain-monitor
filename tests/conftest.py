@@ -59,6 +59,8 @@ from django.test import override_settings
 from django.urls import include
 from django.urls import path
 
+from conda_package_supply_chain_monitor.collectors.tasks import declared_inventory_adapter
+from conda_package_supply_chain_monitor.collectors.tasks import withdraw_inventory_adapter
 from config import urls as config_urls
 from config.authorization.claims import ClaimsContract
 from config.locality import RUNTIME_ENV_VAR
@@ -657,3 +659,38 @@ def no_network() -> Iterator[None]:
     """
     with _network_guard():
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _boot_declared_adapter_withdrawn() -> None:
+    """Withdraw the inventory source adapter `CollectorsConfig.ready()` declared at boot.
+
+    `CPM-IDENTITY-S07` makes the watchlist adapter a *boot* declaration: the
+    `AppConfig.ready()` hook binds one, once, for the process. `django.setup()`
+    happens before the first test, so without this every case that declares an
+    adapter of its own would meet `declare_inventory_adapter`'s refusal -- which
+    is the refusal doing its job, and which would leave the whole record contract
+    and every ingestion case unable to arrange a source.
+
+    So the session starts from the same empty slot the process did, and the boot
+    declaration is asserted where it belongs rather than by accident:
+    `tests/unit/django_apps/test_watchlist.py` calls `ready()` and reads the slot.
+    Withdrawal is session-scoped and one-way -- nothing re-declares afterwards --
+    because a re-declaration at the end of the session would only be visible to a
+    later session, and the value would be an adapter reading whichever watchlist
+    the developer's `COMPONENT_RUNTIME` happened to select.
+
+    Autouse and session-scoped rather than a fixture each case requests: a case
+    that forgot to request it would fail on a declaration made by a hook it never
+    called, which reads as a defect in the case rather than as the shared state
+    it is.
+
+    Returns:
+        None. The withdrawal is the effect, and there is deliberately no
+        teardown: re-declaring at the end of the session would bind an adapter
+        reading whichever watchlist the developer's `COMPONENT_RUNTIME` selected,
+        and nothing after the last test would ever read it.
+
+    """
+    if declared_inventory_adapter() is not None:
+        withdraw_inventory_adapter()

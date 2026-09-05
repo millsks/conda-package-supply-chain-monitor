@@ -57,6 +57,7 @@ from conda_package_supply_chain_monitor.collectors.tasks import ABSENT_DETAIL
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import INVENTORY_SOURCE
 from conda_package_supply_chain_monitor.collectors.tasks import OPTIONAL_SIGNALS
+from conda_package_supply_chain_monitor.collectors.tasks import PACKAGE_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import SOURCE_PACKAGE_KEY
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecord
@@ -75,6 +76,7 @@ from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.core.transport import TransportError
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
+from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
 from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
 from conda_package_supply_chain_monitor.identity.services import ResolutionError
 from conda_package_supply_chain_monitor.identity.services import resolve_package_shell
@@ -129,6 +131,27 @@ SECOND_DOWNLOADS: Final[int] = 2
 FAILING_KEY: Final[str] = "internal/failing"
 
 
+def _name(key: str) -> str:
+    """Return the package name that goes with a source package key.
+
+    `CPM-IDENTITY-S07` made the key and the name two values: the key is what the
+    inventory files the package under and becomes `associator_key`, the name is
+    what it is called and becomes `canonical_name`. Derived from the key rather
+    than tabulated, so a case that adds a key gets a name without a second table
+    to keep in step -- and derived by *dropping* the prefix, so the two are never
+    the same string and a service that wrote either into the wrong column is
+    visible.
+
+    Args:
+        key: The source package key.
+
+    Returns:
+        The last segment of the key.
+
+    """
+    return key.rsplit("/", 1)[-1]
+
+
 def _record(key: str, **overrides: Any) -> dict[str, Any]:
     """Return one well-formed record, with any field replaced.
 
@@ -144,6 +167,7 @@ def _record(key: str, **overrides: Any) -> dict[str, Any]:
     """
     record: dict[str, Any] = {
         SOURCE_PACKAGE_KEY: key,
+        PACKAGE_NAME: _name(key),
         "internal_component_count": A_COMPONENT_COUNT,
         "internal_lob_count": A_LOB_COUNT,
         **OPTIONAL_VALUES,
@@ -207,6 +231,7 @@ class FailingOnKeyCollector(InventoryIngestionCollector):
             with transaction.atomic():
                 resolve_package_shell(
                     source_package_key=record.source_package_key,
+                    package_name=record.package_name,
                     identity_source=COLLECTOR_NAME,
                     clock=self._clock,
                 )
@@ -334,7 +359,7 @@ def test_a_package_seen_for_the_first_time_gains_a_shell_and_a_snapshot() -> Non
 
     assert result.state is RunState.SUCCEEDED
     assert result.evidence_rows == 1
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
     assert package.confidence == IdentityConfidence.UNMAPPED
     assert package.resolved_at == FIXED_INSTANT
     assert package.source_repository_url == ""
@@ -355,12 +380,17 @@ def test_a_package_already_known_gains_no_second_row() -> None:
     `canonical_name` would turn the second run into an `IntegrityError` rather
     than an observation.
     """
-    existing = resolve_package_shell(source_package_key=FIRST_KEY, identity_source=COLLECTOR_NAME, clock=_clock())
+    existing = resolve_package_shell(
+        source_package_key=FIRST_KEY,
+        package_name=_name(FIRST_KEY),
+        identity_source=COLLECTOR_NAME,
+        clock=_clock(),
+    )
 
     result = _ingest(_adapter(_record(FIRST_KEY)))
 
     assert result.state is RunState.SUCCEEDED
-    assert Package.objects.filter(canonical_name=FIRST_KEY).count() == 1
+    assert Package.objects.filter(canonical_name=_name(FIRST_KEY)).count() == 1
     assert _snapshots()[0].package_id == existing.pk
 
 
@@ -373,7 +403,7 @@ def test_an_existing_identity_is_not_lowered_by_ingestion() -> None:
     identities behind the same door, and the daily sweep runs after it.
     """
     resolved = Package.objects.create(
-        canonical_name=FIRST_KEY,
+        canonical_name=_name(FIRST_KEY),
         resolved_at=FIXED_INSTANT,
         confidence=IdentityConfidence.VERIFIED,
         source_repository_url="https://example.invalid/numpy",
@@ -402,7 +432,7 @@ def test_re_observing_identical_data_inserts_a_second_row() -> None:
     assert len(rows) == TWO_OBSERVATIONS
     assert [row.observed_at for row in rows] == [FIXED_INSTANT, FIXED_INSTANT + OBSERVATION_GAP]
     assert [row.state for row in rows] == [OutcomeState.OK.value] * 2
-    assert Package.objects.filter(canonical_name=FIRST_KEY).count() == 1
+    assert Package.objects.filter(canonical_name=_name(FIRST_KEY)).count() == 1
 
 
 @pytest.mark.django_db
@@ -425,7 +455,7 @@ def test_a_package_the_source_stops_naming_is_recorded_absent_rather_than_delete
     assert absent.observed_at == FIXED_INSTANT + OBSERVATION_GAP
     assert absent.detail == ABSENT_DETAIL
     assert absent.internal_component_count is None
-    assert Package.objects.filter(canonical_name=SECOND_KEY).exists()
+    assert Package.objects.filter(canonical_name=_name(SECOND_KEY)).exists()
 
 
 @pytest.mark.django_db
@@ -542,7 +572,9 @@ def test_one_failing_package_leaves_the_others_committed_and_the_run_partial() -
 
     assert result.state is RunState.PARTIAL
     assert result.evidence_rows == TWO_ROWS
-    assert sorted(Package.objects.values_list("canonical_name", flat=True)) == sorted([FIRST_KEY, THIRD_KEY])
+    assert sorted(Package.objects.values_list("canonical_name", flat=True)) == sorted(
+        [_name(FIRST_KEY), _name(THIRD_KEY)],
+    )
     assert sorted(row.source_package_key for row in _snapshots()) == sorted([FIRST_KEY, THIRD_KEY])
     run = _the_run()
     assert run.status == RunState.PARTIAL
@@ -570,7 +602,7 @@ def test_a_failing_package_leaves_no_half_made_shell() -> None:
         collector_class=FailingOnKeyCollector,
     )
 
-    assert sorted(Package.objects.values_list("canonical_name", flat=True)) == [FIRST_KEY]
+    assert sorted(Package.objects.values_list("canonical_name", flat=True)) == [_name(FIRST_KEY)]
     assert sorted(row.source_package_key for row in _snapshots()) == [FIRST_KEY]
 
 
@@ -735,7 +767,7 @@ def test_the_task_ingests_through_the_declared_adapter() -> None:
 
     assert state == RunState.SUCCEEDED.value
     assert adapter.calls == [INVENTORY_SOURCE]
-    assert Package.objects.filter(canonical_name=FIRST_KEY).exists()
+    assert Package.objects.filter(canonical_name=_name(FIRST_KEY)).exists()
     assert InventorySnapshot.objects.count() == 1
 
 
@@ -778,7 +810,7 @@ def test_a_package_with_observations_cannot_be_deleted() -> None:
     and only a real foreign key can be shown to enforce it.
     """
     _ingest(_adapter(_record(FIRST_KEY)))
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
 
     with pytest.raises(ProtectedError):
         package.delete()
@@ -795,7 +827,12 @@ def test_a_present_observation_missing_a_count_is_refused_by_the_database() -> N
     exactly when `state` is `ok`" -- and a check constraint is only proved by a
     database that refuses.
     """
-    package = resolve_package_shell(source_package_key=FIRST_KEY, identity_source=COLLECTOR_NAME, clock=_clock())
+    package = resolve_package_shell(
+        source_package_key=FIRST_KEY,
+        package_name=_name(FIRST_KEY),
+        identity_source=COLLECTOR_NAME,
+        clock=_clock(),
+    )
 
     with pytest.raises(IntegrityError) as refused:
         InventorySnapshot.objects.create(
@@ -816,7 +853,12 @@ def test_an_absence_row_carrying_counts_is_refused_by_the_database() -> None:
     Values are never invented (PRD Appendix A.1), and an absence row with counts
     on it is an invented observation wearing a sentinel's state.
     """
-    package = resolve_package_shell(source_package_key=FIRST_KEY, identity_source=COLLECTOR_NAME, clock=_clock())
+    package = resolve_package_shell(
+        source_package_key=FIRST_KEY,
+        package_name=_name(FIRST_KEY),
+        identity_source=COLLECTOR_NAME,
+        clock=_clock(),
+    )
 
     with pytest.raises(IntegrityError):
         InventorySnapshot.objects.create(
@@ -845,7 +887,7 @@ def test_a_read_at_a_cut_off_returns_the_observation_that_was_current_then() -> 
     """
     _ingest(_adapter(_record(FIRST_KEY, downloads=FIRST_DOWNLOADS)))
     _ingest(_adapter(_record(FIRST_KEY, downloads=SECOND_DOWNLOADS)), at=FIXED_INSTANT + OBSERVATION_GAP)
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
     cutoff = FIXED_INSTANT + OBSERVATION_GAP / 2
 
     first = snapshot_as_of(package_id=package.pk, cutoff=cutoff)
@@ -867,7 +909,7 @@ def test_a_read_at_or_after_the_latest_observation_returns_it() -> None:
     """
     _ingest(_adapter(_record(FIRST_KEY, downloads=FIRST_DOWNLOADS)))
     _ingest(_adapter(_record(FIRST_KEY, downloads=SECOND_DOWNLOADS)), at=FIXED_INSTANT + OBSERVATION_GAP)
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
 
     latest = snapshot_as_of(package_id=package.pk, cutoff=FIXED_INSTANT + OBSERVATION_GAP)
 
@@ -884,7 +926,7 @@ def test_a_cut_off_before_the_first_observation_returns_nothing_and_is_not_an_er
     had not been observed yet.
     """
     _ingest(_adapter(_record(FIRST_KEY)))
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
 
     assert snapshot_as_of(package_id=package.pk, cutoff=FIXED_INSTANT - timedelta(seconds=1)) is None
 
@@ -917,7 +959,7 @@ def test_two_snapshots_at_one_instant_are_ordered_by_the_row_that_arrived_last()
     """
     _ingest(_adapter(_record(FIRST_KEY, downloads=FIRST_DOWNLOADS)))
     _ingest(_adapter(_record(FIRST_KEY, downloads=SECOND_DOWNLOADS)))
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
     rows = _snapshots(FIRST_KEY)
 
     read = snapshot_as_of(package_id=package.pk, cutoff=FIXED_INSTANT)
@@ -941,7 +983,28 @@ def test_resolution_refuses_a_key_the_column_cannot_hold_before_writing_a_row() 
     """
     with pytest.raises(ResolutionError):
         resolve_package_shell(
-            source_package_key="n" * (CANONICAL_NAME_LENGTH + 1),
+            source_package_key="n" * (ASSOCIATOR_KEY_LENGTH + 1),
+            package_name=_name(FIRST_KEY),
+            identity_source=COLLECTOR_NAME,
+            clock=_clock(),
+        )
+
+    assert Package.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_resolution_refuses_a_name_the_column_cannot_hold_before_writing_a_row() -> None:
+    """The other bound, on the other column, and it is a different number.
+
+    `canonical_name` is narrower than `associator_key`, so a value that is a
+    perfectly usable *key* can be an unusable *name*. Both refusals leave nothing
+    behind, which is what makes the door safe for the callers that reach it
+    without going through the record contract.
+    """
+    with pytest.raises(ResolutionError):
+        resolve_package_shell(
+            source_package_key=FIRST_KEY,
+            package_name="n" * (CANONICAL_NAME_LENGTH + 1),
             identity_source=COLLECTOR_NAME,
             clock=_clock(),
         )
@@ -954,16 +1017,23 @@ def test_a_shell_records_what_established_it_and_the_key_it_matched_on() -> None
     """`CPM-FR-2`: a resolution is re-derivable and disputable, not merely trusted.
 
     A shell asserts no mapping, and that is not the same as asserting no
-    *provenance*. It matters more here than for a real resolution: the source's
-    own key survives on the row as `canonical_name` only until
-    `CPM-IDENTITY-S02` corrects the name, and a shell with no `associator_key`
-    is a package the next sweep cannot match back to the record that made it.
+    *provenance*. It matters more here than for a real resolution: the shell's
+    `canonical_name` is corrected out from under it by `CPM-IDENTITY-S02`, and a
+    shell with no `associator_key` is a package the next sweep cannot match back
+    to the record that made it.
+
+    The two columns carry *different* values, which is `CPM-IDENTITY-S07`'s
+    change and is asserted here rather than assumed: while the key was written
+    into both, a lookup on either matched, and the correction trap above was
+    invisible because nothing could tell the correctable name from the stable
+    key.
     """
     _ingest(_adapter(_record(FIRST_KEY)))
 
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
     assert package.identity_source == COLLECTOR_NAME
     assert package.associator_key == FIRST_KEY
+    assert package.canonical_name != package.associator_key
     assert package.confidence == IdentityConfidence.UNMAPPED
 
 
@@ -1040,7 +1110,7 @@ def test_the_shared_freshness_read_finds_this_collectors_observations(
 
     """
     _ingest(_adapter(_record(FIRST_KEY)))
-    package = Package.objects.get(canonical_name=FIRST_KEY)
+    package = Package.objects.get(canonical_name=_name(FIRST_KEY))
     collector = InventoryIngestionCollector(clock=_clock(), transport=RecordedTransport())
     target = InventoryIngestionCollector.freshness_target
     assert target is not None

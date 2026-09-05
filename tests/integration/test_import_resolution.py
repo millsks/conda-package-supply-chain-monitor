@@ -582,6 +582,29 @@ def test_the_built_wheel_ships_the_source_tree_at_its_root(tmp_path: Path) -> No
     assert expected_applications, "an empty application set would make the comparison vacuous"
     assert shipped_applications == expected_applications, sorted(names)
 
+    # The watchlist files, which are the first *data* this repository ships inside a
+    # package (`CPM-IDENTITY-S07`). Every assertion above is about Python modules, and
+    # `only-include`/`sources` say nothing about file type -- so a build backend that
+    # shipped modules and dropped everything else would satisfy all of them. The
+    # failure that would follow is invisible to every other gate: the wheel builds, the
+    # import resolves, and the first sweep in a deployed container refuses because the
+    # file the adapter reads at a `__file__`-relative path is not there.
+    data_dir = application_root / APPLICATION_PACKAGE / "collectors" / "data"
+
+    # Guarded rather than assumed, on the same terms as the second-root check
+    # above: a renamed or relocated data tree would otherwise surface as a
+    # `FileNotFoundError` out of `iterdir()`, which says nothing about what broke.
+    assert data_dir.is_dir(), f"the watchlist data tree is missing: {data_dir}"
+
+    expected_watchlists = {
+        f"{APPLICATION_PACKAGE}/collectors/data/{path.name}"
+        for path in data_dir.iterdir()
+        if path.is_file() and path.suffix == ".csv"
+    }
+
+    assert expected_watchlists, "an empty watchlist set would make the comparison vacuous"
+    assert expected_watchlists <= set(names), sorted(names)
+
 
 @pytest.mark.integration
 def test_the_domain_application_resolves_in_a_plain_interpreter() -> None:
