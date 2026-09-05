@@ -290,9 +290,7 @@ def status_writes(tree: ast.Module) -> list[str]:
                 if isinstance(target, ast.Attribute) and is_derived_status_name(target.attr)
             )
         elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in ORM_WRITE_METHODS
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ORM_WRITE_METHODS
         ):
             found.extend(
                 f"{node.lineno}: {KEYWORD_FORM.format(name=keyword.arg, method=node.func.attr)}"

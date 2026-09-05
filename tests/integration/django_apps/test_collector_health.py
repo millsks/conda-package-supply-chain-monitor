@@ -198,7 +198,7 @@ def test_a_failure_with_no_trace_is_still_returned() -> None:
 
 @pytest.mark.django_db
 def test_failures_are_ordered_by_their_ending_newest_first() -> None:
-    """"What has broken lately" is the question, so the order is part of the answer.
+    """ "What has broken lately" is the question, so the order is part of the answer.
 
     Written deliberately out of chronological order, and with the *earliest*
     failure inserted last, so a query that returned the database's own arbitrary
