@@ -336,7 +336,7 @@ def test_a_zero_optional_cell_is_a_stated_zero() -> None:
 
 
 def test_the_header_may_declare_its_columns_in_any_order() -> None:
-    """"Exactly the declared columns, in any order" is a claim, so it is tested.
+    """ "Exactly the declared columns, in any order" is a claim, so it is tested.
 
     The rows are read positionally against the header, so a permuted header has
     to permute the cells with it. A parser that had quietly fixed the order would
