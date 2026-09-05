@@ -83,6 +83,7 @@ from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_FAILED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_MODIFIED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_REMEMBERED_EVENT
+from conda_package_supply_chain_monitor.core.collection import COLLECTION_PARTIAL_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_REFUSED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_SKIPPED_EVENT
 from conda_package_supply_chain_monitor.core.collection import EVENT_KEYS
@@ -99,6 +100,7 @@ from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from conda_package_supply_chain_monitor.core.transport import TransportError
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_CACHED_BODY
+from tests.collectors import A_FABRICATED_ROW_COUNT
 from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import A_PAYLOAD_BODY
 from tests.collectors import AN_ETAG
@@ -108,6 +110,7 @@ from tests.collectors import FIXTURE_COLLECTOR
 from tests.collectors import FIXTURE_HEADERS
 from tests.collectors import FIXTURE_REQUEST_COST
 from tests.collectors import FIXTURE_SOURCE_PREFIX
+from tests.collectors import FIXTURE_SWEEP_SOURCE
 from tests.collectors import FIXTURE_TABLE
 from tests.collectors import FIXTURE_TIMEOUT
 from tests.collectors import FIXTURE_USER_AGENT
@@ -117,15 +120,22 @@ from tests.collectors import OTHER_FIXTURE_COLLECTOR
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordedTransport
 from tests.collectors import RecordingResponseCache
+from tests.collectors import barren_sweep_collector_class
 from tests.collectors import breaking_collector_class
+from tests.collectors import bypassing_sweep_collector_class
 from tests.collectors import cached_response
 from tests.collectors import cleared_cache
 from tests.collectors import collector_class
 from tests.collectors import empty_translation_collector_class
 from tests.collectors import fixture_evidence_model
+from tests.collectors import foreign_model_sweep_collector_class
 from tests.collectors import lying_sentinel_collector_class
+from tests.collectors import miscounting_sweep_collector_class
+from tests.collectors import other_fixture_evidence_model
 from tests.collectors import recorded_payload
+from tests.collectors import sweeping_collector_class
 from tests.collectors import unstamped_collector_class
+from tests.collectors import unstamped_sweep_collector_class
 from tests.collectors import unwritable_collector_class
 from tests.collectors import unwritable_sentinel_collector_class
 from tests.collectors import working_collector
@@ -138,6 +148,7 @@ if TYPE_CHECKING:
 
     from conda_package_supply_chain_monitor.core.collection import Collector
     from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+    from conda_package_supply_chain_monitor.core.transport import Payload
 
 #: The package every case collects. One arbitrary primary key.
 A_PACKAGE: Final[int] = 7
@@ -226,6 +237,11 @@ NO_RETRIES: Final[int] = 0
 #: How many attempts the two retry cases allow. One retry: enough to prove
 #: recovery and exhaustion, and one backoff interval rather than three.
 ONE_RETRY: Final[int] = 1
+
+#: How many distinct events a collection can emit. Named because `PLR2004` is
+#: right about a bare number in an assertion, and because the count is what a
+#: reader checks the list below against.
+DISTINCT_COLLECTION_EVENTS: Final[int] = 6
 
 #: The event the capture fixture emits to prove it can see the base's logger.
 _CAPTURE_CONTROL: Final[str] = "collection.capture_control"
@@ -479,12 +495,14 @@ def _collector(transport: RecordedTransport, *, permitted: bool = True) -> Colle
     return working_collector(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=permitted))
 
 
-def _record_run(*, collector: str, package_id: int, state: RunState, ago: timedelta) -> CollectionRun:
+def _record_run(*, collector: str, package_id: int | None, state: RunState, ago: timedelta) -> CollectionRun:
     """Write a finished ledger row, as a previous run would have left it.
 
     Args:
         collector: Which collector the run belonged to.
-        package_id: Which package it was scoped to.
+        package_id: Which package it was scoped to, or `None` for a run-scoped
+            sweep -- which is a different row from every package-scoped one and
+            must not suppress them or be suppressed by them.
         state: How it ended.
         ago: How long before `FIXED_INSTANT` it finished.
 
@@ -1232,8 +1250,26 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
         COLLECTION_FAILED_EVENT,
         COLLECTION_NOT_MODIFIED_EVENT,
         COLLECTION_NOT_REMEMBERED_EVENT,
+        COLLECTION_PARTIAL_EVENT,
     ):
         assert event.split(".")[0] == "collection", event
+    # Six distinct names, and the distinctness is the point rather than a
+    # formality: `partial` and `failed` are different operational facts, so a
+    # log query that had to tell them apart by parsing `detail` would be reading
+    # two schemas out of one key.
+    assert (
+        len(
+            {
+                COLLECTION_SKIPPED_EVENT,
+                COLLECTION_REFUSED_EVENT,
+                COLLECTION_FAILED_EVENT,
+                COLLECTION_NOT_MODIFIED_EVENT,
+                COLLECTION_NOT_REMEMBERED_EVENT,
+                COLLECTION_PARTIAL_EVENT,
+            },
+        )
+        == DISTINCT_COLLECTION_EVENTS
+    )
 
     _record_run(collector=FIXTURE_COLLECTOR, package_id=A_PACKAGE, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
     _collector(RecordedTransport(payload=recorded_payload())).collect(package_id=A_PACKAGE)
@@ -1817,3 +1853,315 @@ def _served_collector(url: str) -> type[Collector]:
             return url
 
     return _ServedCollector
+
+
+# ---------------------------------------------------------------------------
+# The run-scoped sweep path (`CPM-AD-25`), against a real ledger.
+# ---------------------------------------------------------------------------
+
+
+def _sweeping_collector(transport: RecordedTransport, *, permitted: bool = True) -> Collector:
+    """Build the sweeping fixture collector with a decided rate limit.
+
+    The counterpart to `_collector` above, and it exists for one reason the
+    inventory collector cannot supply: inventory ingestion declares `NO_WINDOW`,
+    so the window branch of `sweep()` is unreachable through it. This fixture
+    declares `FIXTURE_WINDOW`, which is what makes that branch a thing a case can
+    be about.
+
+    Args:
+        transport: The scripted transport.
+        permitted: What the substituted limiter answers.
+
+    Returns:
+        A constructed collector with a run-scoped source and run-scoped
+        persistence.
+
+    """
+    built = sweeping_collector_class(declared_model=fixture_evidence_model())
+    return built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=permitted))
+
+
+@pytest.mark.django_db
+def test_a_sweep_records_one_run_scoped_to_no_package(evidence_table: type[AppendOnlyModel]) -> None:
+    """`CPM-AD-25`'s run-scoped path, and the ledger row it leaves.
+
+    One run row, finalized rather than left `running`, and its `package_id` is
+    NULL because the run was not scoped to one package -- which `core/ledger.py`
+    already anticipated by accepting `package_id=None`, and which is the only
+    thing that lets one document naming many packages be recorded as one run at
+    all.
+    """
+    transport = RecordedTransport(payload=recorded_payload(source=FIXTURE_SWEEP_SOURCE, body=SERVED_BODY))
+
+    result = _sweeping_collector(transport).sweep()
+
+    assert transport.calls == [FIXTURE_SWEEP_SOURCE]
+    assert result.state is RunState.SUCCEEDED
+    assert result.evidence_rows == 1
+    run = _finished_run()
+    assert run.package_id is None
+    assert run.status == RunState.SUCCEEDED
+    assert run.finished_at is not None
+    row = _rows(evidence_table)[0]
+    assert row.observed_at == FIXED_INSTANT
+    assert row.source == FIXTURE_SWEEP_SOURCE
+
+
+@pytest.mark.django_db
+def test_a_sweep_inside_the_window_is_skipped_and_never_reaches_the_source(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """`CPM-AD-7`'s window, asked the run-scoped question.
+
+    The suppressing row carries no package reference, which is what makes it a
+    previous *sweep* rather than a previous collection of one package -- and the
+    transport staying untouched is the only way to show the run was declined
+    rather than performed and discarded.
+    """
+    _record_run(collector=FIXTURE_COLLECTOR, package_id=None, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
+    transport = RecordedTransport(payload=recorded_payload(source=FIXTURE_SWEEP_SOURCE))
+
+    result = _sweeping_collector(transport).sweep()
+
+    assert transport.calls == []
+    assert result.state is RunState.SKIPPED
+    assert result.evidence_rows == 0
+    assert evidence_table.objects.count() == 0
+    assert "observation window" in result.detail
+
+
+@pytest.mark.django_db
+def test_a_package_scoped_run_does_not_suppress_a_sweep(evidence_table: type[AppendOnlyModel]) -> None:
+    """The separation the `IS NULL` in the window query buys.
+
+    A recollection of one package is not an observation of the inventory, so it
+    must not silence the sweep that would have observed every other package --
+    which is a single keyword's difference in the query and no difference at all
+    in any behaviour a one-run case could see.
+    """
+    _record_run(collector=FIXTURE_COLLECTOR, package_id=A_PACKAGE, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
+    transport = RecordedTransport(payload=recorded_payload(source=FIXTURE_SWEEP_SOURCE))
+
+    result = _sweeping_collector(transport).sweep()
+
+    assert transport.calls == [FIXTURE_SWEEP_SOURCE]
+    assert result.state is RunState.SUCCEEDED
+    assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_forced_sweep_bypasses_the_window(evidence_table: type[AppendOnlyModel]) -> None:
+    """`CPM-UJ-1`: a manually triggered recollection always bypasses the window.
+
+    One path with one difference, rather than a second entry point -- the same
+    argument `collect(force=True)` is written against, applied to the run-scoped
+    path.
+    """
+    _record_run(collector=FIXTURE_COLLECTOR, package_id=None, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
+    transport = RecordedTransport(payload=recorded_payload(source=FIXTURE_SWEEP_SOURCE))
+
+    result = _sweeping_collector(transport).sweep(force=True)
+
+    assert transport.calls == [FIXTURE_SWEEP_SOURCE]
+    assert result.state is RunState.SUCCEEDED
+    assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_collector_with_no_run_scoped_source_is_refused_before_it_spends_anything() -> None:
+    """The ordering `sweep_source`'s own docstring promises, pinned rather than described.
+
+    "Raised before the window, the allowance and the transport" is a claim about
+    *where the call sits*, and moving it below the limiter would spend a real
+    allowance on a collector that was never going to make a call -- while every
+    case that asserts the refusal by calling `sweep_source()` directly would go on
+    passing. So the refusal is driven through `sweep()`, and what is asserted is
+    what was not touched.
+
+    The ledger row is still written and finalized: the recorder opens first and
+    nothing wraps it, so a run that could not say what it reads is a run that
+    happened and failed rather than one that left no trace.
+    """
+    limiter = FixedLimiter(permitted=True)
+    transport = RecordedTransport()
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector = built(clock=_clock(), transport=transport, limiter=limiter)
+
+    with pytest.raises(CollectorConfigurationError) as refused:
+        collector.sweep()
+
+    assert "sweep_source" in str(refused.value)
+    assert limiter.asks == []
+    assert transport.calls == []
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sweep_that_reports_rows_it_did_not_write_is_refused(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """`CPM-AD-23`'s counterpart to `_require_stamped`, and the reason it exists.
+
+    `persist_sweep` writes its own rows and hands the base a number. A base that
+    trusted the number would finalize a successful run over a table with one row
+    in it and a report of a hundred -- and the mistake type-checks, writes
+    correct rows, and fails nothing else.
+    """
+    built = miscounting_sweep_collector_class(declared_model=fixture_evidence_model())
+    collector = _deviating_sweeper(built)
+
+    with pytest.raises(CollectorConfigurationError) as refused:
+        collector.sweep()
+
+    assert str(A_FABRICATED_ROW_COUNT) in str(refused.value)
+    assert evidence_table.objects.count() == 1
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sweep_that_writes_around_the_base_is_refused(evidence_table: type[AppendOnlyModel]) -> None:
+    """The honest count over rows the base never checked.
+
+    This one really did write what it says. What it did not do is let the base
+    see the row -- so the declared-model check and the `observed_at` check never
+    ran, which is exactly the hole `bulk_create` opens in `save()`, reopened one
+    level up. The tally is what notices, and it is why the tally is the base's
+    own rather than the subclass's.
+    """
+    built = bypassing_sweep_collector_class(declared_model=fixture_evidence_model())
+    collector = _deviating_sweeper(built)
+
+    with pytest.raises(CollectorConfigurationError) as refused:
+        collector.sweep()
+
+    assert "persist_sweep reported" in str(refused.value)
+    assert evidence_table.objects.count() == 1
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sweep_row_stamped_from_somewhere_else_is_refused(evidence_table: type[AppendOnlyModel]) -> None:
+    """`CPM-AD-26` on the run-scoped path, which reaches the guard by its own route.
+
+    `bulk_create` does not call `save()`, so `AppendOnlyModel`'s naive-instant
+    refusal never runs on either path -- and the sweep would have gone around
+    `_require_stamped` too if its rows did not pass through `_write_evidence`.
+    Nothing is written, because the check is before the insert.
+    """
+    built = unstamped_sweep_collector_class(declared_model=fixture_evidence_model())
+    collector = _deviating_sweeper(built)
+
+    with pytest.raises(CollectorConfigurationError) as refused:
+        collector.sweep()
+
+    assert "observed_at" in str(refused.value)
+    assert evidence_table.objects.count() == 0
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sweep_row_of_another_model_is_refused(evidence_table: type[AppendOnlyModel]) -> None:
+    """`CPM-AD-7`: a collector writes its own append-only table and no other.
+
+    `bulk_create` is called on the declared model's manager, so a row of another
+    model arrives as a set of attributes to read fields off -- and what lands is
+    a row assembled in the wrong table's shape, with no error anywhere. A sweep
+    assembles rows across a whole document, which is what makes the mistake
+    reachable at all.
+    """
+    built = foreign_model_sweep_collector_class(
+        declared_model=fixture_evidence_model(),
+        written_model=other_fixture_evidence_model(),
+    )
+    collector = _deviating_sweeper(built)
+
+    with pytest.raises(CollectorConfigurationError) as refused:
+        collector.sweep()
+
+    assert "evidence_model" in str(refused.value)
+    assert evidence_table.objects.count() == 0
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sweep_answered_not_modified_fails_rather_than_parsing_nothing(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """A run-scoped read is unconditional, so a `304` is the source contradicting it.
+
+    The sweep sends no validator and holds no cached body, so there is nothing to
+    replay and no document to read. Left to fall through it would surface as
+    whatever the subclass makes of an empty body -- a parse error describing the
+    wrong problem entirely.
+    """
+    payload = recorded_payload(source=FIXTURE_SWEEP_SOURCE, body="", not_modified=True)
+
+    result = _sweeping_collector(RecordedTransport(payload=payload)).sweep()
+
+    assert result.state is RunState.FAILED
+    assert evidence_table.objects.count() == 0
+    assert "nothing has changed" in _finished_run().detail
+
+
+def _swept_payload() -> Payload:
+    """Return the document the sweeping fixtures are handed.
+
+    Returns:
+        A payload naming the run-scoped locator, which is what the fixtures'
+        rows record as their source.
+
+    """
+    return recorded_payload(source=FIXTURE_SWEEP_SOURCE, body=SERVED_BODY)
+
+
+def _deviating_sweeper(built: type[Collector]) -> Collector:
+    """Construct one of the deviating sweep fixtures, ready to be driven.
+
+    Written once because the four cases that use it differ in *which* deviation
+    they build and in nothing else, and a constructor spelled four times is four
+    places a substituted limiter could quietly go missing.
+
+    Args:
+        built: The collector class the case is about.
+
+    Returns:
+        The constructed collector, over a scripted transport and a permitting
+        limiter -- so that whatever it is refused for is the deviation rather
+        than the arrangement.
+
+    """
+    return built(
+        clock=_clock(),
+        transport=RecordedTransport(payload=_swept_payload()),
+        limiter=FixedLimiter(permitted=True),
+    )
+
+
+@pytest.mark.django_db
+def test_a_sweep_that_writes_nothing_and_reports_nothing_wrong_still_fails(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The silent mismatch, run-scoped: no rows, no failures, and no success either.
+
+    A source that changed shape produces no records and raises nothing, which is
+    the shape `empty_translation_collector_class` measures on the per-package
+    path. Here it is worth having twice for a reason of its own: the sweep's
+    ending is chosen from *two* numbers and a failure list, and a base that had
+    read "nothing failed" as "nothing went wrong" would finalize a clean run over
+    an inventory nobody observed.
+
+    The `detail` names no packages, because none were named -- which is what
+    `_reported`'s empty branch is for, and the only path that reaches it.
+    """
+    built = barren_sweep_collector_class(declared_model=fixture_evidence_model())
+
+    result = _deviating_sweeper(built).sweep()
+
+    assert result.state is RunState.FAILED
+    assert result.evidence_rows == 0
+    assert evidence_table.objects.count() == 0
+    run = _finished_run()
+    assert run.status == RunState.FAILED
+    assert "no evidence row from any record" in run.detail
+    assert "could not be persisted" not in run.detail

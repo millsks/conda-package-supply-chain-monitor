@@ -20,14 +20,19 @@ from `tests/model_registry.py`, which is shared with the two evidence audits
 `tests/source_scan.py` gives about its own primitives, that two sweeps
 disagreeing about what they cover look exactly like two passing tests.
 
-**The anti-vacuity guard is the load-bearing half today.** No derived-status
-model exists yet -- `CPM-EVIDENCE-S02` and `S03` bring the first ones -- so the
-sweep over the registry currently passes by finding nothing, which is exactly how
-an audit comes to be permanently green and permanently useless. What stops that
-is the fixture half below: the detector is measured against real Django models
-built in an isolated registry, one conforming and four broken in the four ways
-`CPM-AD-5` names, so a detector that had stopped detecting fails here on the day
-it stops rather than on the day the first evidence model lands.
+**The anti-vacuity guard is still the load-bearing half.** The registry now holds
+real models this sweep covers -- `CPM-EVIDENCE-S03`'s two run-ledger tables and
+`CPM-IDENTITY-S06`'s `inventory_snapshots` -- and none of them carries a field
+this rule is about. The ledger's `status` is `RunState` and is amended out below;
+the snapshot records presence as `state`, which is deliberately not a
+derived-status name, because what a *source said* is not what a *policy
+concluded*. So the sweep passes by finding no offenders rather than by finding
+nothing at all, and the difference between those two is precisely what an audit
+cannot show about itself. What does show it is the fixture half below: the
+detector is measured against real Django models built in an isolated registry,
+one conforming and four broken in the four ways `CPM-AD-5` names, so a detector
+that had stopped detecting fails here on the day it stops rather than on the day
+the first derived-status column lands.
 
 `django.test.utils.isolate_apps` is what keeps those fixtures out of the real
 registry. They are genuine model classes with genuine fields -- a stand-in object
@@ -98,6 +103,7 @@ from tests.model_registry import FIRST_PARTY_APP_NAMES
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 from tests.model_registry import RUN_LEDGER_MODEL_LABELS
+from tests.model_registry import evidence_models
 from tests.model_registry import first_party_app_names
 from tests.model_registry import first_party_models
 from tests.model_registry import installed_app_names
@@ -391,11 +397,23 @@ def test_the_registry_scope_reaches_this_repositorys_applications() -> None:
 def test_every_derived_status_field_carries_the_four_sentinels() -> None:
     """`CPM-AD-5`, enumerated from the registry rather than from a list.
 
-    No model declares a derived status yet, so this passes over an empty set
-    today. That is stated rather than hidden: what keeps the case honest in the
-    meantime is the fixture half below, which proves the detector still detects.
-    The day `CPM-EVIDENCE-S02` lands the first evidence model, this becomes the
-    assertion that matters and needs no edit to start mattering.
+    **The sweep is over every first-party model, not only over evidence**, which
+    is why this case has a different anti-vacuity guard from its two siblings:
+    `CPM-AD-5` binds a derived status "anywhere", so a `licence_status` on a
+    workflow row is as much in scope as one on a snapshot. The guard is therefore
+    that the *model* sweep is non-empty, which
+    `test_the_registry_scope_reaches_this_repositorys_applications` above already
+    asserts, plus the one below -- that evidence is reachable at all now that a
+    real evidence table exists.
+
+    `CPM-IDENTITY-S06` landed that table, `inventory_snapshots`. It carries no
+    field this audit is about, and deliberately: presence is `state`, which is
+    not a derived-status name, because a snapshot records what a source said
+    rather than what a policy concluded. So this still passes over no offenders,
+    and now it does so with something in front of it.
+
+    What keeps the case honest either way is the fixture half below, which proves
+    the detector still detects against models built to fail it.
     """
     offenders = {
         model._meta.label: failures  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
@@ -404,6 +422,19 @@ def test_every_derived_status_field_carries_the_four_sentinels() -> None:
     }
 
     assert offenders == {}
+
+
+def test_the_sweep_reaches_this_repositorys_evidence_models() -> None:
+    """The guard the two sibling evidence audits carry, stated for this one too.
+
+    This audit sweeps `first_party_models()` rather than `evidence_models()`, so
+    it would not go empty if the evidence predicate narrowed -- but it *would*
+    stop covering the models the rule is most consequential for, silently. The
+    day `CPM-IDENTITY-S06`'s table stopped being reachable, this fails here
+    rather than in a sweep that reports a clean repository.
+    """
+    assert set(evidence_models()) <= set(first_party_models())
+    assert evidence_models() != [], "no evidence model is in scope, so the sweep covers none of them"
 
 
 def test_no_first_party_model_declares_a_boolean_named_like_a_status() -> None:

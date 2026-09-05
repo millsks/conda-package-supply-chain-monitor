@@ -11,7 +11,12 @@ refusal at the write rather than a review convention.
 **What this base is not.** It declares no table. `Meta.abstract = True`, so
 `makemigrations` produces nothing for it, and it is deliberately not accompanied
 by a concrete evidence model: `CPM-AD-7` gives each collector its own evidence
-table, and the first of them arrives with `CPM-EP-CURRENCY`. The run ledger --
+table, in that collector's own application. The first of them is
+`collectors.InventorySnapshot`, the `inventory_snapshots` table `CPM-AD-25`
+names, and it landed with `CPM-IDENTITY-S06` rather than with `CPM-EP-CURRENCY`
+-- the inventory is observed like any other source, so the first collector to
+ship is the one that acquires the packages every later collector observes. The
+run ledger --
 `collection_runs` and `policy_runs` -- is explicitly *exempt* from this base by
 `CPM-AD-2` and belongs to `CPM-EVIDENCE-S03`: a run row is created before the
 first outbound call and finalized afterwards, so it is mutable by construction

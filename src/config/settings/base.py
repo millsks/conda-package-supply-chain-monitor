@@ -200,6 +200,12 @@ LOCAL_APPS = [
     # the application today.
     "conda_package_supply_chain_monitor.core",
     "conda_package_supply_chain_monitor.identity",
+    # The collectors application, and the first adopted application declaring a
+    # `ready()` (CPM-IDENTITY-S06). It adopts its collectors into `core`'s
+    # registry, which is what CPM-AD-28's stage-2 sweep walks -- so it has to
+    # stay after the stage-2 owner exactly as the two above do, which appending
+    # is what guarantees.
+    "conda_package_supply_chain_monitor.collectors",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps

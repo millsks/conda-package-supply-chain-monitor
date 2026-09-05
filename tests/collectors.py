@@ -86,9 +86,11 @@ from typing import Final
 
 from django.core.cache import cache
 from django.db import models
+from django.db import transaction
 from django.test.utils import isolate_apps
 
 from conda_package_supply_chain_monitor.core.collection import Collector
+from conda_package_supply_chain_monitor.core.collection import SweepOutcome
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.registry import CollectorRegistryError
@@ -163,6 +165,28 @@ FIXTURE_SOURCE_PREFIX: Final[str] = "https://fixture.invalid/packages/"
 #: field that exists so an evidence row can say where an observation came from,
 #: so the default has to be something a row could meaningfully carry.
 A_SOURCE: Final[str] = f"{FIXTURE_SOURCE_PREFIX}recorded"
+
+#: The locator the sweeping fixture collector reads. A document rather than a
+#: package, because that is the whole difference between the two paths: `sweep()`
+#: asks for one locator per *run* and `collect()` asks for one per package.
+FIXTURE_SWEEP_SOURCE: Final[str] = "https://fixture.invalid/inventory"
+
+#: The package the sweeping fixture collector writes its one row about. It has no
+#: `identity.Package` behind it, and needs none: the fixture evidence model
+#: carries a plain integer `package_id` rather than a relation.
+A_SWEPT_PACKAGE: Final[int] = 4242
+
+#: What the miscounting sweep fixture claims to have written. Large enough that
+#: no plausible fixture writes it by accident, so a case asserting the refusal is
+#: asserting about the claim rather than about an off-by-one.
+A_FABRICATED_ROW_COUNT: Final[int] = 99
+
+#: The table the *second* fixture evidence model is given. It exists only so a
+#: collector can be caught writing a row of a model it did not declare, and no
+#: case ever inserts one -- the base refuses before the insert -- so this name
+#: never reaches a schema editor. It is declared anyway, for the reason
+#: `FIXTURE_TABLE` is: a derived name would one day land on a real table.
+FIXTURE_OTHER_TABLE: Final[str] = "cpm_fixture_other_fact"
 
 #: What a fixture payload's body says when a case does not care.
 A_PAYLOAD_BODY: Final[str] = '{"version": "2.4.0"}'
@@ -277,6 +301,41 @@ def fixture_evidence_model() -> type[AppendOnlyModel]:
                 db_table = FIXTURE_TABLE
 
     return CollectedFact
+
+
+@memoized
+def other_fixture_evidence_model() -> type[AppendOnlyModel]:
+    """Return a second fixture evidence model, for the wrong-table case.
+
+    Identical in shape to `fixture_evidence_model` and deliberately not the same
+    class: the thing under test is that the base refuses a row whose *model* is
+    not the one the collector declared, and a row that differed in its fields as
+    well would leave open which of the two differences was noticed.
+
+    No table is ever created for it. The refusal happens before the insert, which
+    is the whole point -- a row of the wrong model reaching `bulk_create` is
+    already a row in the wrong table's shape.
+
+    Returns:
+        A concrete `AppendOnlyModel` subclass distinct from
+        `fixture_evidence_model()`. Cached, so identity comparisons hold across a
+        session.
+
+    """
+    with isolate_apps(FIXTURE_APP):
+
+        class OtherCollectedFact(AppendOnlyModel):
+            package_id = models.PositiveBigIntegerField()
+            state = models.CharField(max_length=_STATE_LENGTH)
+            detail = models.TextField(blank=True, default="")
+            body = models.TextField(blank=True, default="")
+            source = models.CharField(max_length=_SOURCE_LENGTH, blank=True, default="")
+
+            class Meta:
+                app_label = FIXTURE_LABEL
+                db_table = FIXTURE_OTHER_TABLE
+
+    return OtherCollectedFact
 
 
 @dataclass(slots=True)
@@ -967,6 +1026,312 @@ def unwritable_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]
             )
 
     return _UnwritableSentinelCollector
+
+
+def sweeping_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a fixture collector that reads one run-scoped document.
+
+    The base's `sweep()` path needs a subject that is not the inventory
+    collector, for one reason and it is a real one: inventory ingestion declares
+    `NO_WINDOW`, so the window branch of `sweep()` -- the one that records a
+    `skipped` run without touching the transport -- is unreachable through it.
+    A fixture declaring `FIXTURE_WINDOW` is what makes that branch a thing a case
+    can be about, exactly as `collector_class`'s window is for `collect()`.
+
+    It writes one ordinary determinate row per run, through a transaction of its
+    own and then through the base's `_write_evidence`, which is what the
+    subclass contract asks for: the atomic unit is inside `persist_sweep` rather
+    than around it (`CPM-AD-23`), and every row still passes the base's
+    declared-model, stamping and tally checks.
+
+    Args:
+        declared_model: The evidence model the row is written to, and the model
+            the row is *built* from -- the two must be the same or the base
+            refuses, which is what `foreign_model_sweep_collector_class` below
+            exists to show.
+
+    Returns:
+        A concrete `Collector` subclass with a run-scoped source and run-scoped
+        persistence, and every other declaration the ordinary fixture's.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _SweepingCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that reads one document naming one package."""
+
+        def sweep_source(self) -> str:
+            """Return the run-scoped locator.
+
+            Returns:
+                An unreachable URL naming the document rather than a package.
+
+            """
+            return FIXTURE_SWEEP_SOURCE
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Write one determinate row, in a transaction of its own.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                One observed row and no failures.
+
+            """
+            with transaction.atomic():
+                written = self._write_evidence(
+                    [_swept_row(declared_model, observed_at=observed_at, payload=payload)],
+                    observed_at=observed_at,
+                )
+            return SweepOutcome(observed_rows=written)
+
+    return _SweepingCollector
+
+
+def _swept_row(
+    model: type[AppendOnlyModel],
+    *,
+    observed_at: datetime,
+    payload: Payload,
+    package_id: int = A_SWEPT_PACKAGE,
+) -> AppendOnlyModel:
+    """Build the one row the sweeping fixtures write.
+
+    Written once because five fixtures below differ from the working one by a
+    single thing each -- the model, the instant, the count, the door -- and a
+    row assembled separately in each would let two of them differ by something
+    nobody meant.
+
+    Args:
+        model: The model to build the row from.
+        observed_at: The instant to stamp it with.
+        payload: What the source said, for the body and the locator.
+        package_id: The package the row is about.
+
+    Returns:
+        One unsaved determinate row.
+
+    """
+    return model(
+        observed_at=observed_at,
+        package_id=package_id,
+        state=DETERMINATE_VALUE,
+        detail="",
+        body=payload.body,
+        source=payload.source,
+    )
+
+
+def barren_sweep_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a sweeping collector whose document yields nothing and fails nothing.
+
+    The silent-mismatch case on the run-scoped path -- `empty_translation_collector_class`'s
+    failure, one level up. A source that changed shape, or a parser that no longer
+    matches it, produces no records, no rows and no exception at all; left
+    unguarded that is a `succeeded` run over an inventory nobody observed.
+
+    It reports **no failures**, which is the half that matters: a base deciding
+    "did this work" on the failure list alone would call this a clean run.
+
+    Args:
+        declared_model: The evidence model the collector declares and never
+            writes to.
+
+    Returns:
+        A concrete `Collector` subclass whose sweep writes nothing.
+
+    """
+    sweeping = sweeping_collector_class(declared_model=declared_model)
+
+    class _BarrenSweepCollector(sweeping):  # type: ignore[valid-type, misc]
+        """A sweeping collector whose parser no longer matches its source."""
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Write nothing and report nothing wrong.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant the rows would have carried.
+
+            Returns:
+                No rows of either kind and no failures.
+
+            """
+            return SweepOutcome(observed_rows=0)
+
+    return _BarrenSweepCollector
+
+
+def miscounting_sweep_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a sweeping collector that reports rows it did not write.
+
+    The mistake `Collector._require_counted` exists for, and the one nothing else
+    could catch: `persist_sweep` hands the base an integer, and a base that
+    trusted it would finalize a successful run over a table with nothing in it.
+    It type-checks perfectly and every row it *does* write is correct.
+
+    Args:
+        declared_model: The evidence model the row is written to.
+
+    Returns:
+        A concrete `Collector` subclass whose reported count exceeds its writes.
+
+    """
+    sweeping = sweeping_collector_class(declared_model=declared_model)
+
+    class _MiscountingCollector(sweeping):  # type: ignore[valid-type, misc]
+        """A collector that overstates what it wrote."""
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Write one row and claim a great many.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                A count that is not what was written.
+
+            """
+            with transaction.atomic():
+                self._write_evidence(
+                    [_swept_row(declared_model, observed_at=observed_at, payload=payload)],
+                    observed_at=observed_at,
+                )
+            return SweepOutcome(observed_rows=A_FABRICATED_ROW_COUNT)
+
+    return _MiscountingCollector
+
+
+def bypassing_sweep_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a sweeping collector that writes around the base rather than through it.
+
+    The other half of the same guard. This one's count is honest -- it really did
+    write one row -- but the row never passed the base's declared-model and
+    stamping checks, which is the hole `bulk_create` opens in `save()` reopened
+    one level up. The tally is what notices: the base wrote nothing.
+
+    Args:
+        declared_model: The evidence model the row is written to.
+
+    Returns:
+        A concrete `Collector` subclass that inserts its own rows.
+
+    """
+    sweeping = sweeping_collector_class(declared_model=declared_model)
+
+    class _BypassingCollector(sweeping):  # type: ignore[valid-type, misc]
+        """A collector that reaches the table on its own."""
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Insert directly, reporting the count truthfully.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                The number of rows written, which the base never saw written.
+
+            """
+            with transaction.atomic():
+                created = declared_model.objects.bulk_create(
+                    [_swept_row(declared_model, observed_at=observed_at, payload=payload)],
+                )
+            return SweepOutcome(observed_rows=len(created))
+
+    return _BypassingCollector
+
+
+def unstamped_sweep_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a sweeping collector that stamps its rows from somewhere other than the run.
+
+    `unstamped_collector_class`'s failure arriving on the run-scoped path. It is
+    worth having twice because the two paths reach `_require_stamped` by
+    different routes: the per-package one hands the base its rows, and this one
+    writes them itself and must still go through the same door.
+
+    Args:
+        declared_model: The evidence model the row is written to.
+
+    Returns:
+        A concrete `Collector` subclass whose swept row carries a naive instant.
+
+    """
+    sweeping = sweeping_collector_class(declared_model=declared_model)
+
+    class _UnstampedSweepCollector(sweeping):  # type: ignore[valid-type, misc]
+        """A sweeping collector that reads its own clock, badly."""
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Stamp the row with a naive instant of its own.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant it was handed and ignores.
+
+            Returns:
+                Never; the base refuses the row first.
+
+            """
+            with transaction.atomic():
+                written = self._write_evidence(
+                    [_swept_row(declared_model, observed_at=A_NAIVE_INSTANT, payload=payload)],
+                    observed_at=observed_at,
+                )
+            return SweepOutcome(observed_rows=written)
+
+    return _UnstampedSweepCollector
+
+
+def foreign_model_sweep_collector_class(
+    *,
+    declared_model: type[AppendOnlyModel],
+    written_model: type[AppendOnlyModel],
+) -> type[Collector]:
+    """Build a sweeping collector that writes a row of a table it did not declare.
+
+    `CPM-AD-7` gives each collector its own evidence table, and `bulk_create` is
+    called on the *declared* model's manager -- so a row of some other model
+    reaches it as a bag of attributes and lands in the wrong table's shape. The
+    per-package path never made this reachable, because `translate` is written
+    beside the model it returns; a sweep assembles rows across a whole document
+    and is where it becomes easy.
+
+    Args:
+        declared_model: The evidence model the collector declares.
+        written_model: The model it actually builds its row from.
+
+    Returns:
+        A concrete `Collector` subclass whose swept row is of the wrong model.
+
+    """
+    sweeping = sweeping_collector_class(declared_model=declared_model)
+
+    class _ForeignModelSweepCollector(sweeping):  # type: ignore[valid-type, misc]
+        """A sweeping collector writing into somebody else's table."""
+
+        def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+            """Build the row from the wrong model.
+
+            Args:
+                payload: What the source said.
+                observed_at: The instant to stamp the row with.
+
+            Returns:
+                Never; the base refuses the row first.
+
+            """
+            with transaction.atomic():
+                written = self._write_evidence(
+                    [_swept_row(written_model, observed_at=observed_at, payload=payload)],
+                    observed_at=observed_at,
+                )
+            return SweepOutcome(observed_rows=written)
+
+    return _ForeignModelSweepCollector
 
 
 @contextmanager

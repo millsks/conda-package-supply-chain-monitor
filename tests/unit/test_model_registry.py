@@ -16,8 +16,9 @@ a clean repository, and every anti-vacuity guard they carry is about their *own*
 subject rather than about this. An `is_evidence_model` that had narrowed to
 nothing does the same thing one layer down: the fixture halves of the two
 evidence audits pass their models to the predicates directly, so they would
-notice -- but the *sweep* half in each would go silently empty, and the sweeps
-are the halves that start mattering the day the first evidence table lands.
+notice -- but the *sweep* half in each would go silently empty, and since
+`CPM-IDENTITY-S06` landed `inventory_snapshots` those sweeps have a real table to
+be about.
 
 **The mark and the field it names are checked against each other.**
 `OBSERVED_AT_FIELD` is a string, and `AppendOnlyModel.observed_at` is a field; a
@@ -68,6 +69,21 @@ from tests.source_scan import SRC_ROOT
 
 #: The three marks, in the order `evidence_marks` argues them.
 EVERY_MARK: Final[tuple[str, ...]] = ("base", "app_label", OBSERVED_AT_FIELD)
+
+#: Every evidence model this repository declares, by `app_label.Model`.
+#:
+#: The same shape `RUN_LEDGER_MODEL_LABELS` has, and here for the same reason: the
+#: set is frozen so that a new evidence table is an edit somebody made rather than
+#: a widening nothing noticed. It is a hand-written table on purpose -- what a
+#: predicate discovers is exactly what a predicate that had narrowed would stop
+#: discovering.
+#:
+#: One entry. `collectors.InventorySnapshot` is `inventory_snapshots`
+#: (`CPM-AD-25`), landed by `CPM-IDENTITY-S06` as the first concrete evidence
+#: model in the repository. It lives here rather than in `tests/model_registry.py`
+#: because nothing else needs it: the two evidence audits assert only that their
+#: sweep is non-empty, which is the anti-vacuity claim each of them is about.
+EVIDENCE_MODEL_LABELS: Final[frozenset[str]] = frozenset({"collectors.InventorySnapshot"})
 
 
 # ---------------------------------------------------------------------------
@@ -258,21 +274,21 @@ def test_a_model_declaring_nothing_is_not_exempt() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_registry_holds_no_evidence_model_and_exactly_the_run_ledger_escapes() -> None:
+def test_the_registry_holds_exactly_the_evidence_models_and_the_run_ledger_escapes() -> None:
     """The state today, asserted rather than assumed by three audits at once.
 
-    Both halves are pinned so that "the sweep passed over nothing" and "the sweep
-    passed over exactly these two" are statements somebody checked, rather than
-    inferences from three audits that each assumed them.
+    Both halves are pinned so that "the sweep passed over exactly this" and "the
+    sweep passed over exactly these two" are statements somebody checked, rather
+    than inferences from three audits that each assumed them.
 
-    `evidence_models()` is still empty: `CPM-EVIDENCE-S02` is forbidden to create
-    a concrete evidence model and `CPM-AD-7` puts the first with
-    `CPM-EP-CURRENCY`. `exempt_models()` is no longer empty -- `CPM-EVIDENCE-S03`
-    brought the first users of the escape, and the two are the run-ledger tables
-    `CPM-AD-2` exempts by name. That neither of them is *also* returned as
-    evidence is the property that matters: `evidence_marks` returns nothing for a
-    model declaring the escape, so the two sets are disjoint by construction and
-    a change that broke that would put the ledger under the append-only sweep.
+    `evidence_models()` is no longer empty: `CPM-IDENTITY-S06` landed
+    `collectors.InventorySnapshot`, the `inventory_snapshots` table `CPM-AD-25`
+    names, which is the first concrete evidence model in this repository.
+    `exempt_models()` has not been empty since `CPM-EVIDENCE-S03`, and the two it
+    holds are the run-ledger tables `CPM-AD-2` exempts by name. That no model is
+    in both sets is the property that matters: `evidence_marks` returns nothing
+    for a model declaring the escape, so they are disjoint by construction and a
+    change that broke that would put the ledger under the append-only sweep.
 
     The day either set changes again this fails, and the fix is a deliberate edit
     here -- which is the point.
@@ -281,12 +297,16 @@ def test_the_registry_holds_no_evidence_model_and_exactly_the_run_ledger_escapes
         model._meta.label  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
         for model in exempt_models()
     }
+    evidence = {
+        model._meta.label  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        for model in evidence_models()
+    }
 
-    assert evidence_models() == []
+    assert evidence == EVIDENCE_MODEL_LABELS
     assert exempt == RUN_LEDGER_MODEL_LABELS
     assert set(exempt_models()) & set(evidence_models()) == set()
     assert set(exempt_models()) <= set(first_party_models())
-    # Trivially true while `evidence_models()` is empty, and kept for the day it
-    # is not: both derived sweeps must stay inside the first-party scope, or an
-    # audit is reporting on models whose rules are not this product's to dictate.
+    # No longer trivially true: both derived sweeps must stay inside the
+    # first-party scope, or an audit is reporting on models whose rules are not
+    # this product's to dictate.
     assert set(evidence_models()) <= set(first_party_models())

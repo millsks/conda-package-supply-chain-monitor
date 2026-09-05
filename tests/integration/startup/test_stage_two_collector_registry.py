@@ -25,12 +25,15 @@ failure would land in whichever case happened to run next rather than in this
 file. `tests/collectors.py`'s `registered_collector` withdraws in a `finally`,
 which is the only ordering that survives a case whose whole body raises.
 
-**The empty registry is the other half, and it is the state production is in.**
-No collector exists until `CPM-EP-CURRENCY` declares the first one
-(`CPM-AD-7`), so every component in this repository boots today with nothing
-registered. A condition that refused an empty sweep -- or that demanded at least
-one registration -- would stop every one of them, and it would do so while
-passing a test suite that only ever asserted the refusal.
+**The registry this component really boots with is the other half.**
+`CPM-IDENTITY-S06` adopted the first collector, so a deployed boot now sweeps a
+roster of one rather than of nothing, and the case that asserts it is what proves
+the condition passes over a *real* declaration and not only over fixtures. The
+empty case it replaces made the opposite claim and was worth making while it was
+true; what it cannot do any more is be true. A condition that refused the roster
+below would stop every process in this repository, and it would do so while every
+refusal case above still passed -- which is why the roster is asserted rather than
+assumed.
 
 `tests/integration/conftest.py` marks everything under `tests/integration/` as an
 integration test; the marker is not re-applied by hand.
@@ -44,7 +47,8 @@ from typing import TYPE_CHECKING
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
-from conda_package_supply_chain_monitor.core import registry
+from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
+from conda_package_supply_chain_monitor.core.registry import registrations
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR
 from config.startup import run_stage_two
@@ -196,17 +200,26 @@ def test_a_registered_collector_that_declares_a_target_starts() -> None:
         run_stage_two()
 
 
-def test_an_empty_registry_does_not_refuse() -> None:
+def test_the_registry_this_component_actually_boots_with_does_not_refuse() -> None:
     """The state every component in this repository is actually in today.
 
-    No collector exists until `CPM-EP-CURRENCY` declares the first one
-    (`CPM-AD-7`), so an empty sweep is the normal case rather than an edge of
-    one. A condition that treated "no collector registered" as "somebody forgot
-    to declare a target" would refuse every deployed boot in this tree -- and it
-    would do so while every refusal case above still passed, which is why the
-    emptiness is asserted rather than assumed.
+    `CPM-IDENTITY-S06` adopted the first real collector, so the registry a
+    deployed boot sweeps is no longer empty: `CollectorsConfig.ready()` registers
+    inventory ingestion during `django.setup()`, and the sweep meets it on every
+    boot in this tree. That is asserted rather than assumed, and both halves
+    matter -- the roster is what it is meant to be, and stage two passes over it
+    without a fixture in sight.
+
+    Asserted by *name* rather than by identity, and the reason is what the
+    registry is *for* rather than an import rule -- this module imports the
+    collector's module either way, because a constant lives in it. The name is
+    the registry's key, it is what a ledger row carries (`CPM-FR-39`) and what a
+    rate-limit allowance is counted against, so "which collectors is this
+    component running" is a question about names. A roster compared by identity
+    would still pass if two classes had come to share one.
     """
-    assert registry.registered_collectors() == ()
+    assert sorted(registrations()) == [INVENTORY_COLLECTOR_NAME]
+    assert registrations()[INVENTORY_COLLECTOR_NAME].freshness_target is not None
 
     with temporary_root_urlconf(*deployed_url_patterns()):
         run_stage_two()

@@ -138,6 +138,45 @@ instant it is written", which nobody means and which would make every surface
 permanently amber. The two sentinels look alike and behave oppositely, so the
 refusal is written out rather than inherited by symmetry.
 
+**There is a second entry point, and it is run-scoped rather than package-scoped.**
+`collect(package_id=...)` reads one locator per package and writes one package's
+rows. Inventory ingestion (`CPM-AD-25`, `CPM-FR-42`) reads **one** document that
+names **many** packages, and some of them have no row yet -- so there is no
+`package_id` to pass and no per-package locator to ask for. `sweep()` is that
+path: it opens the same recorder with `package_id=None`, which
+`core/ledger.py` already accepts for a run that is not scoped to one package, and
+it reuses this base's clock, window, limiter and transport unchanged. What it
+does *not* do is decide how a document becomes rows -- that is
+`persist_sweep`, the subclass's, because only the subclass knows what a record
+is, which package it names and which table it belongs in. The per-package path
+below is untouched by all of it: eight later collectors inherit `collect`, and
+reshaping it for the one collector that reads a document would be reshaping it
+for the seven that do not.
+
+**The sweep gets every guarantee the per-package path has, and it gets them the
+same way: by writing through this base.** `persist_sweep` opens the per-package
+transaction (`CPM-AD-23`) but hands its rows to `_write_evidence`, which checks
+they belong to the declared evidence model, checks they carry this run's instant,
+inserts them through the append-only manager and counts them. The count is then
+reconciled against what the subclass says it wrote. A report is not a guarantee:
+a `SweepOutcome` naming rows nobody inserted would otherwise finalize a
+successful run, and a subclass calling `bulk_create` itself would walk around the
+stamping check exactly as `bulk_create` walks around `save()`.
+
+**The sweep reads unconditionally, and that is a bound rather than an
+oversight.** The response cache's whole value is the `304` replay, and replaying
+one writes evidence through `translate` -- which is per package. A run-scoped
+read has no package to attribute a revalidation to, so the sweep asks for the
+document outright and remembers nothing; the collector that uses this path
+declares `NO_CACHE`, which is the same statement made where a reader can see it.
+
+**Nothing is invented on a sweep that fails, and no sentinel row is written
+either.** `sentinel_evidence` shapes a row *about one package*, and a source that
+could not be read named none -- so a failing sweep records the reason on its
+ledger row and writes no evidence at all. That is not the clean result
+`CPM-NFR-3` forbids: the run is `failed`, loudly, and no observation claims
+anything about any package.
+
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
 carries the `CPM-` prefix.
@@ -200,6 +239,7 @@ __all__ = [
     "COLLECTION_FAILED_EVENT",
     "COLLECTION_NOT_MODIFIED_EVENT",
     "COLLECTION_NOT_REMEMBERED_EVENT",
+    "COLLECTION_PARTIAL_EVENT",
     "COLLECTION_REFUSED_EVENT",
     "COLLECTION_SKIPPED_EVENT",
     "CONDITIONAL_HEADERS",
@@ -212,6 +252,7 @@ __all__ = [
     "CollectionWriteError",
     "Collector",
     "CollectorConfigurationError",
+    "SweepOutcome",
     "has_recent_success",
     "request_headers",
     "require_freshness_target",
@@ -255,7 +296,17 @@ COLLECTION_NOT_MODIFIED_EVENT: Final[str] = "collection.not_modified"
 #: reason.
 COLLECTION_NOT_REMEMBERED_EVENT: Final[str] = "collection.not_remembered"
 
-#: The keys every one of the five events above carries, and the reason they are
+#: The event a run-scoped sweep that did some of its work is logged under.
+#:
+#: Distinct from `COLLECTION_FAILED_EVENT`, and the separation is the same one
+#: `_reported` is written for: `partial` and `failed` are different operational
+#: facts -- one of them means packages were written and one means none were -- and
+#: a log query that had to tell them apart by parsing `detail` would be reading
+#: two schemas out of one key. Only the run-scoped path emits it: a per-package
+#: collection observes one package and cannot half-succeed.
+COLLECTION_PARTIAL_EVENT: Final[str] = "collection.partial"
+
+#: The keys every one of the six events above carries, and the reason they are
 #: named here. A `detail` that is an exception's `"Type: message"` on two paths
 #: and a sentence on the third is two schemas wearing one key, and a log query
 #: written against either would be wrong half the time. So the value is fixed as
@@ -384,9 +435,12 @@ class CollectionResult:
     Attributes:
         state: How the run ended, over `RunState` -- the same value the ledger
             row carries, never `RunState.RUNNING`.
-        evidence_rows: How many evidence rows were inserted. Zero only for a
-            windowed skip; every other path writes at least one row, which is
-            `CPM-NFR-3`'s "never no row".
+        evidence_rows: How many evidence rows were inserted. On the per-package
+            path, zero only for a windowed skip; every other path writes at least
+            one row, which is `CPM-NFR-3`'s "never no row". On the run-scoped
+            sweep it is also zero for a run that failed before any record was
+            read -- a sweep that could not reach its source named no package, and
+            there is no package for a sentinel row to be about.
         detail: Why the run ended this way, in the same words the ledger row's
             `detail` carries -- every terminal path declares the same string to
             both, which
@@ -400,7 +454,68 @@ class CollectionResult:
     detail: str
 
 
-def window_query(*, collector: str, package_id: int, since: datetime) -> models.Q:
+@dataclass(frozen=True, slots=True)
+class SweepOutcome:
+    """What one subclass's run-scoped persistence did, for the base that asked.
+
+    The sweep's counterpart to `CollectionResult`: the base owns the ledger row
+    and the terminal state, the subclass owns the rows, and this is the whole of
+    what passes between them. Frozen, because it is a report rather than a
+    workspace.
+
+    **The two row counts are separate, and collapsing them is a real defect
+    rather than a tidiness question.** A sweep writes rows of two kinds: rows
+    derived from records the source actually supplied, and rows the *absence* of
+    a record implies -- an inventory sweep records a package the source stopped
+    naming as `not_found` (`CPM-AD-25`). Only the first kind is evidence that the
+    source was read and understood. A single total lets the second kind stand in
+    for the first, and the consequence is not subtle: a source that served an
+    empty document, or one whose every record failed, would write an absence row
+    for every package the system has ever seen, count them, and report a run that
+    succeeded. Those rows are permanent -- the log is append-only and nothing may
+    correct it -- and every later replay would read them. So the base decides
+    "did this produce anything" on `observed_rows` alone.
+
+    **Failures are a list rather than a count, and both halves matter.**
+    `CPM-AD-23`'s atomic unit is one package, so a sweep that could not persist
+    the middle of three records has committed the other two and must say so --
+    which is `partial` and not `failed` (`CPM-FR-15`). A bare count would leave
+    the ledger row saying "two of three" and nothing about which one or why, and
+    the run's `detail` is the only durable record of that.
+
+    Attributes:
+        observed_rows: How many rows came from records the source supplied. Zero
+            means the source produced nothing this run could act on, which the
+            base reads as a failure for the reason an empty `translate` is one: a
+            parser that finds nothing in a document its source served no longer
+            matches its source.
+        derived_rows: How many rows this run wrote about packages the source did
+            *not* name. Real evidence and counted in the result, but never
+            evidence that the source was read -- see above.
+        failures: One message per package that could not be persisted, in the
+            order they were met. Empty for a run in which every record was
+            written.
+
+    """
+
+    observed_rows: int
+    derived_rows: int = 0
+    failures: tuple[str, ...] = ()
+
+    @property
+    def evidence_rows(self) -> int:
+        """Return how many rows the run wrote in total.
+
+        Returns:
+            Both kinds added together, which is what a caller asking "how much
+            did this run record" means and what `CollectionResult` carries. It is
+            deliberately *not* what the base branches on.
+
+        """
+        return self.observed_rows + self.derived_rows
+
+
+def window_query(*, collector: str, package_id: int | None, since: datetime) -> models.Q:
     """Return the filter that finds a successful observation inside the window.
 
     Four conditions, and three of them are the matrix rows that would otherwise
@@ -418,7 +533,12 @@ def window_query(*, collector: str, package_id: int, since: datetime) -> models.
     Args:
         collector: The declared collector name, as its ledger rows carry it.
         package_id: The package the window is being asked about, by the integer
-            primary key `CPM-AD-3` fixes.
+            primary key `CPM-AD-3` fixes, or `None` for a run-scoped sweep. Django
+            reads `package_id=None` as `IS NULL`, which is exactly the question a
+            sweep asks: did a previous run *of this collector that was not scoped
+            to one package* succeed inside the window? A sweep must not be
+            suppressed by a package-scoped run and vice versa, which is the same
+            per-package separation the integer form makes.
         since: The start of the window -- `now` minus the declared observation
             window, from the injected clock (`CPM-AD-26`).
 
@@ -438,12 +558,13 @@ def window_query(*, collector: str, package_id: int, since: datetime) -> models.
     )
 
 
-def has_recent_success(*, collector: str, package_id: int, since: datetime) -> bool:
+def has_recent_success(*, collector: str, package_id: int | None, since: datetime) -> bool:
     """Report whether this collector already observed this package inside the window.
 
     Args:
         collector: The declared collector name.
-        package_id: The package being collected.
+        package_id: The package being collected, or `None` for a run-scoped
+            sweep.
         since: The start of the window.
 
     Returns:
@@ -637,6 +758,12 @@ class Collector(ABC):
         )
         self._limiter: RateLimiter = CacheRateLimiter() if limiter is None else limiter
         self._response_cache: ResponseCache = CacheResponseCache() if response_cache is None else response_cache
+        # How many rows this base has inserted for the run in progress. Reset by
+        # `sweep()` and read by `_require_counted`, which is what stops a
+        # subclass reporting rows it never wrote. `collect()` writes through the
+        # same door and increments it harmlessly; nothing reads it there,
+        # because that path hands the base its rows rather than reporting them.
+        self._swept_rows: int = 0
 
     def __enter__(self) -> Self:
         """Return this collector, so a caller can scope its connection pool.
@@ -1020,7 +1147,336 @@ class Collector(ABC):
             self._remember(source, payload, package_id=package_id, remembered=remembered)
             return CollectionResult(state=RunState.SUCCEEDED, evidence_rows=written, detail="")
 
-    def _inside_window(self, *, package_id: int, now: datetime) -> bool:
+    def sweep_source(self) -> str:
+        """Return the one locator a run-scoped read asks for.
+
+        `source_for` is the per-package question and this is the run-scoped one.
+        Not abstract, and deliberately: eight collectors read one locator per
+        package and have no run-scoped document at all, so an abstract method
+        here would make every one of them implement a path it does not have.
+        The default is therefore a refusal that names what is missing.
+
+        Returns:
+            The URL, path or other locator of the document this run reads.
+
+        Raises:
+            CollectorConfigurationError: When the subclass declares no
+                run-scoped source. Raised where `sweep()` first asks, which is
+                before the window, the allowance and the transport -- so a
+                collector asked to sweep when it cannot never reaches a source.
+
+        """
+        message = (
+            f"{type(self).__name__} was asked to sweep and declares no sweep_source. A run-scoped read is one "
+            f"document naming many packages (CPM-AD-25); a collector that reads one locator per package "
+            f"collects with collect(package_id=...) instead."
+        )
+        raise CollectorConfigurationError(message)
+
+    def persist_sweep(self, payload: Payload, *, observed_at: datetime) -> SweepOutcome:
+        """Turn one run-scoped document into rows, one transaction per package.
+
+        The sweep's counterpart to `translate`, and it is deliberately not the
+        same shape. `translate` returns unsaved rows because the base knows which
+        package they are about and can write them all in one transaction.
+        A sweep's document names many packages, some of which have no row yet, so
+        the atomic unit is *inside* this method: the subclass opens one
+        `transaction.atomic()` per package, creates whatever that package needs
+        and inserts its evidence, and a later package's failure never rolls back
+        an earlier one's (`CPM-AD-23`, `CPM-FR-15`). A base that collected rows
+        and wrote them itself would hold one transaction across the whole
+        document, which is the thing `CPM-AD-23` forbids.
+
+        **Every row still goes through `_write_evidence`, and that is not a
+        convenience.** It is the one door, and passing through it is what applies
+        the declared-model check, the `observed_at` check and the tally
+        `_require_counted` reads on the way out. An implementation that called
+        `bulk_create` itself would write rows the base never saw, and the run
+        would be refused for a count that does not add up rather than quietly
+        succeed -- which is the point.
+
+        Not abstract, for the reason `sweep_source` is not.
+
+        Args:
+            payload: What the source said, recorded. The base has already
+                established that the source answered, that it answered with a
+                body, and that the document exists; what it means is this
+                method's to decide.
+            observed_at: The instant every row this run writes must carry, from
+                the injected clock (`CPM-AD-26`). One observation has one moment
+                (`CPM-AD-7`), and that includes the rows recording that a package
+                the document no longer names was not seen.
+
+        Returns:
+            How many rows were written, split into the ones the source's own
+            records produced and the ones their *absence* implied, and which
+            packages could not be written at all. See `SweepOutcome` for why the
+            two counts must not be added together before the base sees them.
+
+        Raises:
+            CollectorConfigurationError: When the subclass declares no
+                run-scoped persistence.
+
+        """
+        message = (
+            f"{type(self).__name__} was asked to sweep and declares no persist_sweep. The base owns the run "
+            f"ledger, the window, the allowance and the call; what a record means and which package it names "
+            f"is the collector's (CPM-AD-27)."
+        )
+        raise CollectorConfigurationError(message)
+
+    def sweep(self, *, force: bool = False) -> CollectionResult:  # noqa: PLR0911 - one return per terminal path; see below
+        """Collect every package one run-scoped document names.
+
+        The run-scoped entry point. The recorder is opened first and nothing
+        wraps it, exactly as in `collect`, and it is opened with **no package
+        reference** -- `core/ledger.py` writes NULL for a run that was not scoped
+        to one package, which is what a sweep is. Inside it: the window, the rate
+        limit, the call, and then the subclass's per-package persistence.
+
+        **Seven returns, one per terminal path, and that is what the `noqa`
+        licenses**, on the same terms `collect`'s seven are: the window
+        suppressed the run; the allowance was spent; the source did not answer;
+        it answered `304` to a question nothing asked; it answered that the
+        document is absent; the document produced no rows; and the document was
+        ingested, wholly or in part. Each declares its own `detail`, which is the
+        string the ledger row and the returned result both carry.
+
+        Args:
+            force: Bypass the observation window, on the same terms `collect`
+                offers it -- `CPM-UJ-1`'s manually triggered recollection always
+                bypasses the window.
+
+        Returns:
+            What the run did, mirroring the ledger row it wrote. `partial` when
+            some packages were written and some were not, which is
+            `CPM-FR-15`'s partial success and is only reachable because the
+            transaction is per package.
+
+        Raises:
+            CollectorConfigurationError: When the subclass declares no
+                `sweep_source` or no `persist_sweep`, or when what it reports
+                having written is not what went through this base -- see
+                `_require_counted`.
+            Exception: Whatever `persist_sweep` raised, re-raised unchanged with
+                the ledger row finalized to `failed` by the recorder. Not caught
+                here and not turned into a sentinel row: a sweep that broke
+                before it decided anything about a package has no package to
+                write a row about, and an invented one would be the clean-looking
+                result `CPM-NFR-3` forbids wearing a different hat.
+
+        """
+        with collection_run(collector=self._name, clock=self._clock) as run:
+            observed_at = self._clock.now()
+            # Reset before the subclass can write anything, so the tally
+            # `_require_counted` reads below describes *this* run and no other.
+            self._swept_rows = 0
+            # Asked for once, before anything else, for the reason `collect`
+            # asks for `source_for` once: every message below names the same
+            # locator, and a collector that cannot say what it reads fails the
+            # run rather than only the paths that reach the transport.
+            source = self.sweep_source()
+
+            if not force and self._inside_window(package_id=None, now=observed_at):
+                detail = (
+                    f"{self._name} swept {source} within the last {self._window}; "
+                    f"the observation window suppressed this run (CPM-AD-7)."
+                )
+                logger.info(
+                    COLLECTION_SKIPPED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                run.skipped(detail=detail)
+                return CollectionResult(state=RunState.SKIPPED, evidence_rows=0, detail=detail)
+
+            if not self._limiter.acquire(
+                collector=self._name,
+                limit=self._rate_limit,
+                now=observed_at,
+                cost=self.request_cost,
+            ):
+                detail = (
+                    f"{self._name} has spent its allowance of {self._rate_limit.calls} requests per "
+                    f"{self._rate_limit.per}; the call was refused rather than issued unlimited (CPM-AD-20)."
+                )
+                logger.warning(
+                    COLLECTION_REFUSED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                    cost=self.request_cost,
+                )
+                return self._failed_sweep(detail=detail, run=run)
+
+            try:
+                # `entry=None`: the sweep sends no conditional request. See the
+                # module docstring for why a run-scoped read remembers nothing.
+                payload = self._transport.fetch(
+                    source,
+                    headers=request_headers(declared=self._headers, entry=None),
+                )
+            except TransportError as failure:
+                detail = f"{type(failure).__name__}: {failure}"
+                logger.warning(
+                    COLLECTION_FAILED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                return self._failed_sweep(detail=detail, run=run)
+
+            if payload.not_modified:
+                # A run-scoped read is unconditional by construction -- this
+                # method passes `entry=None` a few lines up and remembers
+                # nothing -- so a `304` here is not a cache hit this base failed
+                # to arrange. It is the source answering a question nobody asked,
+                # and there is no body behind it. Left to fall through it would
+                # surface as whatever the subclass makes of an empty document,
+                # which is a parse error describing the wrong problem.
+                detail = (
+                    f"{source} answered that nothing has changed, but a run-scoped read sends no validator: "
+                    f"this sweep asked unconditionally and holds no cached body, so there is no document to "
+                    f"read and no observation to record."
+                )
+                logger.warning(
+                    COLLECTION_FAILED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                return self._failed_sweep(detail=detail, run=run)
+
+            if not payload.found:
+                # `failed`, where the per-package path records `succeeded` with a
+                # `not_found` row. The asymmetry is the point: "this package does
+                # not exist" is an observation about a package, while "the
+                # inventory document does not exist" is the run being unable to
+                # observe anything at all, and recording it as a success would
+                # make every package in the inventory silently unobserved.
+                detail = f"{source} reports that the run-scoped source does not exist"
+                logger.warning(
+                    COLLECTION_FAILED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                return self._failed_sweep(detail=detail, run=run)
+
+            outcome = self.persist_sweep(payload, observed_at=observed_at)
+            self._require_counted(outcome)
+
+            # `observed_rows` and never `evidence_rows`. A sweep's other rows are
+            # written *because* the source stopped naming something, so counting
+            # them here would let a source that served nothing at all satisfy
+            # "this run produced evidence" with a row per package it failed to
+            # mention -- permanently, in a log nothing may correct. See
+            # `SweepOutcome`.
+            if not outcome.observed_rows:
+                detail = (
+                    f"{self._name} swept {source} and wrote no evidence row from any record its source "
+                    f"supplied{_reported(outcome.failures)}. A run that observed nothing is not a run that "
+                    f"found nothing wrong, and recording it as a clean success is the ambiguity the outcome "
+                    f"vocabulary exists to remove (CPM-NFR-3)."
+                )
+                logger.warning(
+                    COLLECTION_FAILED_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                return self._failed_sweep(detail=detail, run=run)
+
+            if outcome.failures:
+                detail = (
+                    f"{self._name} swept {source} and wrote {outcome.evidence_rows} evidence row(s)"
+                    f"{_reported(outcome.failures)}. The packages that were written are committed "
+                    f"(CPM-AD-23)."
+                )
+                logger.warning(
+                    COLLECTION_PARTIAL_EVENT,
+                    collector=self._name,
+                    package_id=None,
+                    source=source,
+                    detail=detail,
+                )
+                run.partial(detail=detail)
+                return CollectionResult(
+                    state=RunState.PARTIAL,
+                    evidence_rows=outcome.evidence_rows,
+                    detail=detail,
+                )
+
+            return CollectionResult(state=RunState.SUCCEEDED, evidence_rows=outcome.evidence_rows, detail="")
+
+    def _require_counted(self, outcome: SweepOutcome) -> None:
+        """Refuse a sweep whose reported rows are not the rows that were written.
+
+        **The sweep's counterpart to `_require_stamped`, and it exists for the
+        same class of reason.** The per-package path hands the base unsaved rows
+        and the base inserts them, so every invariant -- the declared model, the
+        run's instant, the append-only manager -- is checked on the way in. A
+        sweep writes its own rows, one transaction per package (`CPM-AD-23`), and
+        then *reports* what it did. A report is not a guarantee: a subclass that
+        returned `SweepOutcome(observed_rows=99)` over no writes at all would
+        finalize a successful run, and one that wrote through its own
+        `bulk_create` would go around the stamping and declared-model checks
+        entirely. Neither would fail any behavioural case, and both type-check.
+
+        So the base counts for itself. `_write_evidence` is the one door, it
+        tallies every row it inserts, and this compares the tally against what
+        the subclass said. A count that matches is a count the base watched being
+        written -- which is what makes the two checks in `_write_evidence` cover
+        the sweep path as well.
+
+        Args:
+            outcome: What the subclass reported.
+
+        Raises:
+            CollectorConfigurationError: When the reported total is not the
+                number of rows this base inserted during the run. The message
+                names both numbers, because "the count is wrong" sends a reader
+                looking and naming them says which way.
+
+        """
+        if outcome.evidence_rows != self._swept_rows:
+            message = (
+                f"{type(self).__name__}.persist_sweep reported {outcome.evidence_rows} evidence row(s) "
+                f"({outcome.observed_rows} observed, {outcome.derived_rows} derived) and this base wrote "
+                f"{self._swept_rows}. Every sweep row goes through the base, which is what applies the "
+                f"declared-model and observed_at checks the per-package path gets (CPM-AD-7, CPM-AD-26); a "
+                f"reported count is not a written row."
+            )
+            raise CollectorConfigurationError(message)
+
+    def _failed_sweep(self, *, detail: str, run: RunHandle) -> CollectionResult:
+        """Declare a run-scoped run failed, with no evidence row to write.
+
+        The sweep's counterpart to `_failed`, and the difference between them is
+        the whole of why it exists: `_failed` writes a sentinel row about the one
+        package the run was scoped to, and a sweep has no such package.
+
+        Args:
+            detail: Why the run failed, in the words the ledger row and the
+                returned result both carry.
+            run: The recorder's handle.
+
+        Returns:
+            The failed result, carrying no rows and the same detail the ledger
+            row now holds.
+
+        """
+        run.failed(detail=detail)
+        return CollectionResult(state=RunState.FAILED, evidence_rows=0, detail=detail)
+
+    def _inside_window(self, *, package_id: int | None, now: datetime) -> bool:
         """Report whether the observation window suppresses this run.
 
         A zero window short-circuits rather than querying, and the difference is
@@ -1033,7 +1489,9 @@ class Collector(ABC):
         without asking.
 
         Args:
-            package_id: The package being collected.
+            package_id: The package being collected, or `None` for a run-scoped
+                sweep -- see `window_query` for why the two never suppress each
+                other.
             now: The instant the window is measured back from.
 
         Returns:
@@ -1283,6 +1741,13 @@ class Collector(ABC):
         re-observation inserts (`CPM-AD-2`). `bulk_create` does not call
         `save()`, so the instant is checked here -- see `_require_stamped`.
 
+        **The run-scoped path writes through here too, and that is the whole of
+        why the sweep gets the same guarantees.** A sweeping subclass calls this
+        from inside its own per-package `transaction.atomic()`, so the block
+        opened here is a savepoint within it rather than a second boundary --
+        and every row it writes is stamped-checked, model-checked and tallied on
+        the way past. `_require_counted` reads that tally.
+
         Args:
             evidence: The unsaved rows to insert.
             observed_at: The instant every one of them must carry.
@@ -1291,14 +1756,49 @@ class Collector(ABC):
             How many rows were inserted.
 
         Raises:
-            CollectorConfigurationError: When a row carries a different instant.
+            CollectorConfigurationError: When a row is not an instance of the
+                declared evidence model, or carries a different instant.
 
         """
         rows = list(evidence)
+        self._require_declared_model(rows)
         self._require_stamped(rows, observed_at=observed_at)
         with transaction.atomic():
             created = self._evidence_model.objects.bulk_create(rows)
+        self._swept_rows += len(created)
         return len(created)
+
+    def _require_declared_model(self, rows: Sequence[AppendOnlyModel]) -> None:
+        """Refuse a row that does not belong to the table this collector declared.
+
+        `CPM-AD-7` gives each collector its own evidence table, and
+        `evidence_model` is where a collector says which. `bulk_create` is called
+        on that model's manager, so a row of some *other* model reaches it as a
+        set of attributes to read fields off -- Django does not require the
+        objects to be instances of the model, and what lands is a row assembled
+        from whichever fields happened to match, in the wrong table's shape.
+
+        The per-package path never noticed because `translate` and
+        `sentinel_evidence` are written beside the model they return; the sweep
+        path assembles rows across a whole document and is where the mistake
+        becomes reachable.
+
+        Args:
+            rows: The rows about to be inserted.
+
+        Raises:
+            CollectorConfigurationError: When any row is not an instance of the
+                declared evidence model.
+
+        """
+        wrong = sorted({type(row).__name__ for row in rows if not isinstance(row, self._evidence_model)})
+        if wrong:
+            message = (
+                f"{type(self).__name__} produced evidence row(s) of {wrong} rather than of its declared "
+                f"evidence_model {self._evidence_model.__name__}. A collector writes its own append-only "
+                f"table and no other (CPM-AD-7)."
+            )
+            raise CollectorConfigurationError(message)
 
     def _require_stamped(self, rows: Sequence[AppendOnlyModel], *, observed_at: datetime) -> None:
         """Refuse a row that does not carry the instant this run was handed.
@@ -1335,6 +1835,28 @@ class Collector(ABC):
                 f"can correct (CPM-AD-7, CPM-AD-26)."
             )
             raise CollectorConfigurationError(message)
+
+
+def _reported(failures: Sequence[str]) -> str:
+    """Return the clause a sweep's `detail` carries about the packages it lost.
+
+    Written once because both of the sweep's non-clean endings need it and they
+    must say the same thing: a `partial` naming its failures one way and a
+    `failed` naming them another is two schemas in one column, which is the
+    hazard `EVENT_KEYS` records for the log lines beside them.
+
+    Args:
+        failures: One message per package that could not be persisted, possibly
+            none.
+
+    Returns:
+        The empty string when nothing failed, so the sentence around it reads
+        normally; otherwise a clause naming how many failed and what each said.
+
+    """
+    if not failures:
+        return ""
+    return f", and {len(failures)} package(s) could not be persisted: {'; '.join(failures)}"
 
 
 def _replayed(payload: Payload, *, remembered: CachedResponse, source: str) -> Payload:
