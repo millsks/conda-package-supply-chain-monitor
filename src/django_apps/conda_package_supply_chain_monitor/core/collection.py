@@ -9,9 +9,10 @@ rules would differ eight ways, and the difference that matters is not cosmetic:
 result", and a rate-limited source quietly producing an empty parse is exactly
 that failure.
 
-**What a subclass supplies, and what it never touches.** It declares eight values
--- `name`, `evidence_model`, `observation_window`, `timeout`, `retries`,
-`rate_limit`, `headers`, `response_cache_ttl` -- and implements three methods:
+**What a subclass supplies, and what it never touches.** It declares nine values
+-- `name`, `evidence_model`, `observation_window`, `freshness_target`,
+`timeout`, `retries`, `rate_limit`, `headers`, `response_cache_ttl` -- and
+implements three methods:
 which source to read, how to turn a payload into evidence rows, and how to shape
 one sentinel row for a table only it knows. It never sees a socket, a session, a
 retry policy, a cache or a clock read. Every one of those is applied here.
@@ -114,9 +115,28 @@ may issue. See `core/rate_limit.py`.
 
 **Freshness targets and observation-window values are not chosen here.** They are
 PRD Open Question 7 and are declared per collector; this module builds the
-mechanism and reads them. The startup refusal for a collector that declares no
-freshness target is `CPM-EVIDENCE-S06`'s (`CPM-AD-28`) and is deliberately not
-here -- declaring it in two places would leave two enforcement points.
+mechanism and reads them. What a declared target *means* -- whether evidence has
+aged past it -- is `core/freshness.py`'s and not this module's, for the reason
+`core/outcomes.py` owns the status vocabulary: eight collectors and every read
+surface asking the same question have to get the same answer.
+
+**The freshness target is refused here and swept at boot, and those are one rule
+with two moments rather than two rules.** `_require_freshness_target` below is
+the enforcement point: absence, a mistyped value and a zero or negative interval
+are all refused where the collector is constructed, exactly as the other seven
+declarations are. `config/startup/stage_two.py`'s
+`_refuse_collector_without_freshness_target` calls *this* function over the
+registered classes so the same defect is also fatal at boot -- which is what
+`CPM-AD-28` asks for, because a refusal that waits for the first construction in
+a queue is a refusal a worker meets after the ledger row is already `running`.
+There is still one place the rule is written.
+
+**A zero target is refused, unlike a zero window, and the asymmetry is
+deliberate.** `NO_WINDOW` means "observe on every run", which is a thing an
+operator means and says. A zero freshness target means "evidence is stale the
+instant it is written", which nobody means and which would make every surface
+permanently amber. The two sentinels look alike and behave oppositely, so the
+refusal is written out rather than inherited by symmetry.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
@@ -143,6 +163,10 @@ from django.db import models
 from django.db import transaction
 
 from conda_package_supply_chain_monitor.core.clock import is_aware
+from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
+from conda_package_supply_chain_monitor.core.freshness import FreshnessReport
+from conda_package_supply_chain_monitor.core.freshness import freshness_of
+from conda_package_supply_chain_monitor.core.freshness import latest_observation
 from conda_package_supply_chain_monitor.core.ledger import collection_run
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.models import CollectionRun
@@ -181,6 +205,7 @@ __all__ = [
     "CONDITIONAL_HEADERS",
     "EVENT_KEYS",
     "NO_CACHE",
+    "NO_FRESHNESS",
     "NO_WINDOW",
     "SUPPRESSING_STATES",
     "CollectionResult",
@@ -189,6 +214,7 @@ __all__ = [
     "CollectorConfigurationError",
     "has_recent_success",
     "request_headers",
+    "require_freshness_target",
     "window_query",
 ]
 
@@ -242,6 +268,16 @@ EVENT_KEYS: Final[tuple[str, ...]] = ("collector", "package_id", "source")
 #: which is a decision a reader can see, rather than by omitting the value. It is
 #: also short-circuited rather than queried -- see `Collector.collect`.
 NO_WINDOW: Final[timedelta] = timedelta(0)
+
+#: The shortest freshness target that means anything, and it is the one value
+#: `require_freshness_target` refuses rather than accepts.
+#:
+#: Named beside `NO_WINDOW` deliberately, because the two are the same interval
+#: and the opposite decision: `NO_WINDOW` says "observe on every run", which an
+#: operator means, while a zero target would say "evidence is stale the instant
+#: it is written", which nobody means. A reader meeting one of them here meets
+#: the other, which is what stops the symmetry being assumed.
+NO_FRESHNESS: Final[timedelta] = timedelta(0)
 
 #: The run states that suppress a later observation inside the window.
 #:
@@ -454,7 +490,7 @@ def request_headers(*, declared: Mapping[str, str], entry: CachedResponse | None
 class Collector(ABC):
     """The base every collector inherits, and the only code that makes a call.
 
-    **Declared configuration, not implemented behaviour.** The six class
+    **Declared configuration, not implemented behaviour.** The nine class
     attributes below are what a subclass states about itself; every one of them
     is checked -- for presence *and* for type -- when the collector is
     constructed, so a class that forgets one, or declares a string where an
@@ -532,6 +568,14 @@ class Collector(ABC):
     #: to the base and to the entry it is composed from.
     headers: ClassVar[Mapping[str, str]] = MappingProxyType({})
 
+    #: How long evidence this collector wrote may be read as current
+    #: (`CPM-AD-28`). Required, and with no sentinel for "never goes stale": an
+    #: unset target behaving as fresh-forever is the named failure -- six-month-
+    #: old evidence reading as current -- rather than a configuration anybody
+    #: chooses. The *value* is PRD Open Question 7 and is not chosen here; its
+    #: presence is not optional. `core/freshness.py` is what compares against it.
+    freshness_target: ClassVar[timedelta | None] = None
+
     #: How long a remembered response may be replayed before it is re-read.
     #: Required, on the same terms `observation_window` is: `NO_CACHE` says
     #: "fetch a body every time" and a reader can see it, while omitting the
@@ -576,6 +620,7 @@ class Collector(ABC):
         self._name = _require_name(self.name, label=label)
         self._evidence_model = _require_evidence_model(self.evidence_model, label=label)
         self._window = _require_window(self.observation_window, label=label)
+        self._freshness_target = require_freshness_target(self.freshness_target, label=label)
         self._timeout = _require_timeout(self.timeout, label=label)
         self._retries = _require_retries(self.retries, label=label)
         self._rate_limit = _require_rate_limit(self.rate_limit, label=label)
@@ -640,6 +685,46 @@ class Collector(ABC):
 
         """
         return 1 + self._retries
+
+    def freshness(self, *, package_id: int, now: datetime, status: str = UNOBSERVED_STATUS) -> FreshnessReport:
+        """Report how old this collector's evidence for one package is.
+
+        The read side of `CPM-AD-28`, and the reason the declaration above is
+        required: a collector that declares a target is a collector whose
+        evidence can be asked whether it has aged past one. The comparison itself
+        is `core/freshness.py`'s -- eight collectors deciding "is this old" for
+        themselves is the divergence that module exists to prevent -- and what
+        this method adds is the two things only the collector knows: which table
+        holds its observations (`CPM-AD-7`) and what target it declared.
+
+        Args:
+            package_id: The package being asked about, by the integer primary key
+                `CPM-AD-3` fixes.
+            now: The instant staleness is measured from, from the injected clock
+                (`CPM-AD-26`). A parameter rather than `self._clock.now()`: a
+                read surface composing one row asks about many collectors and
+                every one of them must answer as of the same instant, or a
+                package can read fresh under one collector and stale under
+                another for no reason but the order they were called in.
+            status: The `OutcomeState` value the evidence carries, passed through
+                to the report untouched. Defaults to `unknown`, which is what a
+                caller holding no observation has to hand over.
+
+        Returns:
+            The report, carrying the status unchanged, the staleness verdict
+            beside it, and the observation instant so a surface can say how old.
+
+        Raises:
+            FreshnessError: When `now` is naive, or when this collector's
+                evidence model declares no package reference.
+
+        """
+        return freshness_of(
+            observed_at=latest_observation(self._evidence_model, package_id=package_id),
+            target=self._freshness_target,
+            now=now,
+            status=status,
+        )
 
     @abstractmethod
     def source_for(self, *, package_id: int) -> str:
@@ -1396,6 +1481,52 @@ def _require_window(window: timedelta | None, *, label: str) -> timedelta:
         )
         raise CollectorConfigurationError(message)
     return window
+
+
+def require_freshness_target(target: timedelta | None, *, label: str) -> timedelta:
+    """Refuse a freshness target that is absent, mistyped, zero or negative.
+
+    **Public where the other eight are private, and for one reason.** This is the
+    single enforcement point `CPM-AD-28` names, and it has two moments: the
+    collector's construction, above, and the boot sweep in
+    `config/startup/stage_two.py` over the registered classes. A second copy of
+    the rule in the startup module would be the two-enforcement-points problem
+    this module's docstring is about; a private name imported across modules
+    would be the same call wearing a `noqa`.
+
+    Args:
+        target: The declared target.
+        label: The class's own name, for the message.
+
+    Returns:
+        The target, unchanged.
+
+    Raises:
+        CollectorConfigurationError: When it is not a `timedelta`, or is not
+            strictly positive.
+
+            Absence is the failure `CPM-AD-28` is named for: an unset target
+            behaves as "fresh forever", so six-month-old evidence reads as
+            current -- the `CPM-SM-C1` failure this product is built to avoid --
+            and there is deliberately no sentinel meaning "never goes stale".
+
+            Zero and negative are refused where `NO_WINDOW` is accepted, and the
+            asymmetry is the point: "observe on every run" is a thing an operator
+            means, while "evidence is stale the instant it is written" is not,
+            and would make every surface permanently amber. The two sentinels
+            look alike and behave oppositely, so this is written out rather than
+            inherited by symmetry.
+
+    """
+    if not isinstance(target, timedelta) or target <= NO_FRESHNESS:
+        message = (
+            f"{label} declares freshness_target={target!r}, which is not an age evidence may reach. Every "
+            f"collector declares a positive target (CPM-AD-28): an unset one behaves as fresh forever, so "
+            f"six-month-old evidence reads as current, and a zero or negative one makes evidence stale the "
+            f"instant it is written."
+        )
+        raise CollectorConfigurationError(message)
+    return target
 
 
 def _require_timeout(timeout: float | None, *, label: str) -> float:

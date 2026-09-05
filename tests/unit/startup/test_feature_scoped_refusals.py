@@ -2,7 +2,7 @@
 
 Conditions 8 and 9 of the refusal table -- an in-process cache backend where the
 Redis feature is selected, and eager task execution where background task
-processing is selected. They are the only two of the fourteen forbidden states
+processing is selected. They are the only two of the fifteen forbidden states
 that are conditional, and they are conditional because
 `config/settings/production.py` hardcodes `django_redis.cache.RedisCache` with no
 feature branch: a component that did not select Redis legitimately falls back to
@@ -605,9 +605,9 @@ class TestAnInProcessCacheBackendWhereRedisIsSelected:
         """The decision recorded as a test rather than left implicit.
 
         `import_string` raises `ImportError` for a dotted path that resolves to
-        nothing. Converting that into a refusal would add a fifteenth forbidden
-        state to a count the architecture settled at fourteen, under a message
-        describing something the input is not. Django raises
+        nothing. Converting that into a refusal would add another forbidden
+        state to a settled count, under a message describing something the input
+        is not. Django raises
         `InvalidCacheBackendError` -- itself an `ImproperlyConfigured` -- at the
         first cache access, so the defect is neither lost nor duplicated.
         """
@@ -725,9 +725,9 @@ class TestEagerTaskExecutionWhereBackgroundTasksAreSelected:
         """`CELERY_TASK_EAGER_PROPAGATES` is inert without the flag above it.
 
         `local.py:110` sets it beside `CELERY_TASK_ALWAYS_EAGER`, so it is the
-        obvious second thing to refuse -- and refusing it would create a
-        fifteenth forbidden state where the architecture settled on fourteen, and
-        would reject a deployed component whose tasks are queued normally. It
+        obvious second thing to refuse -- and refusing it would create another
+        forbidden state beyond the settled count, and would reject a deployed
+        component whose tasks are queued normally. It
         decides only whether an *eagerly executed* task re-raises; with nothing
         executing eagerly it decides nothing.
         """

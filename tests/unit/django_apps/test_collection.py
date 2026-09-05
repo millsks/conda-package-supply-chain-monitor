@@ -74,6 +74,7 @@ from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import AN_ETAG
 from tests.collectors import FIXTURE_CACHE_TTL
 from tests.collectors import FIXTURE_COLLECTOR
+from tests.collectors import FIXTURE_FRESHNESS_TARGET
 from tests.collectors import FIXTURE_HEADERS
 from tests.collectors import FIXTURE_REQUEST_COST
 from tests.collectors import FIXTURE_TABLE
@@ -221,6 +222,50 @@ def test_a_zero_observation_window_is_accepted() -> None:
     value and the impossible one, and accepts the one that says something.
     """
     built = collector_class(declared_model=fixture_evidence_model(), declared_window=NO_WINDOW)
+
+    assert built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload())) is not None
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [None, timedelta(0), -FIXTURE_FRESHNESS_TARGET, 86400, "a day"],
+    ids=["absent", "zero", "negative", "a-bare-number", "a-string"],
+)
+def test_a_collector_without_a_usable_freshness_target_is_refused(declared: object) -> None:
+    """`CPM-AD-28`'s rule at the first of its two moments, including the case the window accepts.
+
+    Four of these are the same mistakes the observation window refuses. The one
+    that differs is `timedelta(0)`, and it is the reason this case exists
+    separately rather than being folded into the window's: the window *accepts*
+    zero, because
+    "observe on every run" is a thing an operator means. A zero freshness target
+    says "evidence is stale the instant it is written", which nobody means and
+    which would make every surface permanently amber. Two sentinels that look
+    identical and behave oppositely are exactly what a reader generalises
+    wrongly from, so the difference is asserted rather than left to the
+    docstring.
+
+    `None` is the failure the decision is named for. There is deliberately no
+    sentinel meaning "never goes stale" -- an unset target behaving as fresh
+    forever is how six-month-old evidence comes to read as current.
+    """
+    built = collector_class(declared_model=fixture_evidence_model(), declared_freshness_target=declared)  # type: ignore[arg-type]
+
+    with pytest.raises(CollectorConfigurationError, match="freshness_target="):
+        built(clock=_clock())
+
+
+def test_a_positive_freshness_target_is_accepted() -> None:
+    """The pair to the refusals above, so the guard is not merely a way to fail.
+
+    The refusals mean nothing unless the value they are protecting is reachable:
+    a guard that rejected every target would satisfy every case above and would
+    make the declaration impossible to satisfy.
+    """
+    built = collector_class(
+        declared_model=fixture_evidence_model(),
+        declared_freshness_target=FIXTURE_FRESHNESS_TARGET,
+    )
 
     assert built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload())) is not None
 

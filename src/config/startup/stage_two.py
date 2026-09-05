@@ -37,15 +37,21 @@ reasons, and neither is AD-24's conditional import.** AD-24 forbids
 present -- a removal mechanism. Every import below is unconditional and always
 executes; they are merely placed past a lifecycle boundary.
 
-*The registry-bound two.* `config.startup.stage_two` is imported while a
+*The registry-bound ones.* `config.startup.stage_two` is imported while a
 settings module is still executing (through `config.startup.run_stage_one`) and
 again during app loading, and at both of those moments the application registry
 is not populated: `rest_framework.authtoken.views` and
 `django.contrib.auth.models` each define or import a model class, so a
 module-scope import of either raises
 `django.core.exceptions.AppRegistryNotReady` and takes the whole boot down with
-something that is not `ImproperlyConfigured`. Inside the condition bodies the
-registry is ready, because stage 2 runs from `AppConfig.ready()`.
+something that is not `ImproperlyConfigured`. The collector registry sweep is the
+third, and it is worth saying why rather than leaving it to look like caution:
+`conda_package_supply_chain_monitor.core.registry` holds no model itself, but it
+imports the collector base, which imports `core.models`, which *defines*
+`CollectionRun` and `PolicyRun`. It therefore fails in exactly the same way, and
+a reader who checked only the imported module for a model class would move the
+import back. Inside the condition bodies the registry is ready, because stage 2
+runs from `AppConfig.ready()`.
 
 *`django.conf.settings`, which is deferred for something else entirely.* It is
 **not** a registry problem: `from django.conf import settings` binds a lazy
@@ -584,27 +590,120 @@ def _refuse_missing_designated_groups() -> None:
     raise ImproperlyConfigured(message)
 
 
+def _refuse_collector_without_freshness_target() -> None:
+    """Refuse a deployed component whose registered collector declares no target.
+
+    `CPM-AD-28`, and the whole of it: "every registered collector declares a
+    freshness target. Startup raises `ImproperlyConfigured` when one does not."
+    The failure it prevents is quiet rather than loud -- an unset target behaves
+    as *fresh forever*, so six-month-old evidence reads as current, which is the
+    `CPM-SM-C1` failure this product is built to avoid. Nothing at run time would
+    report it: the collector collects, the rows are written, and every surface
+    shows a clean result derived from an observation nobody made this year.
+
+    **At boot rather than at construction, and both, rather than either.**
+    `core/collection.py` refuses the declaration where the collector is built,
+    which is the earliest moment the answer exists -- but "built" is a moment
+    inside a Celery task, with a run-ledger row already `running` and a source
+    already contacted. `CPM-AD-28` wants the process to refuse *before* a worker
+    picks up work, so this sweeps the registered classes at startup and calls
+    the same enforcement point. There is one rule and two moments, not two rules:
+    `core/collection.py`'s `require_freshness_target` is public precisely so that
+    this condition can call it rather than restate it.
+
+    **An empty registry is not a failure.** No collector exists until
+    `CPM-EP-CURRENCY` declares the first one (`CPM-AD-7`), and a component that
+    has adopted none has forgotten nothing. The sweep therefore refuses what it
+    finds and never refuses the absence of anything to find -- a condition that
+    demanded at least one registration would make every component in this
+    repository refuse to start today.
+
+    **Classes, never instances.** Constructing a collector to ask what it
+    declares would build a `RequestsTransport` and its connection pool inside
+    `django.setup()`, which `gunicorn --preload` then forks into every worker --
+    the same hazard `_refuse_unapplied_migrations` closes by hand for its
+    database connection. The declaration is a class attribute, so reading it
+    costs nothing and opens nothing.
+
+    Raises:
+        ImproperlyConfigured: When any registered collector's declared target is
+            absent, mistyped, zero or negative. The message names the class, the
+            collector's declared name and what the declaration actually says,
+            because "a collector has no freshness target" tells an operator
+            nothing they can act on while naming the class tells them which file
+            to open.
+
+    """
+    # Deferred for the reason the module docstring gives: this module is
+    # imported while a settings module is still executing and again during app
+    # loading, and `core.collection` reaches `core.models`, which defines model
+    # classes. A module-scope import would raise `AppRegistryNotReady` and take
+    # the boot down with something that is not `ImproperlyConfigured`.
+    from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError  # noqa: PLC0415
+    from conda_package_supply_chain_monitor.core.collection import require_freshness_target  # noqa: PLC0415
+    from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
+
+    # Every offender is collected before any is reported. Raising on the first
+    # one is the shape that costs an operator a restart per collector: they fix
+    # the target the message named, redeploy, and meet the next refusal -- which
+    # with eight collectors coming in `CPM-EP-CURRENCY` is eight boots to learn
+    # what one could have said. The refusal is still a refusal; it is only the
+    # reporting that is complete.
+    undeclared: list[str] = []
+    first: CollectorConfigurationError | None = None
+    for collector in registered_collectors():
+        try:
+            require_freshness_target(collector.freshness_target, label=collector.__name__)
+        except CollectorConfigurationError as refusal:
+            first = first or refusal
+            undeclared.append(f"{collector.__name__} (name={collector.name!r}): {refusal}")
+
+    if undeclared:
+        offenders = "; ".join(undeclared)
+        message = (
+            f"{len(undeclared)} registered collector(s) cannot be started -- {offenders} An unset freshness "
+            "target behaves as 'fresh forever', so evidence collected months ago reads as current on every "
+            "surface -- which is the failure CPM-AD-28 exists to prevent, and it is invisible at run time. "
+            "Declare freshness_target on each class named above."
+        )
+        raise ImproperlyConfigured(message) from first
+
+
 #: The stage-2 conditions, in evaluation order, and the order is part of the
 #: contract rather than an accident of how they were written: AD-26 requires "one
 #: location, one owner, and a fixed order", and
 #: `tests/unit/startup/test_stage_two_urlconf.py` asserts this tuple.
 #:
-#: The two URLconf conditions run for **any** deployed process and come first,
-#: because they read an object graph that is already in memory: a component that
-#: routes a credential path should be told so whether or not it can reach a
-#: database, and telling it costs nothing. The two database conditions follow and
-#: gate on `config.locality.is_serving_process()` inside their own bodies rather
-#: than through a branch here, so that the dispatch has one shape and each
-#: condition owns the whole of its own applicability (AD-1). Condition 7 is the
-#: one R-3 is about.
+#: The three in-memory conditions run for **any** deployed process and come
+#: first, because they read object graphs that are already loaded: a component
+#: that routes a credential path, or that has adopted a collector which would
+#: read six-month-old evidence as current, should be told so whether or not it
+#: can reach a database, and telling it costs nothing. The two database
+#: conditions follow and gate on `config.locality.is_serving_process()` inside
+#: their own bodies rather than through a branch here, so that the dispatch has
+#: one shape and each condition owns the whole of its own applicability (AD-1).
+#: Condition 7 is the one R-3 is about.
+#:
+#: **Condition 10 is this product's own, and it is why the settled count moved.**
+#: The inherited platform contract is nine conditions across fourteen forbidden
+#: states, all of them about credential surfaces, telemetry, schema and
+#: authorization. `CPM-EVIDENCE-S06` adds a tenth for `CPM-AD-28` -- a registered
+#: collector declaring no freshness target -- which belongs to none of the nine
+#: because it is a refusal about *this* product's evidence rules rather than
+#: about the platform's configuration. It is numbered rather than folded into an
+#: existing condition so that FR-16's "each condition has at least one test that
+#: configures the forbidden state" stays a partition rather than becoming a
+#: count, and `tests/unit/startup/forbidden_states.py` records the arithmetic:
+#: ten conditions across fifteen states.
 #:
 #: Epic 9 appends AD-8's navigation-registry check to this tuple when the
 #: composition step exists. That is a contributed-setting validation rather than
 #: a forbidden state of the component's own configuration, so it does not change
-#: the settled count of nine conditions and fourteen forbidden states.
+#: that count either.
 _STAGE_TWO: Final[tuple[Callable[[], None], ...]] = (
     _refuse_credential_minting_route,
     _refuse_local_sign_in_route,
+    _refuse_collector_without_freshness_target,
     _refuse_unapplied_migrations,
     _refuse_missing_designated_groups,
 )
