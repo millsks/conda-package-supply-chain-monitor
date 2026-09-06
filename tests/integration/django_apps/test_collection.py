@@ -81,6 +81,7 @@ from django.db import connection
 from conda_package_supply_chain_monitor.core import collection
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_FAILED_EVENT
+from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_APPLICABLE_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_MODIFIED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_REMEMBERED_EVENT
 from conda_package_supply_chain_monitor.core.collection import COLLECTION_PARTIAL_EVENT
@@ -102,6 +103,7 @@ from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_CACHED_BODY
 from tests.collectors import A_FABRICATED_ROW_COUNT
 from tests.collectors import A_LAST_MODIFIED
+from tests.collectors import A_NOT_APPLICABLE_REASON
 from tests.collectors import A_PAYLOAD_BODY
 from tests.collectors import AN_ETAG
 from tests.collectors import DETERMINATE_VALUE
@@ -129,10 +131,12 @@ from tests.collectors import collector_class
 from tests.collectors import empty_translation_collector_class
 from tests.collectors import fixture_evidence_model
 from tests.collectors import foreign_model_sweep_collector_class
+from tests.collectors import inapplicable_collector_class
 from tests.collectors import lying_sentinel_collector_class
 from tests.collectors import miscounting_sweep_collector_class
 from tests.collectors import other_fixture_evidence_model
 from tests.collectors import recorded_payload
+from tests.collectors import refusing_inapplicable_collector_class
 from tests.collectors import sweeping_collector_class
 from tests.collectors import unstamped_collector_class
 from tests.collectors import unstamped_sweep_collector_class
@@ -244,7 +248,12 @@ ONE_RETRY: Final[int] = 1
 #: How many distinct events a collection can emit. Named because `PLR2004` is
 #: right about a bare number in an assertion, and because the count is what a
 #: reader checks the list below against.
-DISTINCT_COLLECTION_EVENTS: Final[int] = 6
+DISTINCT_COLLECTION_EVENTS: Final[int] = 7
+
+#: How many evidence rows the event case leaves behind: the refused run's `error`
+#: row and the inapplicable run's `not_applicable` row. The skipped run writes
+#: none, which is the point of the count -- a skip is a decision not to observe.
+ROWS_FROM_THE_EVENT_CASE: Final[int] = 2
 
 #: The event the capture fixture emits to prove it can see the base's logger.
 _CAPTURE_CONTROL: Final[str] = "collection.capture_control"
@@ -1248,7 +1257,7 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
     evidence_table: type[AppendOnlyModel],
     captured_events: list[EventDict],
 ) -> None:
-    """The repository's own log shape, applied to the four names this story added.
+    """The repository's own log shape, applied to the seven names the base emits.
 
     `drain.begin`, `health.readiness_refused_draining`,
     `local_dev.seeding_complete`: a dotted prefix is what lets an operator select
@@ -1258,7 +1267,10 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
     two schemas wearing one name.
 
     Driven through a real run rather than asserted against the constants alone,
-    so the keys checked are the keys actually emitted.
+    so the keys checked are the keys actually emitted. Three runs, three events:
+    a skip, a refusal, and -- since `CPM-CURRENCY-S02` -- a question that does
+    not apply, whose `source` key is present and empty because no locator was
+    ever built on that path.
     """
     for event in (
         COLLECTION_SKIPPED_EVENT,
@@ -1267,9 +1279,10 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
         COLLECTION_NOT_MODIFIED_EVENT,
         COLLECTION_NOT_REMEMBERED_EVENT,
         COLLECTION_PARTIAL_EVENT,
+        COLLECTION_NOT_APPLICABLE_EVENT,
     ):
         assert event.split(".")[0] == "collection", event
-    # Six distinct names, and the distinctness is the point rather than a
+    # Seven distinct names, and the distinctness is the point rather than a
     # formality: `partial` and `failed` are different operational facts, so a
     # log query that had to tell them apart by parsing `detail` would be reading
     # two schemas out of one key.
@@ -1282,6 +1295,7 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
                 COLLECTION_NOT_MODIFIED_EVENT,
                 COLLECTION_NOT_REMEMBERED_EVENT,
                 COLLECTION_PARTIAL_EVENT,
+                COLLECTION_NOT_APPLICABLE_EVENT,
             },
         )
         == DISTINCT_COLLECTION_EVENTS
@@ -1290,11 +1304,204 @@ def test_every_event_the_base_emits_is_dotted_and_carries_the_same_keys(
     _record_run(collector=FIXTURE_COLLECTOR, package_id=A_PACKAGE, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
     _collector(RecordedTransport(payload=recorded_payload())).collect(package_id=A_PACKAGE)
     _collector(RecordedTransport(payload=recorded_payload()), permitted=False).collect(package_id=ANOTHER_PACKAGE)
+    _inapplicable(RecordedTransport(payload=recorded_payload())).collect(package_id=ANOTHER_PACKAGE)
 
-    assert [entry["event"] for entry in captured_events] == [COLLECTION_SKIPPED_EVENT, COLLECTION_REFUSED_EVENT]
+    assert [entry["event"] for entry in captured_events] == [
+        COLLECTION_SKIPPED_EVENT,
+        COLLECTION_REFUSED_EVENT,
+        COLLECTION_NOT_APPLICABLE_EVENT,
+    ]
     for entry in captured_events:
         assert {*EVENT_KEYS, "detail"} <= set(entry), entry
+    assert captured_events[-1]["source"] == ""
+    assert evidence_table.objects.count() == ROWS_FROM_THE_EVENT_CASE
+
+
+# ---------------------------------------------------------------------------
+# A question that does not apply (`CPM-CURRENCY-S02`'s addition to the base).
+# ---------------------------------------------------------------------------
+
+
+def _inapplicable(
+    transport: RecordedTransport,
+    *,
+    permitted: bool = True,
+    cache: RecordingResponseCache | None = None,
+) -> Collector:
+    """Build the fixture collector whose question applies to no package.
+
+    Args:
+        transport: The scripted transport, which must never be asked.
+        permitted: What the substituted limiter answers. Defaults to permitting,
+            and the case about the allowance refuses -- and still succeeds.
+        cache: The response cache, which must never be read.
+
+    Returns:
+        A constructed collector.
+
+    """
+    built = inapplicable_collector_class(declared_model=fixture_evidence_model())
+    return built(
+        clock=_clock(),
+        transport=transport,
+        limiter=FixedLimiter(permitted=permitted),
+        response_cache=cache if cache is not None else RecordingResponseCache(),
+    )
+
+
+@pytest.mark.django_db
+def test_a_question_that_does_not_apply_writes_a_not_applicable_row_and_succeeds(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """`CPM-FR-6`'s third state, arriving through the base: a row, and a `succeeded` run.
+
+    The collector said the question is not about this package, and the base wrote
+    the observation itself -- exactly as it writes `error` and `not_found` -- with
+    the reason as the row's `detail` *and* the ledger row's `detail`, because
+    there is one reason and two places a reader might meet it. `succeeded` rather
+    than `failed`, because the collector answered; `not_applicable` rather than
+    nothing, because a package with no row reads as `unknown` and ages into stale.
+    """
+    transport = RecordedTransport(payload=recorded_payload())
+
+    result = _inapplicable(transport).collect(package_id=A_PACKAGE)
+
+    assert result.state == RunState.SUCCEEDED
+    assert result.evidence_rows == 1
+    assert result.detail == A_NOT_APPLICABLE_REASON
+    row = _rows(evidence_table)[0]
+    assert row.state == OutcomeState.NOT_APPLICABLE.value
+    assert row.detail == A_NOT_APPLICABLE_REASON
+    assert row.observed_at == FIXED_INSTANT
+    assert row.package_id == A_PACKAGE
+    run = _finished_run()
+    assert run.status == RunState.SUCCEEDED.value
+    assert run.detail == A_NOT_APPLICABLE_REASON
+
+
+@pytest.mark.django_db
+def test_a_question_that_does_not_apply_never_reaches_the_transport_the_limiter_or_the_cache(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """No call, no allowance, no cache read -- and a refusing limiter changes nothing.
+
+    The path is decided before the allowance is asked for, so a limiter that
+    refuses everything still yields a `succeeded` run: nothing was going to be
+    issued, so there was nothing to refuse. The transport's empty call list and
+    the cache's empty read list are the only way to show the negatives, which is
+    what the recording fakes exist for.
+    """
+    transport = RecordedTransport(payload=recorded_payload())
+    cache = RecordingResponseCache()
+    collector = _inapplicable(transport, permitted=False, cache=cache)
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state == RunState.SUCCEEDED
+    assert transport.calls == []
+    assert transport.sent_headers == []
+    assert cache.reads == []
+    assert cache.writes == []
+    assert collector._limiter.asks == []  # type: ignore[attr-defined]  # noqa: SLF001 - the seam under test
+    assert _rows(evidence_table)[0].state == OutcomeState.NOT_APPLICABLE.value
+
+
+@pytest.mark.django_db
+def test_a_question_that_does_not_apply_is_still_subject_to_the_window(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """`CPM-AD-7`: a decision not to observe is the same decision whatever the answer would be.
+
+    A second run inside the window is `skipped` with no row, exactly as it would
+    be for a collector whose question applies, and `force` bypasses it and writes
+    again. Without the window a scheduled sweep would write a `not_applicable` row
+    for one package more than once per window -- true, permanent, and the same
+    fact written again for no new reason.
+    """
+    _record_run(collector=FIXTURE_COLLECTOR, package_id=A_PACKAGE, state=RunState.SUCCEEDED, ago=INSIDE_THE_WINDOW)
+
+    suppressed = _inapplicable(RecordedTransport(payload=recorded_payload())).collect(package_id=A_PACKAGE)
+    forced = _inapplicable(RecordedTransport(payload=recorded_payload())).collect(package_id=A_PACKAGE, force=True)
+
+    assert suppressed.state == RunState.SKIPPED
+    assert suppressed.evidence_rows == 0
+    assert forced.state == RunState.SUCCEEDED
+    assert forced.evidence_rows == 1
+    assert [row.state for row in _rows(evidence_table)] == [OutcomeState.NOT_APPLICABLE.value]
+
+
+@pytest.mark.django_db
+def test_a_question_that_does_not_apply_is_logged_with_the_keys_every_event_carries(
+    evidence_table: type[AppendOnlyModel],
+    captured_events: list[EventDict],
+) -> None:
+    """The seventh event, and its `source` is empty on purpose.
+
+    No locator exists on this path -- the collector was never asked for one --
+    so the key is present, as `EVENT_KEYS` requires of every event, and its value
+    says so rather than inventing an address. The `detail` is the reason, which is
+    the same string the row and the ledger carry.
+    """
+    _inapplicable(RecordedTransport(payload=recorded_payload())).collect(package_id=A_PACKAGE)
+
+    assert [entry["event"] for entry in captured_events] == [COLLECTION_NOT_APPLICABLE_EVENT]
+    entry = captured_events[0]
+    assert {*EVENT_KEYS, "detail"} <= set(entry)
+    assert entry["collector"] == FIXTURE_COLLECTOR
+    assert entry["package_id"] == A_PACKAGE
+    assert entry["source"] == ""
+    assert entry["detail"] == A_NOT_APPLICABLE_REASON
     assert evidence_table.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_collector_that_declares_a_question_inapplicable_and_has_no_row_for_it_is_refused(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """The one subclass mistake this path can meet, and the base lets it out.
+
+    A `sentinel_evidence` that refuses `not_applicable` while `inapplicability`
+    produces one is a collector that cannot record what it said. The refusal
+    surfaces as the `CollectorConfigurationError` it is, the ledger row is
+    finalized `failed` by the recorder on the way out, and no row is written --
+    which is the honest record, because a run that wrote nothing and returned
+    `succeeded` would be the clean-looking result `CPM-NFR-3` forbids.
+    """
+    built = refusing_inapplicable_collector_class(declared_model=evidence_table)
+    collector = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    with pytest.raises(CollectorConfigurationError, match=OutcomeState.NOT_APPLICABLE.value):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert _rows(evidence_table) == []
+    assert _finished_run().status == RunState.FAILED.value
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("answer", [None, "   ", True], ids=["none", "whitespace", "boolean"])
+def test_an_inapplicability_answer_that_is_neither_a_reason_nor_silence_is_refused(
+    evidence_table: type[AppendOnlyModel],
+    answer: object,
+) -> None:
+    """The hook's answer is written verbatim to three places, so its kind is checked.
+
+    `None` and `True` are answers whose truthiness would have decided the path
+    while recording nothing readable; a whitespace-only string says "does not
+    apply" and gives no reason a `not_applicable` row could carry. Each is a
+    defect in the subclass, refused as a `CollectorConfigurationError` before a
+    locator is asked for or a row is written -- the ledger row is finalized
+    `failed` by the recorder on the way out.
+    """
+    built = inapplicable_collector_class(declared_model=evidence_table, reason=answer)  # type: ignore[arg-type]
+    transport = RecordedTransport(payload=recorded_payload())
+    collector = built(clock=_clock(), transport=transport)
+
+    with pytest.raises(CollectorConfigurationError, match="inapplicability"):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert transport.calls == []
+    assert _rows(evidence_table) == []
+    assert _finished_run().status == RunState.FAILED.value
 
 
 def test_a_body_that_will_not_decode_is_an_error_rather_than_a_string(

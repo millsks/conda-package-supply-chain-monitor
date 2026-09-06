@@ -805,3 +805,57 @@ Raising the real allowance, and resolving that ambiguity, both mean authenticati
 — which needs a credential, a setting to carry it and a declared header to send it
 in. None of the three exists yet; when they do, the allowance declaration moves
 with them, because the number and the credential are one decision.
+
+## The PyPI collector reads pypi.org unauthenticated, and asks only about Python packages
+
+`cpm.collect.pypi_release` observes a package's PyPI project (`CPM-FR-8`) by
+asking `https://pypi.org/pypi/<name>/json` for the one document that carries the
+latest version, its upload dates and `Requires-Python`. It sends **no credential**
+— PyPI's JSON API takes none — and its declared allowance is **sixty requests a
+minute**.
+
+**The allowance is a declared courtesy bound, not a number the source stated.**
+PyPI publishes no numeric ceiling for this API; its guidance is to send an
+identifying `User-Agent`, to cache, and to be reasonable. Sixty a minute is one
+request a second, which at `1 + retries` per collection is fifteen packages a
+minute — written down so it is a limit the base enforces rather than an allowance
+that is unlimited by omission, and so an operator can see what "reasonable" was
+taken to mean. The response cache is live for this collector: PyPI serves an
+`ETag`, so a scheduled recollection revalidates a document that can run to several
+mebibytes rather than transferring it again.
+
+**Whether a package is asked about at all is read from its identity, never
+guessed.** A package is asked about on PyPI only when resolution recorded its
+`release_ecosystem` mapping as `established` with `primary_type = "pypi"`, and the
+project name comes from `primary_purl` — PEP 503-normalised, so `Zope.Interface`
+and `zope-interface` are one project — never from the canonical name. Nothing
+infers "this is a Python package" from how a package is spelled.
+
+**A `not_applicable` row is an observation, and it is what keeps a non-Python
+package from reading stale against PyPI.** When resolution recorded the mapping as
+`not_applicable`, or established it for some other ecosystem, the collector says
+so before any locator is built and the base writes a row carrying
+`not_applicable`: no call is made, no allowance is spent, no cache is read, and
+the run is `succeeded` with the reason as its `detail`. The row carries this run's
+`observed_at`, so the freshness read reports it fresh like any other observation
+— `CPM-FR-8`'s "never marked stale against PyPI merely for not being published
+there". It is visible in the log line `collection.not_applicable`, whose `source`
+is empty because no locator exists on that path. The observation window applies to
+it as to every other run, so a sweep does not write the same true fact for one
+package more than once per window.
+
+**A package whose release-ecosystem identity is not established fails the run
+rather than being guessed at.** A mapping that is `unknown`, `not_found` or
+`error` — or a package with no mapping row — cannot be turned into a PyPI
+question, and is not the same as "does not apply": the ledger row is `failed`
+carrying the reason and no evidence row is written. The same goes for an identity
+that records the mapping as `established` with a blank primary type: that is an
+inconsistent identity row, and it is refused rather than recorded as either kind of
+observation. Until the full-inventory sweep selects only askable packages, expect
+such `failed` runs for any package a resolver has not reached; they are a reporting
+fact about identity, not about PyPI.
+
+**A `not_found` row means what it says.** PyPI is a public index with no private
+projects for an unauthenticated reader to be shut out of, so a `404` is a project
+that does not exist or has never released — unlike the GitHub collector above,
+this row carries no caveat.

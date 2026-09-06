@@ -53,6 +53,8 @@ from typing import Final
 import pytest
 from django.apps import apps
 
+from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
+from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
@@ -802,3 +804,54 @@ def test_the_fixture_collectors_satisfy_the_bases_contract() -> None:
 
     assert collector.source_for(package_id=A_PACKAGE).endswith(str(A_PACKAGE))
     assert collector.translate(recorded_payload(), package_id=A_PACKAGE, observed_at=FIXED_INSTANT) != []
+
+
+def test_a_collector_that_declares_nothing_about_applicability_applies_to_every_package() -> None:
+    """The hook `CPM-CURRENCY-S02` added has a default, and the default is "applies".
+
+    `inapplicability` is not abstract, deliberately: most collectors' questions
+    apply to every package, and the two that predate the hook declare nothing
+    new. So the fixture collector -- which overrides nothing here -- must answer
+    the empty string for any package, or every case in the integration tier that
+    is about the window, the allowance or the transport would be a case about a
+    path the base never reached.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    assert collector.inapplicability(package_id=A_PACKAGE) == ""
+    assert collector.inapplicability(package_id=ANOTHER_PACKAGE) == ""
+    assert Collector.inapplicability(collector, package_id=A_PACKAGE) == ""
+
+
+def test_the_two_collectors_that_predate_the_hook_declare_nothing_new() -> None:
+    """ "The existing collectors declare nothing new", asserted on the real classes.
+
+    `CPM-CURRENCY-S02` added `inapplicability` with a default so that
+    `SourceReleaseCollector` and `InventoryIngestionCollector` would not have to
+    change. A later edit that gave either of them an override would change what
+    their runs write, and every case about those runs would still pass -- so the
+    absence of an override is pinned here, by identity with the base's method.
+    """
+    assert SourceReleaseCollector.inapplicability is Collector.inapplicability
+    assert InventoryIngestionCollector.inapplicability is Collector.inapplicability
+
+
+def test_inapplicability_takes_its_argument_by_keyword() -> None:
+    """The fourth hook subclasses implement by hand, pinned as the third is.
+
+    `test_sentinel_evidence_takes_every_argument_by_keyword` says why: a
+    positional parameter is the one place eight hand-written signatures could
+    quietly disagree, and this one is read by the base before anything else in a
+    run.
+    """
+    parameters = inspect.signature(Collector.inapplicability).parameters
+
+    positional = [
+        name
+        for name, parameter in parameters.items()
+        if name != "self" and parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+    ]
+
+    assert positional == []
+    assert set(parameters) == {"self", "package_id"}

@@ -4,17 +4,18 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` -- the upstream release table beside
-it.
+against it, and -- since `CPM-CURRENCY-S01` and `CPM-CURRENCY-S02` -- the two
+surface tables beside it: upstream releases and PyPI releases.
 
-**One module, two tables, and no shared columns beyond the ones every evidence
+**One module, three tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
-rule about tables rather than about files: `inventory_snapshots` and
-`source_release_snapshots` are written by two collectors that share nothing but
-the log, and neither reads the other's. They live together because Django
-auto-imports `<app>.models` and no other module, so a model declared elsewhere in
-this application is registered only by whatever happens to import it -- which is
-a table that exists on a developer's machine and not in a migration.
+rule about tables rather than about files: `inventory_snapshots`,
+`source_release_snapshots` and `pypi_release_snapshots` are written by three
+collectors that share nothing but the log, and none reads another's. They live
+together because Django auto-imports `<app>.models` and no other module, so a
+model declared elsewhere in this application is registered only by whatever
+happens to import it -- which is a table that exists on a developer's machine and
+not in a migration.
 
 **The first evidence model in this repository.** `core/models.py` has carried
 `AppendOnlyModel` since `CPM-EVIDENCE-S02` with nothing inheriting it, and three
@@ -91,12 +92,15 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COUNTS_PRESENT_CONSTRAINT",
+    "PYPI_FACTS_CONSTRAINT",
+    "PYPI_READ_INDEX",
     "RELEASE_FACTS_CONSTRAINT",
     "RELEASE_READ_INDEX",
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
     "InventoryReadError",
     "InventorySnapshot",
+    "PyPIReleaseSnapshot",
     "SourceReleaseSnapshot",
     "snapshot_as_of",
 ]
@@ -174,6 +178,21 @@ _LOCATOR_LENGTH: Final[int] = 512
 #: spell out `source_release_snapshot`.
 RELEASE_FACTS_CONSTRAINT: Final[str] = "release_facts_present_exactly_when_observed"
 RELEASE_READ_INDEX: Final[str] = "src_release_pkg_observed"
+
+#: How wide the `Requires-Python` column is. A version specifier is a short
+#: expression a project wrote -- `>=3.9`, `>=3.8, <4`, `!=3.0.*, >=2.7` -- so it
+#: is sized like a name rather than like an identifier: 128 is a whole order of
+#: magnitude above anything the specifier grammar produces in practice, and a
+#: specifier wider than it is refused where it enters rather than truncated into
+#: a row nothing may correct.
+_SPECIFIER_LENGTH: Final[int] = 128
+
+#: The name of the constraint that makes the PyPI facts present exactly where
+#: they are true, and the read index the freshness query needs, on the terms the
+#: two release names above are declared. The index does not spell out
+#: `pypi_release_snapshot` for the same 30-character reason.
+PYPI_FACTS_CONSTRAINT: Final[str] = "pypi_facts_present_exactly_when_observed"
+PYPI_READ_INDEX: Final[str] = "pypi_release_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -608,3 +627,178 @@ class SourceReleaseSnapshot(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{version} for {scope}: {self.state} at {when}"
+
+
+class PyPIReleaseSnapshot(AppendOnlyModel):
+    """One observation of a package's PyPI project. Table `pypi_release_snapshots`.
+
+    PRD Appendix A.2 gives this table its facts -- "PyPI existence, latest
+    version and date, `Requires-Python`" -- and `CPM-FR-8` is where they come
+    from: "project existence, latest version and date, and `Requires-Python`
+    metadata", with a package that has no PyPI presence recording `not_found`
+    and a non-Python package recording `not_applicable`.
+
+    **Existence is `state`, over `OutcomeState`, and never a boolean**
+    (`CPM-AD-5`). `ok` is a project this run read, with the version PyPI itself
+    calls latest; `not_found` is the source answering that there is no such
+    project -- or a project that lists no release, which `detail` says; `error`
+    is a look that failed; and `not_applicable` is the row `CPM-FR-8` asks for
+    when the package is not a Python package at all. The column is called
+    `state` rather than `*_status` for the reason `SourceReleaseSnapshot.state`
+    is: a collector's observation of what a source said is not a status a policy
+    derived (`CPM-AD-8`).
+
+    **The `not_applicable` row is the point of the table rather than an edge of
+    it.** `CPM-FR-8` says a package "is never marked stale against PyPI merely
+    for not being published there", and this is where that promise lives: a
+    row, with this run's `observed_at`, carrying `not_applicable` and no facts.
+    Recording nothing instead would make the package read as unobserved -- which
+    `core/freshness.py` reports as `unknown` and which ages into stale -- and
+    the difference between "we have not looked", "we looked and it is not
+    there" and "the question is not about this package" is exactly what
+    `CPM-FR-6` exists to keep. Applicability is not this row's to decide: it is
+    read from what resolution recorded (`identity.PackageMapping`) and never
+    inferred from a name (`CPM-FR-1`).
+
+    **`released_at` is the moment the latest version became installable**: the
+    earliest usable upload instant among that version's files. A version whose
+    files carry no usable instant is still `ok` -- the version is a fact PyPI
+    stated -- and dates nothing, with `detail` saying so; the constraint below
+    permits exactly that, on the terms `SourceReleaseSnapshot` permits a tagged
+    row with no date.
+
+    **`requires_python` is blank when the project declares none**, which is PRD
+    Appendix A.1's "blank means missing" applied to the one text fact here that
+    a project may legitimately leave out. It is stored trimmed of surrounding
+    whitespace and otherwise as the project spelled it: comparing it against an
+    interpreter version is `CPM-FR-16`'s policy pass (`CPM-AD-8`), and a
+    collector that normalised it would be deriving a value into a row nothing
+    may correct.
+
+    **A `not_found` row carries no caveat**, unlike its `source_release_snapshots`
+    counterpart. PyPI is a public index and answers `404` for a project that
+    does not exist and for nothing else -- there are no private projects for an
+    unauthenticated reader to be shut out of -- so the row claims exactly what
+    the source said.
+
+    **`PROTECT`, and it is required rather than preferred**
+    (`EVIDENCE.02-AUDIT-001`), on the terms `InventorySnapshot.package` states.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="pypi_release_snapshots",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from, naming the project that
+    #: answered. Recorded on the row for the reason `SourceReleaseSnapshot.source`
+    #: is: `Package.primary_purl` is mutable, so an append-only history can hold
+    #: rows read from two different projects. Blank on a `not_applicable` row,
+    #: because no locator was ever built -- the question was never asked -- and
+    #: blank means missing, as it does everywhere else here.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the lookup concluded, over `OutcomeState` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=OutcomeState.choices)
+
+    #: The version PyPI itself reports as the project's latest, trimmed of
+    #: surrounding whitespace and otherwise exactly as the source spelled it.
+    #: Stored unnormalised (`CPM-AD-8`). Blank on every row that is not a
+    #: determinate observation -- see `Meta.constraints`.
+    latest_version = models.CharField(_("latest version"), max_length=_VERSION_LENGTH, blank=True, default="")
+
+    #: When that version became installable: the earliest upload instant among
+    #: its files. NULL on every row that is not a determinate observation, and
+    #: NULL on a determinate one whose files the source dated with nothing usable.
+    released_at = models.DateTimeField(_("released at"), null=True, blank=True, default=None)
+
+    #: The `Requires-Python` specifier the project declares, trimmed of
+    #: surrounding whitespace and otherwise exactly as spelled. Blank when it
+    #: declares none, and blank on every row that is not a determinate
+    #: observation -- a sentinel row observed no metadata.
+    requires_python = models.CharField(_("requires python"), max_length=_SPECIFIER_LENGTH, blank=True, default="")
+
+    #: What the collector or the base had to say about this observation -- the
+    #: sentinel path's reason, the words that go with a project listing no
+    #: release, or with a version the source dated nothing for. Empty on an
+    #: ordinary determinate observation, which needs no explanation.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_pypireleasesnapshot` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one package's PyPI project are two rows, and idempotency
+        is the run ledger's property rather than this table's.
+        """
+
+        db_table = "pypi_release_snapshots"
+        verbose_name = _("PyPI release snapshot")
+        verbose_name_plural = _("PyPI release snapshots")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `RELEASE_READ_INDEX` states.
+            models.Index(fields=["package", "-observed_at"], name=PYPI_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and all four conjuncts are load bearing.
+            #
+            # A determinate observation with no version is a row saying "there
+            # is a latest version" while declining to say which. A row that is
+            # *not* determinate and carries a version, a date or a specifier is
+            # claiming to have observed something the run never saw -- and for
+            # the `not_applicable` row in particular, claiming a fact about a
+            # project the package does not have.
+            #
+            # A date is deliberately not required of a determinate row: PyPI
+            # states a version even when it dates none of that version's files,
+            # and requiring the date here would push the collector into
+            # inventing one. A specifier is not required either, because a
+            # project may declare no `Requires-Python` at all, and blank is how
+            # PRD Appendix A.1 spells "missing".
+            #
+            # `state` is NOT NULL and an `IS NULL` test is never itself NULL, so
+            # this expression is always true or false and never the third thing
+            # a SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=OutcomeState.OK) & ~models.Q(latest_version=""))
+                    | (
+                        ~models.Q(state=OutcomeState.OK)
+                        & models.Q(latest_version="", released_at__isnull=True, requires_python="")
+                    )
+                ),
+                name=PYPI_FACTS_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the version, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `package_id` rather than off `package`
+            for the reason `SourceReleaseSnapshot.__str__` gives: the related
+            object of an unsaved instance raises, and a `__str__` that raises
+            breaks a debugger and a traceback alike.
+
+        """
+        # "(no version)" rather than "(no release)": every sentinel row lacks a
+        # version, and a `not_applicable` row is not a claim that nothing was
+        # released -- it is a claim that the question was not asked.
+        version = self.latest_version or "(no version)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{version} on PyPI for {scope}: {self.state} at {when}"

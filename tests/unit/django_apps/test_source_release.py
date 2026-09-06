@@ -43,7 +43,7 @@ from typing import Final
 import pytest
 from django.conf import settings
 
-from conda_package_supply_chain_monitor.collectors import source_release
+from conda_package_supply_chain_monitor.collectors import agent
 from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
 from conda_package_supply_chain_monitor.collectors.source_release import ABSENT_CAVEAT
 from conda_package_supply_chain_monitor.collectors.source_release import ACTIVITY_FIELDS
@@ -461,12 +461,17 @@ def test_the_version_falls_back_when_the_distribution_is_not_installed(monkeypat
     imported without an editable install has no metadata -- so it is exercised
     rather than pragma'd out, which `tests/unit/test_coverage_policy.py` bans
     anyway.
+
+    Patched on `collectors/agent.py`, which is where the lookup lives since
+    `CPM-CURRENCY-S02` moved the shared `User-Agent` identity there: this module
+    still imports `distribution_version` from `source_release`, which re-exports
+    it, and the re-export is what the assertion below reaches through.
     """
 
     def _missing(name: str) -> str:
-        raise source_release.PackageNotFoundError(name)
+        raise agent.PackageNotFoundError(name)
 
-    monkeypatch.setattr(source_release, "version", _missing)
+    monkeypatch.setattr(agent, "version", _missing)
 
     assert distribution_version() == UNKNOWN_VERSION
 

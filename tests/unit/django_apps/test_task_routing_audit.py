@@ -106,7 +106,10 @@ A_CELERY_BUILT_IN: Final[str] = "celery.chain"
 #: Fixture task names, one per row of the story's edge-case matrix. Spelled as
 #: tasks this product plausibly registers rather than as `test_1`, so a failure
 #: reads as the case it stands for.
-A_COLLECTOR_TASK: Final[str] = "cpm.collect.pypi_release"
+#: `cpm.collect.fixture_release` rather than a real collector's name: the registry
+#: refuses a fixture registered over a task it already holds, and
+#: `cpm.collect.pypi_release` became one of those with `CPM-CURRENCY-S02`.
+A_COLLECTOR_TASK: Final[str] = "cpm.collect.fixture_release"
 A_POLICY_TASK: Final[str] = "cpm.policy.currency"
 A_VERIFICATION_TASK: Final[str] = "cpm.verify.py314_build"
 A_PRODUCT_TASK_IN_NO_NAMESPACE: Final[str] = "cpm.sweep.thing"

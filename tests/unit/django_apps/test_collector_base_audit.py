@@ -299,10 +299,18 @@ THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_mo
 #: version -- and reaches all of it through the injected transport, which is the
 #: claim `CPM-AD-27` actually makes and the one an anchor here keeps in view.
 THE_RELEASE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/source_release.py"
+
+#: `CPM-CURRENCY-S02`'s collector, and the second remote reader. Named for the
+#: reason the first is, and for one more: it is the first collector that reads
+#: `identity` through a join rather than a single column, and reaches its host
+#: through the injected transport with a locator it built from a purl -- every
+#: reason to open a connection of its own, and none taken.
+THE_PYPI_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/pypi_release.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_INGESTION_COLLECTOR,
     THE_LIMITER,
+    THE_PYPI_COLLECTOR,
     THE_RELEASE_COLLECTOR,
     THE_RESPONSE_CACHE,
     THE_TRANSPORT,
