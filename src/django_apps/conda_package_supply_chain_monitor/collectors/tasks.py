@@ -1,4 +1,13 @@
-"""Inventory ingestion: the collector, the adapter it reads through, and its task.
+"""This application's Celery tasks, and inventory ingestion's collector and adapter.
+
+**Every task this application registers is declared here and nowhere else.**
+Celery's autodiscovery imports each installed application's `tasks` module and no
+other (`config/celery_app.py`), so a `@shared_task` in a sibling module is
+registered by whatever happens to import it -- which is the suite, and not a
+worker. `CPM-CURRENCY-S01`'s collector therefore lives in
+`collectors/source_release.py` while its task lives at the foot of this file: the
+collector is code a reader wants beside the source it reads, and the task is a
+line that has to be *here* to run at all.
 
 `CPM-FR-42` acquires the package inventory from a declared source, and
 `CPM-AD-25` fixes how: as an **observation**, through the shared collector base,
@@ -73,6 +82,7 @@ from django.db import DatabaseError
 from django.db import transaction
 
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
+from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.core.clock import SystemClock
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
@@ -100,6 +110,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSENT_DETAIL",
     "COLLECTOR_NAME",
+    "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "INGEST_TASK_NAME",
     "INVENTORY_SOURCE",
     "MAX_COUNT",
@@ -111,6 +122,7 @@ __all__ = [
     "InventoryIngestionCollector",
     "InventoryRecord",
     "InventoryRecordError",
+    "collect_source_release",
     "declare_inventory_adapter",
     "declared_inventory_adapter",
     "ingest_inventory",
@@ -138,6 +150,14 @@ COLLECTOR_NAME: Final[str] = "inventory"
 #: package will hold `verify` collectors too, so a route keyed on module path
 #: could not tell a compute-backed build from a file read (`R-11`).
 INGEST_TASK_NAME: Final[str] = "cpm.collect.inventory"
+
+#: The upstream-release collection task's declared name, on the same terms
+#: (`CPM-CURRENCY-S01`, `CPM-FR-7`). The `cpm.collect.` namespace is what routes
+#: it to the `collect` queue with no edit to `core/queues.py`; it names the
+#: *collector* rather than the module, because `CPM-EP-PY314` will put `verify`
+#: work in this same package and a route keyed on module path could not tell a
+#: compute-backed build from an HTTP read (`R-11`).
+COLLECT_SOURCE_RELEASE_TASK_NAME: Final[str] = "cpm.collect.source_release"
 
 #: The locator handed to the adapter, and it is deliberately opaque.
 #:
@@ -1114,3 +1134,50 @@ def ingest_inventory(*, force: bool = False) -> str:
     """
     with InventoryIngestionCollector(clock=SystemClock(), transport=inventory_adapter()) as collector:
         return str(collector.sweep(force=force).state.value)
+
+
+@shared_task(name=COLLECT_SOURCE_RELEASE_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_source_release(*, package_id: int, force: bool = False) -> str:
+    """Observe one package's upstream releases (`CPM-FR-7`).
+
+    Package-scoped, where ingestion above is run-scoped, and that is the whole
+    difference between them: this collector reads one locator per package
+    (`CPM-AD-7`), so the unit of work is one package and the transaction and the
+    ledger row are one package's too (`CPM-AD-23`). No transport is passed --
+    the base builds one from the collector's declared timeout and retry count,
+    which is the only place either becomes a call setting.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`). Nothing schedules this yet -- `CPM-CURRENCY-S05` owns
+    the full-inventory sweep and the selection of the packages that have a source
+    repository at all.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so
+            this leaves nothing behind at all.
+        SourceLocatorError: When the package has no source repository, or has one
+            this collector cannot read. The ledger row is finalized `failed`
+            carrying the reason; see that class for why it is not an evidence row.
+        SourceReleaseDocumentError: When the source served something that is not a
+            release document. An `error` evidence row is written first and the
+            ledger row is `failed`, so the run is on the record either way.
+
+    """
+    with SourceReleaseCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)

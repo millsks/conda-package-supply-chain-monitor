@@ -78,8 +78,8 @@ development_status:
   epic-identity-retrospective: optional
 
   # CPM-EP-CURRENCY: Where a package sits across every surface
-  epic-currency: backlog
-  cpm-currency-s01-upstream-release-evidence: ready-for-dev
+  epic-currency: in-progress
+  cpm-currency-s01-upstream-release-evidence: done
   cpm-currency-s02-pypi-release-evidence: ready-for-dev
   cpm-currency-s03-feedstock-evidence: ready-for-dev
   cpm-currency-s04-published-conda-package-evidence: ready-for-dev

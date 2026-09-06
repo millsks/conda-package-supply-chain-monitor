@@ -78,12 +78,14 @@ EVERY_MARK: Final[tuple[str, ...]] = ("base", "app_label", OBSERVED_AT_FIELD)
 #: predicate discovers is exactly what a predicate that had narrowed would stop
 #: discovering.
 #:
-#: Two entries. `collectors.InventorySnapshot` is `inventory_snapshots`
+#: Three entries. `collectors.InventorySnapshot` is `inventory_snapshots`
 #: (`CPM-AD-25`), landed by `CPM-IDENTITY-S06` as the first concrete evidence
 #: model in the repository; `identity.IdentityOverride` is `identity_overrides`
 #: (`CPM-AD-14`, `CPM-FR-32`), landed by `CPM-IDENTITY-S05` as the audit row of
-#: the product's one governed human write. They live here rather than in
-#: `tests/model_registry.py` because nothing else needs them: the two evidence
+#: the product's one governed human write; `collectors.SourceReleaseSnapshot` is
+#: `source_release_snapshots` (`CPM-FR-7`), landed by `CPM-CURRENCY-S01` as the
+#: first evidence table a *surface* collector writes. They live here rather than
+#: in `tests/model_registry.py` because nothing else needs them: the two evidence
 #: audits assert only that their sweep is non-empty, which is the anti-vacuity
 #: claim each of them is about.
 #:
@@ -91,10 +93,18 @@ EVERY_MARK: Final[tuple[str, ...]] = ("base", "app_label", OBSERVED_AT_FIELD)
 #: model can be conforming for reasons a detector never had to notice, and that
 #: one arrived in a collector's own application -- the shape `CPM-AD-7` makes the
 #: norm. The second sits in a *domain* application beside three models that are
-#: not evidence at all, so the sweep now has to separate them rather than accept a
-#: whole application.
+#: not evidence at all, so the sweep has to separate them rather than accept a
+#: whole application. The third adds the case neither of the others could make:
+#: two evidence models in **one** application, which is what `CPM-AD-7`'s "each
+#: collector writes its own evidence table" actually looks like once a second
+#: collector exists -- so a predicate that had come to answer per application
+#: rather than per model fails here.
 EVIDENCE_MODEL_LABELS: Final[frozenset[str]] = frozenset(
-    {"collectors.InventorySnapshot", "identity.IdentityOverride"},
+    {
+        "collectors.InventorySnapshot",
+        "collectors.SourceReleaseSnapshot",
+        "identity.IdentityOverride",
+    },
 )
 
 
@@ -295,12 +305,15 @@ def test_the_registry_holds_exactly_the_evidence_models_and_the_run_ledger_escap
 
     `evidence_models()` is no longer empty: `CPM-IDENTITY-S06` landed
     `collectors.InventorySnapshot`, the `inventory_snapshots` table `CPM-AD-25`
-    names, and `CPM-IDENTITY-S05` landed `identity.IdentityOverride`, the
+    names; `CPM-IDENTITY-S05` landed `identity.IdentityOverride`, the
     `identity_overrides` table `CPM-AD-14` requires of the one governed human
-    write. The second is what makes the sweep discriminate rather than merely
-    find: it sits in `identity` beside `Package`, `Feedstock` and
-    `PackageMapping`, none of which is evidence, so an `is_evidence_model` that
-    had widened to "declared by an application holding one" fails here.
+    write; and `CPM-CURRENCY-S01` landed `collectors.SourceReleaseSnapshot`, the
+    `source_release_snapshots` table `CPM-FR-7` observes into. The second is what
+    makes the sweep discriminate rather than merely find: it sits in `identity`
+    beside `Package`, `Feedstock` and `PackageMapping`, none of which is evidence,
+    so an `is_evidence_model` that had widened to "declared by an application
+    holding one" fails here. The third makes the converse claim -- two evidence
+    models in one application, which is `CPM-AD-7`'s norm rather than an oddity.
     `exempt_models()` has not been empty since `CPM-EVIDENCE-S03`, and the two it
     holds are the run-ledger tables `CPM-AD-2` exempts by name. That no model is
     in both sets is the property that matters: `evidence_marks` returns nothing
