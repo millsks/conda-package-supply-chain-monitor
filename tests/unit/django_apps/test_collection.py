@@ -53,12 +53,16 @@ from typing import Final
 import pytest
 from django.apps import apps
 
+from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
+from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
+from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
+from conda_package_supply_chain_monitor.core.collection import STATE_FIELD
 from conda_package_supply_chain_monitor.core.collection import SUPPRESSING_STATES
 from conda_package_supply_chain_monitor.core.collection import CollectionResult
 from conda_package_supply_chain_monitor.core.collection import Collector
@@ -66,6 +70,7 @@ from conda_package_supply_chain_monitor.core.collection import CollectorConfigur
 from conda_package_supply_chain_monitor.core.collection import request_headers
 from conda_package_supply_chain_monitor.core.collection import window_query
 from conda_package_supply_chain_monitor.core.models import CollectionRun
+from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimitError
 from conda_package_supply_chain_monitor.core.runs import RunState
@@ -74,6 +79,7 @@ from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import AN_ETAG
+from tests.collectors import DETERMINATE_VALUE
 from tests.collectors import FIXTURE_CACHE_TTL
 from tests.collectors import FIXTURE_COLLECTOR
 from tests.collectors import FIXTURE_FRESHNESS_TARGET
@@ -82,11 +88,15 @@ from tests.collectors import FIXTURE_REQUEST_COST
 from tests.collectors import FIXTURE_TABLE
 from tests.collectors import FIXTURE_TIMEOUT
 from tests.collectors import FIXTURE_WINDOW
+from tests.collectors import SEVERAL_SENTINEL_ROWS
 from tests.collectors import RecordedTransport
+from tests.collectors import barren_sentinel_collector_class
 from tests.collectors import cached_response
 from tests.collectors import collector_class
 from tests.collectors import fixture_evidence_model
 from tests.collectors import recorded_payload
+from tests.collectors import several_sentinels_collector_class
+from tests.collectors import unsequenced_sentinel_collector_class
 
 if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
@@ -114,6 +124,41 @@ A_RETRY_COUNT: Final[int] = 5
 #: value that looks the most generous and switches caching off, which is why it
 #: is refused rather than accepted and rounded.
 A_SUB_SECOND_LIFETIME: Final[timedelta] = timedelta(milliseconds=500)
+
+#: What a sentinel row records beside its state, in the cases about the plural
+#: hook. One word, because what those cases are about is how many rows there are
+#: and what they carry, not what the sentence says.
+A_REASON: Final[str] = "a reason"
+
+#: The three arguments every sentinel hook is asked with, bundled so the cases
+#: below differ by the collector under test and by nothing else. `state` is
+#: deliberately *not* in here: which sentinel is being asked for is the one thing
+#: those cases vary.
+_SENTINEL_ASK: Final[dict[str, object]] = {
+    "package_id": A_PACKAGE,
+    "observed_at": FIXED_INSTANT,
+    "detail": A_REASON,
+}
+
+
+def _a_determinate_row() -> Any:
+    """Return a fixture evidence row carrying the determinate value.
+
+    Returns:
+        One unsaved row whose state column says `ok` -- the row a collector
+        answering for a second surface would legitimately produce beside a
+        `not_found`, and would illegitimately produce beside an `error`.
+
+    """
+    model = fixture_evidence_model()
+    return model(
+        observed_at=FIXED_INSTANT,
+        package_id=A_PACKAGE,
+        state=DETERMINATE_VALUE,
+        detail="",
+        body="another surface has it",
+        source="",
+    )
 
 
 def _clock() -> FixedClock:
@@ -835,6 +880,258 @@ def test_the_two_collectors_that_predate_the_hook_declare_nothing_new() -> None:
     """
     assert SourceReleaseCollector.inapplicability is Collector.inapplicability
     assert InventoryIngestionCollector.inapplicability is Collector.inapplicability
+
+
+def test_a_collector_that_declares_nothing_about_sentinel_rows_writes_the_one_row_it_shapes() -> None:
+    """The hook `CPM-CURRENCY-S04` added has a default, and the default is "one row".
+
+    `sentinel_evidence_rows` is not abstract for the reason `inapplicability` is
+    not: one sentinel row is the right answer for every collector that observes
+    one surface per package, which is every one that predates it. So the fixture
+    collector -- which overrides nothing here -- must answer with exactly the row
+    `sentinel_evidence` shapes, or every case in the integration tier about an
+    `error` or `not_found` row would be a case about a path the base no longer
+    takes.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    rows = collector.sentinel_evidence_rows(
+        state=OutcomeState.ERROR,
+        package_id=A_PACKAGE,
+        observed_at=FIXED_INSTANT,
+        detail=A_REASON,
+    )
+    shaped = collector.sentinel_evidence(
+        state=OutcomeState.ERROR,
+        package_id=A_PACKAGE,
+        observed_at=FIXED_INSTANT,
+        detail=A_REASON,
+    )
+
+    assert len(rows) == 1
+    assert type(rows[0]) is type(shaped)
+    assert rows[0].state == shaped.state == OutcomeState.ERROR.value
+    assert rows[0].detail == shaped.detail == A_REASON
+    # And through the base's own unbound method, so the default is the base's
+    # rather than something the fixture happens to inherit from elsewhere.
+    assert len(Collector.sentinel_evidence_rows(collector, state=OutcomeState.ERROR, **_SENTINEL_ASK)) == 1
+
+
+def test_the_four_collectors_that_predate_the_plural_sentinel_hook_declare_nothing_new() -> None:
+    """ "The existing collectors declare nothing new", asserted on the real classes.
+
+    `CPM-CURRENCY-S04` added `sentinel_evidence_rows` with a default so that the
+    four collectors before it would not have to change. A later edit that gave
+    any of them an override would change what their failing runs write, and every
+    case about those runs would still pass -- so the absence of an override is
+    pinned here, by identity with the base's method, exactly as
+    `test_the_two_collectors_that_predate_the_hook_declare_nothing_new` pins
+    `inapplicability`.
+
+    `CondaPackageCollector` is asserted to be the one that *does* override it,
+    which is the anti-vacuity half: an identity check over four classes would pass
+    just as happily if the hook had never been overridden by anybody.
+    """
+    assert InventoryIngestionCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert SourceReleaseCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert PyPIReleaseCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert FeedstockCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert CondaPackageCollector.sentinel_evidence_rows is not Collector.sentinel_evidence_rows
+
+
+def test_sentinel_evidence_rows_takes_every_argument_by_keyword() -> None:
+    """The fifth hook a subclass may implement by hand, pinned as the other four are.
+
+    A positional parameter is the one place hand-written signatures could quietly
+    disagree, and this one is called on every path that records a failure.
+    """
+    parameters = inspect.signature(Collector.sentinel_evidence_rows).parameters
+
+    positional = [
+        name
+        for name, parameter in parameters.items()
+        if name != "self" and parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+    ]
+
+    assert positional == []
+    assert set(parameters) == {"self", "state", "package_id", "observed_at", "detail"}
+
+
+def test_a_collector_that_owes_several_sentinel_rows_is_asked_for_all_of_them() -> None:
+    """The shape the hook exists for: one collection, several surfaces, a row each.
+
+    Asserted through the base's own checking helper rather than by calling the
+    override directly, because what the story needed was for the *base* to write
+    whatever the hook returns -- and a case that only called the method would pass
+    against a base that still wrote one row.
+    """
+    built = several_sentinels_collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    rows = collector._sentinel_rows(OutcomeState.NOT_FOUND, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+    assert len(rows) == SEVERAL_SENTINEL_ROWS
+    assert {row.state for row in rows} == {OutcomeState.NOT_FOUND.value}
+    assert len({row.body for row in rows}) == SEVERAL_SENTINEL_ROWS
+
+
+def test_a_sentinel_row_set_carrying_the_state_somewhere_may_carry_other_states_elsewhere() -> None:
+    """The verbatim check reads "at least one row", and that relaxation is what the plural hook needs.
+
+    The state the base decided is about the *one call the base made*. A collector
+    answering for surfaces that call never touched can only report what each of
+    them said -- "this other channel publishes 2.1.3" is an observation, not a
+    sentinel that forgot which sentinel it is -- so requiring every row to carry
+    the base's state would make the hook useless for the one collector it exists
+    for.
+
+    What the check still guarantees is the half `CPM-AD-24` is actually about: the
+    base's own answer is on the record.
+    `test_a_sentinel_that_ignores_the_state_it_was_asked_for_is_refused` in the
+    integration tier is the case that did not move.
+    """
+    built = several_sentinels_collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+    model = fixture_evidence_model()
+    mixed = [
+        collector.sentinel_evidence(state=OutcomeState.NOT_FOUND, **_SENTINEL_ASK),
+        model(
+            observed_at=FIXED_INSTANT,
+            package_id=A_PACKAGE,
+            state=DETERMINATE_VALUE,
+            detail="",
+            body="another surface answered",
+            source="",
+        ),
+    ]
+
+    collector.sentinel_evidence_rows = lambda **_: mixed  # type: ignore[method-assign]
+
+    kept = collector._sentinel_rows(OutcomeState.NOT_FOUND, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+    assert kept == mixed
+    assert {row.state for row in kept} == {OutcomeState.NOT_FOUND.value, DETERMINATE_VALUE}
+
+
+@pytest.mark.parametrize(
+    "state",
+    [OutcomeState.ERROR, OutcomeState.NOT_APPLICABLE],
+    ids=lambda state: state.value,
+)
+def test_a_determinate_row_beside_a_sentinel_is_refused_on_the_paths_that_declared_a_verdict(
+    state: OutcomeState,
+) -> None:
+    """ "Never a clean result" is a rule about the run, not only about one row.
+
+    `_failed` and `_not_applicable` both declare the run's verdict *before* the
+    rows are written, so a determinate row returned there is permanent evidence
+    that the source answered cleanly underneath a ledger row saying the run did
+    not. The relaxed "at least one row carries the state" check does not catch it
+    on its own -- the required sentinel is present and the determinate row rides
+    beside it -- which is exactly why this second check exists.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+    mixed = [
+        collector.sentinel_evidence(state=state, **_SENTINEL_ASK),
+        _a_determinate_row(),
+    ]
+    collector.sentinel_evidence_rows = lambda **_: mixed  # type: ignore[method-assign]
+
+    with pytest.raises(CollectorConfigurationError, match=OutcomeState.OK.value):
+        collector._sentinel_rows(state, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+
+def test_a_determinate_row_beside_an_absence_is_kept_because_that_is_what_the_hook_is_for() -> None:
+    """The other half, and the one the refusal above must not take with it.
+
+    `not_found` is written on a path the base finalizes `succeeded`: the source
+    answered, and a collector observing several surfaces reports what each of them
+    said. One surface having the thing while another does not is the observation,
+    not a contradiction -- so the same set that is refused above is kept here.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+    mixed = [
+        collector.sentinel_evidence(state=OutcomeState.NOT_FOUND, **_SENTINEL_ASK),
+        _a_determinate_row(),
+    ]
+    collector.sentinel_evidence_rows = lambda **_: mixed  # type: ignore[method-assign]
+
+    assert collector._sentinel_rows(OutcomeState.NOT_FOUND, **_SENTINEL_ASK) == mixed  # noqa: SLF001 - as above
+
+
+def test_the_state_a_row_carries_is_read_from_its_state_column_and_not_from_any_field() -> None:
+    """`CPM-AD-24` makes the value a short lowercase word, and short words turn up in other columns.
+
+    A `detail` reading "error", a `source` naming a host called `ok` -- either
+    would satisfy a scan of every field, and a hook answering with several rows
+    makes an incidental match that many times likelier. The check reads the column
+    the outcome is declared in, so a row whose *state* is determinate is caught
+    however many other fields happen to spell the sentinel.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+    model = fixture_evidence_model()
+    disguised = model(
+        observed_at=FIXED_INSTANT,
+        package_id=A_PACKAGE,
+        state=DETERMINATE_VALUE,
+        detail=OutcomeState.ERROR.value,
+        body=OutcomeState.ERROR.value,
+        source=OutcomeState.ERROR.value,
+    )
+    collector.sentinel_evidence_rows = lambda **_: [disguised]  # type: ignore[method-assign]
+
+    with pytest.raises(CollectorConfigurationError, match="sentinel_evidence_rows was asked for"):
+        collector._sentinel_rows(OutcomeState.ERROR, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+
+def test_a_sentinel_row_declaring_no_state_column_is_refused_by_name() -> None:
+    """The check reads one column, so a row that has no such column has nothing to check.
+
+    `CollectionRun` is the nearest real model without one -- it spells its outcome
+    `status`, because it records how a *run* ended rather than what a source said
+    -- and it is what a collector reaching for the wrong table would return. The
+    refusal names the column rather than failing on a missing attribute several
+    frames later.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+    collector.sentinel_evidence_rows = lambda **_: [CollectionRun()]  # type: ignore[method-assign]
+
+    with pytest.raises(CollectorConfigurationError, match=STATE_FIELD):
+        collector._sentinel_rows(OutcomeState.ERROR, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+
+def test_a_sentinel_hook_that_returns_nothing_is_refused_rather_than_writing_no_row() -> None:
+    """`CPM-NFR-3`: never a clean result, and never no row -- including through the new hook.
+
+    This is the way a defaulted hook can turn the guarantee off silently: every
+    path that reaches it has already promised an observation, and it is a path
+    that is *already* recording a failure, so an empty answer would leave a failed
+    run with nothing on the record and nothing to notice.
+    """
+    built = barren_sentinel_collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    with pytest.raises(CollectorConfigurationError, match="no rows"):
+        collector._sentinel_rows(OutcomeState.ERROR, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
+
+
+def test_a_sentinel_hook_that_returns_a_row_rather_than_rows_is_refused() -> None:
+    """The other plausible way to implement the plural hook wrongly, refused where it is readable.
+
+    A single model instance is not a sequence, so left to reach `bulk_create` it
+    would surface as a message about a field rather than about the hook -- and a
+    `str`, which *is* a sequence, would surface as a row per character.
+    """
+    built = unsequenced_sentinel_collector_class(declared_model=fixture_evidence_model())
+    collector: Any = built(clock=_clock(), transport=RecordedTransport(payload=recorded_payload()))
+
+    with pytest.raises(CollectorConfigurationError, match="rather than a sequence"):
+        collector._sentinel_rows(OutcomeState.ERROR, **_SENTINEL_ASK)  # noqa: SLF001 - the base's own check
 
 
 def test_inapplicability_takes_its_argument_by_keyword() -> None:

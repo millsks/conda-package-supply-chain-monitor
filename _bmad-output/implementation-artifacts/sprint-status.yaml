@@ -82,7 +82,7 @@ development_status:
   cpm-currency-s01-upstream-release-evidence: done
   cpm-currency-s02-pypi-release-evidence: done
   cpm-currency-s03-feedstock-evidence: done
-  cpm-currency-s04-published-conda-package-evidence: ready-for-dev
+  cpm-currency-s04-published-conda-package-evidence: done
   cpm-currency-s05-source-failing-never-stops-others: ready-for-dev
   cpm-currency-s06-currency-judged-against-right-authority: ready-for-dev
   cpm-currency-s07-feedstock-presence-maintenance: ready-for-dev

@@ -82,6 +82,7 @@ from celery import shared_task
 from django.db import DatabaseError
 from django.db import transaction
 
+from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
 from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
@@ -113,6 +114,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSENT_DETAIL",
     "COLLECTOR_NAME",
+    "COLLECT_CONDA_PACKAGE_TASK_NAME",
     "COLLECT_FEEDSTOCK_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
@@ -127,6 +129,7 @@ __all__ = [
     "InventoryIngestionCollector",
     "InventoryRecord",
     "InventoryRecordError",
+    "collect_conda_package",
     "collect_feedstock",
     "collect_pypi_release",
     "collect_source_release",
@@ -176,6 +179,11 @@ COLLECT_PYPI_RELEASE_TASK_NAME: Final[str] = "cpm.collect.pypi_release"
 #: (`CPM-CURRENCY-S03`, `CPM-FR-9`): the `cpm.collect.` namespace routes it, and
 #: the name is the collector's.
 COLLECT_FEEDSTOCK_TASK_NAME: Final[str] = "cpm.collect.feedstock"
+
+#: The published-conda-package collection task's declared name, on the same
+#: terms (`CPM-CURRENCY-S04`, `CPM-FR-10`): the `cpm.collect.` namespace routes
+#: it, and the name is the collector's.
+COLLECT_CONDA_PACKAGE_TASK_NAME: Final[str] = "cpm.collect.conda_package"
 
 #: The locator handed to the adapter, and it is deliberately opaque.
 #:
@@ -1306,4 +1314,72 @@ def collect_feedstock(*, package_id: int, force: bool = False) -> str:
 
     """
     with FeedstockCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
+@shared_task(name=COLLECT_CONDA_PACKAGE_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_conda_package(*, package_id: int, force: bool = False) -> str:
+    """Observe what each monitored conda channel publishes for one package (`CPM-FR-10`).
+
+    Package-scoped on the same terms as the three collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`), and no transport passed -- the base builds one from the
+    collector's declared timeout and retry count.
+
+    What is different is that one run writes **several** rows: one per monitored
+    `(channel, platform)` pair, because `CPM-FR-10` forbids merging channels and a
+    build string is a property of a build, which is per platform. One channel's
+    failure becomes `error` rows for that channel and never discards another
+    channel's answer, which is `CPM-FR-15`'s partial success on the per-package
+    path.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`). Nothing schedules this yet -- `CPM-CURRENCY-S05` owns
+    the full-inventory sweep.
+
+    **A misconfiguration leaves this task the same way a transient failure does,
+    and Celery cannot tell the two apart.** `CondaChannelError` is permanent by
+    construction: no retry will make an undeclared channel declared, and with the
+    shipped empty default *every* enqueue of this task raises it. Nothing here
+    declares `autoretry_for`, so a raised task is retried only by whatever policy
+    a caller or the worker sets -- and under one that retries, an unconfigured
+    component would spend its allowance on an unbounded run of identical failed
+    collections, each writing a ledger row saying the same thing. Separating a
+    permanent refusal from a transient failure at the task boundary is a decision
+    about every collector's task rather than this one's, and is a `deferred` entry
+    on `CPM-CURRENCY-S04`.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so
+            this leaves nothing behind at all.
+        CondaChannelError: When no channel or no platform is declared -- which is
+            what ships, because the choice is PRD Open Question 4's -- when a
+            declared entry is not one this collector could ask about, or when the
+            package's row went between the ledger's key check and the name read.
+            The ledger row is finalized `failed` carrying the reason and no
+            evidence row is written; see that class for why, and the paragraph
+            above for what a retry policy would do with it.
+        CondaDocumentError: When the *first* monitored channel served something
+            that is not a package document. An `error` evidence row is written
+            first and the ledger row is `failed`, so the run is on the record
+            either way. A later channel's unreadable answer never reaches here.
+
+    """
+    with CondaPackageCollector(clock=SystemClock()) as collector:
         return str(collector.collect(package_id=package_id, force=force).state.value)

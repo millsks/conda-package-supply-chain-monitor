@@ -312,8 +312,16 @@ THE_PYPI_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor
 #: reads *two* hosts and makes a second call on **either** branch, so it has more
 #: ways to reach a socket of its own than anything before it -- and takes none.
 THE_FEEDSTOCK_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/feedstock.py"
+
+#: `CPM-CURRENCY-S04`'s collector, and the fourth remote reader. Named for the
+#: reasons the first three are, and for one more: it is the first collector
+#: whose *number* of calls is configuration rather than code -- one per
+#: monitored channel -- so it has a call site inside a loop and still reaches
+#: every one of them through the injected transport.
+THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
+    THE_CONDA_PACKAGE_COLLECTOR,
     THE_FEEDSTOCK_COLLECTOR,
     THE_INGESTION_COLLECTOR,
     THE_LIMITER,

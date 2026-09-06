@@ -202,6 +202,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from math import isfinite
@@ -240,7 +241,6 @@ from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from conda_package_supply_chain_monitor.core.transport import TransportError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from datetime import datetime
     from types import TracebackType
 
@@ -263,6 +263,7 @@ __all__ = [
     "NO_CACHE",
     "NO_FRESHNESS",
     "NO_WINDOW",
+    "STATE_FIELD",
     "SUPPRESSING_STATES",
     "CollectionResult",
     "CollectionWriteError",
@@ -635,6 +636,15 @@ def request_headers(*, declared: Mapping[str, str], entry: CachedResponse | None
     return {**declared} if entry is None else {**declared, **conditional_headers(entry)}
 
 
+#: The column every evidence model carries its outcome in, verbatim
+#: (`CPM-AD-5`, `CPM-AD-24`). Named here because this base *reads* it: a sentinel
+#: row is checked against the state it was asked for, and the check has to know
+#: which column says so rather than scanning every field for a matching string.
+#: `tests/unit/django_apps/test_outcome_field_audit.py` is what keeps every model
+#: spelling it this way.
+STATE_FIELD: Final[str] = "state"
+
+
 class Collector(ABC):
     """The base every collector inherits, and the only code that makes a call.
 
@@ -661,6 +671,18 @@ class Collector(ABC):
     the row carries the state it asked for, because a subclass that ignored the
     argument and wrote `ok` would defeat "never a clean result" entirely and
     would type-check perfectly.
+
+    **Two defaulted hooks sit beside the three abstract ones, and both were added
+    when an acceptance criterion could not be met without them.**
+    `inapplicability` (`CPM-CURRENCY-S02`) answers "applies" by default, so a
+    collector whose question applies to every package declares nothing.
+    `sentinel_evidence_rows` (`CPM-CURRENCY-S04`) answers with the one row
+    `sentinel_evidence` shapes, so a collector that observes one surface per
+    package declares nothing either -- and a collector that observes *several*
+    surfaces in one collection can say what the whole run owes on a path where
+    the base, rather than the collector, decides what a row says. Both are
+    non-abstract and both have defaults that leave every collector written before
+    them byte-identical, which is the only shape in which this base grows.
 
     **The clock is a constructor parameter and there is no default**
     (`CPM-AD-26`): `observed_at`, the window comparison, the rate-limit window
@@ -988,6 +1010,70 @@ class Collector(ABC):
 
         """
 
+    def sentinel_evidence_rows(
+        self,
+        *,
+        state: OutcomeState,
+        package_id: int,
+        observed_at: datetime,
+        detail: str,
+    ) -> Sequence[AppendOnlyModel]:
+        """Return every sentinel row this run owes, for a path that produced no observation.
+
+        The hook `CPM-CURRENCY-S04` added, and it is **not abstract** for the
+        reason `inapplicability` is not: one sentinel row is the right answer for
+        every collector that observes one surface per package, which is all four
+        that predate it. The default below is exactly what those four did before
+        the hook existed, so none of them changed and none of them declares
+        anything new.
+
+        **What it is for is a collector that owes several rows.** `CPM-FR-10`'s
+        published-package collector observes one row per monitored
+        `(channel, platform)` pair, and a run whose *first* channel answers "no
+        such package" still owes a row for every other pair -- an answer the base
+        could not let it give while a sentinel path wrote exactly one row and
+        never reached `translate`. That is AC 1 ("each monitored channel produces
+        its own observation") holding on the paths where the base, rather than the
+        collector, decides what a row says.
+
+        **A collector that overrides this may reach its transport, and that is
+        the difference from `sentinel_evidence`.** The single-row hook shapes a
+        row and does nothing else, deliberately: it is called from paths that are
+        already recording a failure, where a raised exception would replace the
+        reason being recorded. An override here inherits that constraint --
+        whatever it does must not raise -- and in exchange it may answer for
+        surfaces the base's one call never reached.
+
+        Args:
+            state: `OutcomeState.ERROR`, `OutcomeState.NOT_FOUND` or
+                `OutcomeState.NOT_APPLICABLE`, decided by the base exactly as it
+                decides them for `sentinel_evidence`. Keyword only, as every
+                other argument in this module is.
+            package_id: The package the observation is about.
+            observed_at: The instant to stamp every row with. The base refuses a
+                row stamped with anything else.
+            detail: What happened, in words worth storing beside the state.
+
+        Returns:
+            At least one unsaved row, of which at least one carries `state`'s
+            value verbatim (`CPM-AD-24`) -- the answer to the call the base
+            actually made. Rows about surfaces that call never touched carry
+            whatever *those* surfaces said, which is the point of answering for
+            them at all. The base refuses an empty answer: every path that
+            reaches this one has already promised an observation, and a hook that
+            answered with nothing would turn `CPM-NFR-3`'s guarantee off on the
+            paths where nobody is looking.
+
+        """
+        return [
+            self.sentinel_evidence(
+                state=state,
+                package_id=package_id,
+                observed_at=observed_at,
+                detail=detail,
+            ),
+        ]
+
     def collect(  # noqa: PLR0911 - one return per terminal path; see below
         self,
         *,
@@ -1152,14 +1238,12 @@ class Collector(ABC):
             if not payload.found:
                 detail = f"{source} reports that the resource does not exist"
                 rows = self._write_evidence(
-                    [
-                        self._sentinel(
-                            OutcomeState.NOT_FOUND,
-                            package_id=package_id,
-                            observed_at=observed_at,
-                            detail=detail,
-                        ),
-                    ],
+                    self._sentinel_rows(
+                        OutcomeState.NOT_FOUND,
+                        package_id=package_id,
+                        observed_at=observed_at,
+                        detail=detail,
+                    ),
                     observed_at=observed_at,
                 )
                 # After the write, as every cache mutation on every path is. The
@@ -1197,14 +1281,12 @@ class Collector(ABC):
                     detail=detail,
                 )
                 self._write_evidence(
-                    [
-                        self._sentinel(
-                            OutcomeState.ERROR,
-                            package_id=package_id,
-                            observed_at=observed_at,
-                            detail=detail,
-                        ),
-                    ],
+                    self._sentinel_rows(
+                        OutcomeState.ERROR,
+                        package_id=package_id,
+                        observed_at=observed_at,
+                        detail=detail,
+                    ),
                     observed_at=observed_at,
                 )
                 raise
@@ -1702,7 +1784,7 @@ class Collector(ABC):
         source is never asked, so nothing is charged, nothing is read and nothing
         is remembered or forgotten. The row goes through `_write_evidence` like
         every other, so it is checked against the declared model and the run's
-        instant on the way in, and `_sentinel` checks it carries the state.
+        instant on the way in, and `_sentinel_rows` checks it carries the state.
 
         `succeeded`, not `failed`: the collector answered, and the answer was
         "this question is not about this package" (`CPM-FR-6`). The reason is
@@ -1729,14 +1811,12 @@ class Collector(ABC):
             detail=reason,
         )
         rows = self._write_evidence(
-            [
-                self._sentinel(
-                    OutcomeState.NOT_APPLICABLE,
-                    package_id=package_id,
-                    observed_at=observed_at,
-                    detail=reason,
-                ),
-            ],
+            self._sentinel_rows(
+                OutcomeState.NOT_APPLICABLE,
+                package_id=package_id,
+                observed_at=observed_at,
+                detail=reason,
+            ),
             observed_at=observed_at,
         )
         run.succeeded(detail=reason)
@@ -1788,7 +1868,7 @@ class Collector(ABC):
         observed_at: datetime,
         detail: str,
     ) -> int:
-        """Write one sentinel row, preserving the reason if the write itself fails.
+        """Write this run's sentinel rows, preserving the reason if the write itself fails.
 
         Args:
             state: The sentinel the base decided on.
@@ -1797,7 +1877,8 @@ class Collector(ABC):
             detail: The reason the run is already failing.
 
         Returns:
-            How many rows were inserted.
+            How many rows were inserted -- which is however many the collector's
+            `sentinel_evidence_rows` owed, not always one.
 
         Raises:
             CollectionWriteError: When the write raised. The message carries the
@@ -1808,7 +1889,7 @@ class Collector(ABC):
         """
         try:
             return self._write_evidence(
-                [self._sentinel(state, package_id=package_id, observed_at=observed_at, detail=detail)],
+                self._sentinel_rows(state, package_id=package_id, observed_at=observed_at, detail=detail),
                 observed_at=observed_at,
             )
         except DatabaseError as write_failure:
@@ -1818,52 +1899,142 @@ class Collector(ABC):
             )
             raise CollectionWriteError(message, detail=detail) from write_failure
 
-    def _sentinel(
+    def _sentinel_rows(
         self,
         state: OutcomeState,
         *,
         package_id: int,
         observed_at: datetime,
         detail: str,
-    ) -> AppendOnlyModel:
-        """Ask the collector for a sentinel row, and check it carries the state.
+    ) -> list[AppendOnlyModel]:
+        """Ask the collector for this run's sentinel rows, and check every one carries the state.
+
+        The one place a sentinel row set enters this base, so the checks below
+        hold on all three sentinel paths -- the `not_found` branch, `_failed` and
+        `_not_applicable` -- rather than on whichever of them a later edit
+        remembers.
 
         Args:
             state: The sentinel the base decided on.
             package_id: The package the observation is about.
-            observed_at: The instant to stamp the row with.
+            observed_at: The instant to stamp the rows with.
             detail: What happened.
 
         Returns:
-            The row the collector built.
+            The rows the collector built, at least one.
 
         Raises:
-            CollectorConfigurationError: When no field on the row carries the
-                state's value. A subclass that ignored the argument and wrote a
-                determinate verdict would type-check perfectly and would defeat
-                "never a clean result" outright, so the base checks rather than
-                trusts. `CPM-AD-24` requires the value to be emitted verbatim,
-                which is exactly what makes the check possible.
+            CollectorConfigurationError: When the collector returned something
+                that is not a sequence of rows, returned none, or returned rows
+                of which **not one** carries the state's value.
+
+                The emptiness check is the one worth arguing for: every path that
+                reaches here has already promised a row (`CPM-NFR-3`, "never a
+                clean result and never no row"), so a hook that answered with
+                nothing would turn the guarantee off silently -- and it would do
+                it on a path that is *already* recording a failure, where nobody
+                is looking.
+
+                The verbatim check is `CPM-AD-24`'s: a subclass that ignored the
+                argument and wrote a determinate verdict would type-check
+                perfectly and would defeat "never a clean result" outright, so
+                the base checks rather than trusts. **It is "at least one row"
+                rather than "every row", and the difference is what the plural
+                hook is for.** The state the base decided is about the *one call
+                the base made*; a collector answering for surfaces that call
+                never touched can only report what each of them said, and a row
+                saying "this other channel publishes version 2.1.3" is an
+                observation rather than a sentinel that forgot which sentinel it
+                is. What the check still guarantees is that the base's own answer
+                is on the record: a collector that returned nothing but
+                determinate rows is refused exactly as it was before.
 
         """
-        row = self.sentinel_evidence(
+        produced = self.sentinel_evidence_rows(
             state=state,
             package_id=package_id,
             observed_at=observed_at,
             detail=detail,
         )
-        carried = {
-            getattr(row, field.attname, None)
-            for field in row._meta.concrete_fields  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
-        }
-        if state.value not in carried:
+        # A `str` is a `Sequence` and a model instance is not one at all, so both
+        # of the plausible ways to answer this hook wrongly are refused here
+        # rather than at `bulk_create`, where the message would be about a field.
+        if isinstance(produced, (str, bytes)) or not isinstance(produced, Sequence):
             message = (
-                f"{type(self).__name__}.sentinel_evidence was asked for {state.value!r} and returned a row "
-                f"carrying no field with that value. A sentinel that does not say which sentinel it is cannot "
-                f"be told from a clean result (CPM-AD-5, CPM-AD-24)."
+                f"{type(self).__name__}.sentinel_evidence_rows was asked for {state.value!r} and returned "
+                f"{type(produced).__name__} rather than a sequence of rows. The hook answers with the rows this "
+                f"run owes; one row is a sequence of one."
             )
             raise CollectorConfigurationError(message)
-        return row
+        rows = list(produced)
+        if not rows:
+            message = (
+                f"{type(self).__name__}.sentinel_evidence_rows was asked for {state.value!r} and returned no "
+                f"rows. Every path that reaches it is a path this base has already promised an observation for: "
+                f"never a clean result, and never no row (CPM-NFR-3)."
+            )
+            raise CollectorConfigurationError(message)
+        carried = [str(self._state_of(row)) for row in rows]
+        if state.value not in carried:
+            message = (
+                f"{type(self).__name__}.sentinel_evidence_rows was asked for {state.value!r} and returned "
+                f"{len(rows)} row(s) carrying {sorted(set(carried))}, none of them that state. A sentinel that "
+                f"does not say which sentinel it is cannot be told from a clean result (CPM-AD-5, CPM-AD-24)."
+            )
+            raise CollectorConfigurationError(message)
+        # A determinate row may accompany a `not_found` -- a collector answering
+        # for several surfaces reports what each of them said, and one of them
+        # having the thing is an observation. It may **not** accompany an `error`
+        # or a `not_applicable`: those two are written by `_failed` and
+        # `_not_applicable`, which have already declared the run's verdict, so a
+        # determinate row there is permanent evidence that the source answered
+        # cleanly underneath a ledger row saying the run did not -- "never a
+        # clean result" (`CPM-NFR-3`) defeated from inside the contract.
+        if state is not OutcomeState.NOT_FOUND and OutcomeState.OK.value in carried:
+            message = (
+                f"{type(self).__name__}.sentinel_evidence_rows was asked for {state.value!r} and returned a row "
+                f"carrying {OutcomeState.OK.value!r}. A run recording {state.value!r} has already declared its "
+                f"verdict, and a determinate row written under it is a clean result nothing may correct "
+                f"(CPM-NFR-3, CPM-AD-5)."
+            )
+            raise CollectorConfigurationError(message)
+        return rows
+
+    def _state_of(self, row: AppendOnlyModel) -> object:
+        """Return the value a row's own state column carries.
+
+        Read from the column named `STATE_FIELD` rather than by scanning every
+        field, and the difference is a real one: `CPM-AD-24` makes the value a
+        short lowercase word, so a `detail`, a `source` or a package key equal to
+        `"error"` would satisfy a scan -- and a hook answering with several rows
+        makes an incidental match that many times likelier. Every evidence model
+        in this product names the column `state` (`CPM-AD-5`), and
+        `tests/unit/django_apps/test_outcome_field_audit.py` is what keeps it
+        that way.
+
+        Args:
+            row: The unsaved row.
+
+        Returns:
+            The column's value.
+
+        Raises:
+            CollectorConfigurationError: When the row declares no such column. A
+                sentinel row that cannot say which sentinel it is has nothing the
+                base could check.
+
+        """
+        if not any(
+            field.attname == STATE_FIELD
+            for field in row._meta.concrete_fields  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+        ):
+            message = (
+                f"{type(self).__name__} produced a {type(row).__name__} row, which declares no {STATE_FIELD!r} "
+                f"column. Every evidence model carries the outcome verbatim in one (CPM-AD-5, CPM-AD-24), and a "
+                f"row without one cannot be told from a clean result."
+            )
+            raise CollectorConfigurationError(message)
+        return getattr(row, STATE_FIELD)
 
     def _write_evidence(self, evidence: Sequence[AppendOnlyModel], *, observed_at: datetime) -> int:
         """Insert one package's evidence rows, inside one transaction and no more.
