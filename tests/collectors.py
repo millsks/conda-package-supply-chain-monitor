@@ -112,6 +112,7 @@ from conda_package_supply_chain_monitor.core.registry import unregister
 from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
 from conda_package_supply_chain_monitor.core.transport import Payload
+from conda_package_supply_chain_monitor.core.transport import TransportError
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -124,7 +125,6 @@ if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
     from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
     from conda_package_supply_chain_monitor.core.transport import Transport
-    from conda_package_supply_chain_monitor.core.transport import TransportError
 
 #: The name every fixture collector declares, and therefore what its ledger rows
 #: and its rate-limit cache keys carry. Prefixed so it cannot be confused with a
@@ -419,6 +419,64 @@ class RecordedTransport:
             message = f"RecordedTransport was asked to fetch {source!r} with neither a payload nor a failure scripted"
             raise RuntimeError(message)
         return self.payload
+
+
+@dataclass(slots=True)
+class ScriptedTransport:
+    """A transport that answers each locator from its own script.
+
+    `RecordedTransport` above answers every call with one payload, which is all
+    the base's own cases ever need: they make one call. A collector that makes a
+    *second* call needs more -- a double that answered both from one script could
+    not tell a case that read the fallback from one that read the first document
+    twice, and the whole point of a bounded second call is which locator it
+    reaches.
+
+    Written for `CPM-CURRENCY-S01`'s tag fallback and moved here when
+    `CPM-CURRENCY-S03` needed the same thing on both of its branches: two
+    byte-identical copies in two integration modules is the failure this file
+    exists to prevent, and a fourth collector is coming.
+
+    Attributes:
+        answers: What to return for each locator.
+        failures: What to raise for each locator instead.
+        calls: Every locator `fetch` was handed, in order.
+        sent_headers: The header mapping each call carried, in the same order.
+
+    """
+
+    answers: dict[str, Payload] = field(default_factory=dict)
+    failures: dict[str, TransportError] = field(default_factory=dict)
+    calls: list[str] = field(default_factory=list)
+    sent_headers: list[Mapping[str, str] | None] = field(default_factory=list)
+
+    def fetch(self, source: str, *, headers: Mapping[str, str] | None = None) -> Payload:
+        """Record the request and answer from the script for this locator.
+
+        Args:
+            source: The locator the collector asked for.
+            headers: The headers the base composed for it.
+
+        Returns:
+            The scripted payload.
+
+        Raises:
+            TransportError: When one was scripted for this locator.
+            RuntimeError: When nothing was scripted for it. A raise rather than an
+                `assert`, because `assert` vanishes under `python -O` and would
+                then return `None` where a `Payload` is annotated -- and a helper
+                that invented an empty payload would let a case pass by observing
+                nothing.
+
+        """
+        self.calls.append(source)
+        self.sent_headers.append(headers)
+        if source in self.failures:
+            raise self.failures[source]
+        if source not in self.answers:
+            message = f"ScriptedTransport was asked to fetch {source!r}, which nothing scripted"
+            raise RuntimeError(message)
+        return self.answers[source]
 
 
 def recorded_payload(  # noqa: PLR0913 - one parameter per `Payload` field; a bundle would hide the field under test

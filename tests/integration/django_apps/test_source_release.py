@@ -41,8 +41,6 @@ integration test; the marker is not re-applied by hand.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -76,18 +74,16 @@ from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
 from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import Payload
 from conda_package_supply_chain_monitor.core.transport import TransportError
 from conda_package_supply_chain_monitor.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordingResponseCache
+from tests.collectors import ScriptedTransport
 from tests.collectors import cached_response
 from tests.collectors import recorded_payload
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from conda_package_supply_chain_monitor.core.collection import CollectionResult
     from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
     from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
@@ -129,58 +125,6 @@ A_DAY: Final[timedelta] = timedelta(days=1)
 #: reaches it by accident, and it is large rather than merely unused so that a
 #: sequence which happened to reach it would have to have been asked for.
 NO_SUCH_PACKAGE: Final[int] = 9_999_999
-
-
-@dataclass(slots=True)
-class ScriptedTransport:
-    """A transport that answers each locator from its own script.
-
-    `tests/collectors.py`'s `RecordedTransport` answers every call with one
-    payload, which is all the base's own cases ever need: they make one call. This
-    collector makes two on the tag-fallback path, and a double that answered both
-    with one script could not tell a case that read tags from one that read the
-    release list twice.
-
-    Attributes:
-        answers: What to return for each locator.
-        failures: What to raise for each locator instead.
-        calls: Every locator `fetch` was handed, in order.
-        sent_headers: The header mapping each call carried, in the same order.
-
-    """
-
-    answers: dict[str, Payload] = field(default_factory=dict)
-    failures: dict[str, TransportError] = field(default_factory=dict)
-    calls: list[str] = field(default_factory=list)
-    sent_headers: list[Mapping[str, str] | None] = field(default_factory=list)
-
-    def fetch(self, source: str, *, headers: Mapping[str, str] | None = None) -> Payload:
-        """Record the request and answer from the script for this locator.
-
-        Args:
-            source: The locator the collector asked for.
-            headers: The headers the base composed for it.
-
-        Returns:
-            The scripted payload.
-
-        Raises:
-            TransportError: When one was scripted for this locator.
-            RuntimeError: When nothing was scripted for it. A raise rather than an
-                `assert`, because `assert` vanishes under `python -O` and would
-                then return `None` where a `Payload` is annotated -- and a helper
-                that invented an empty payload would let a case pass by observing
-                nothing.
-
-        """
-        self.calls.append(source)
-        self.sent_headers.append(headers)
-        if source in self.failures:
-            raise self.failures[source]
-        if source not in self.answers:
-            message = f"ScriptedTransport was asked to fetch {source!r}, which nothing scripted"
-            raise RuntimeError(message)
-        return self.answers[source]
 
 
 def _document(*entries: dict[str, Any]) -> str:

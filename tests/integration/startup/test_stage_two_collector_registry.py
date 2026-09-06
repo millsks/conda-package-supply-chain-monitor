@@ -26,8 +26,8 @@ file. `tests/collectors.py`'s `registered_collector` withdraws in a `finally`,
 which is the only ordering that survives a case whose whole body raises.
 
 **The registry this component really boots with is the other half.**
-`CPM-IDENTITY-S06` adopted the first collector, `CPM-CURRENCY-S01` the second and
-`CPM-CURRENCY-S02` the third,
+`CPM-IDENTITY-S06` adopted the first collector, `CPM-CURRENCY-S01` the second,
+`CPM-CURRENCY-S02` the third and `CPM-CURRENCY-S03` the fourth,
 so a deployed boot now sweeps a real roster rather than nothing, and the case that
 asserts it is what proves the condition passes over *real* declarations and not
 only over fixtures. The empty case it replaces made the opposite claim and was
@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
 from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
@@ -207,10 +208,11 @@ def test_the_registry_this_component_actually_boots_with_does_not_refuse() -> No
     """The state every component in this repository is actually in today.
 
     `CPM-IDENTITY-S06` adopted the first real collector, `CPM-CURRENCY-S01` the
-    second and `CPM-CURRENCY-S02` the third, so the registry a deployed boot
-    sweeps is no longer empty: `CollectorsConfig.ready()` registers inventory
-    ingestion, upstream release collection and PyPI release collection during
-    `django.setup()`, and the sweep meets all three on every boot in this tree.
+    second, `CPM-CURRENCY-S02` the third and `CPM-CURRENCY-S03` the fourth, so
+    the registry a deployed boot sweeps is no longer empty:
+    `CollectorsConfig.ready()` registers inventory ingestion, upstream release
+    collection, PyPI release collection and feedstock collection during
+    `django.setup()`, and the sweep meets all four on every boot in this tree.
     That is asserted rather than assumed, and both halves matter -- the roster is
     what it is meant to be, and stage two passes over it without a fixture in
     sight.
@@ -229,7 +231,7 @@ def test_the_registry_this_component_actually_boots_with_does_not_refuse() -> No
     component running" is a question about names. A roster compared by identity
     would still pass if two classes had come to share one.
     """
-    adopted = sorted([INVENTORY_COLLECTOR_NAME, SOURCE_RELEASE_NAME, PYPI_RELEASE_NAME])
+    adopted = sorted([INVENTORY_COLLECTOR_NAME, SOURCE_RELEASE_NAME, PYPI_RELEASE_NAME, FEEDSTOCK_NAME])
 
     assert sorted(registrations()) == adopted
     for name in adopted:

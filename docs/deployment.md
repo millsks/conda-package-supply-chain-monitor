@@ -859,3 +859,125 @@ fact about identity, not about PyPI.
 projects for an unauthenticated reader to be shut out of, so a `404` is a project
 that does not exist or has never released — unlike the GitHub collector above,
 this row carries no caveat.
+
+## The feedstock collector reads conda-forge unauthenticated, and asks one of two questions
+
+`cpm.collect.feedstock` observes whether conda-forge has a feedstock for a
+package (`CPM-FR-9`). It sends **no credential**, and its declared allowance is
+**ten requests a minute**.
+
+**The declared allowance is GitHub's *search* allowance, and that is deliberate.**
+One of the two questions this collector asks is a search of the staged-recipes
+queue (`GET /search/issues`), which GitHub limits to ten a minute for an
+unauthenticated caller — far below the sixty an hour its core API allows, but
+counted per minute rather than per hour. The collector base charges one allowance
+before it knows which question a package will produce, so a single number has to
+cover both, and the tighter of the two is the only one that cannot be exceeded by
+accident. At `1 + retries` per collection that is two packages a minute, which is
+**not** a rate that sweeps `CPM-NFR-1`'s ten thousand packages. Nothing is
+scheduled to try: no cadence entry exists for this collector, and the
+full-inventory sweep is a later story.
+
+**Which question is asked is read from the package's identity, before any call is
+made.**
+
+- A package whose `feedstock` mapping resolution recorded as `established` **with
+  feedstock rows** is asked about that feedstock's repository, and then about its
+  recipe. Two calls.
+- A package whose mapping is `established` with **no** rows, or is `not_found` —
+  both of which mean resolution looked and found none — is asked about the
+  staged-recipes queue, and then about the conventional `conda-forge/<name>-feedstock`
+  repository. Two calls.
+- A package whose mapping resolution recorded as `not_applicable` is asked
+  nothing at all: the base writes a `not_applicable` row with no call made, no
+  allowance spent and no cache read, and the run is `succeeded` with the reason as
+  its `detail`.
+
+**The second call on each branch is not charged against the local allowance.** The
+base charges `1 + retries` once, before the first call, so every package spends
+more of the *remote* budget than the local counter believes — the same gap the
+upstream-release collector's tag fallback has, and it matters only at sweep
+volume, which nothing reaches yet. The second call is also outside the retry
+policy: a failure of it is recorded in the row's `detail` and never fails the
+collection, because the first call has already established the fact the row's
+`state` claims.
+
+**A `not_found` row does not prove the same thing on both branches, and it does
+not always prove absence at all — the row's `detail` is what says which.** On the
+mapped branch it means "the feedstock a resolver established for this package is
+absent from conda-forge", a statement about identity as much as about the channel,
+and the `detail` names that feedstock. On the absent branch it means resolution
+established none, and the `detail` then says one of four things: that the
+conventional repository is absent too (the only reading that is evidence of
+absence); that the conventional repository could not be *read*, so nobody found
+out; that the staged-recipes queue itself could not be read and no repository was
+checked at all; or that the queue held more results than one page and whether one
+of them names this package is not established. Read the `detail`, not the state,
+before treating a row as proof that conda-forge has nothing. And none of them is a
+claim about *any* possible feedstock under some other name: this collector asks
+about the feedstock resolution named, or the conventional one, and about nothing
+else.
+
+**A staged recipe is recorded only on a row that says there is no feedstock**, and
+the database enforces it (`staged_recipe_only_when_absent`). That is `CPM-FR-9`'s
+"staged-recipe state is recorded separately from an existing feedstock" as a rule
+rather than a convention. Two open pull requests naming one package produce a row
+with **no** staged-recipe URL and a `detail` saying how many matched: which one
+would create the feedstock is not a question this collector answers by picking.
+
+**The recipe version is read, never rendered.** A conda-forge recipe is a Jinja
+template, and this collector reads the `{% set version = "..." %}` assignment
+conda-forge's own recipes open with, falling back to a literal `version:` under
+`package:`. A recipe that computes its version any other way records the feedstock
+as **present** — which is what the row's `state` claims — with `recipe_version`
+blank and `detail` saying it could not be read. Nothing renders a template, so no
+recipe-authored code runs in a worker. Recipes are read from
+`raw.githubusercontent.com`, which is a second host and has limits of its own that
+this product's counter does not see.
+
+**A mapping that holds several feedstocks has only the first by name observed.**
+`CPM-FR-1` resolves "zero or more" feedstocks, and this collector asks about one
+per collection: the first in name order, so which one a package's history is
+about does not depend on which resolver wrote its rows first. The row's `detail`
+names how many there were. Nothing about the others is recorded, and a reader
+must not treat one row as covering a package's whole feedstock mapping.
+
+**The local counter cannot see a remote refusal, and there are two of them here.**
+GitHub signals an exhausted anonymous quota with a `403`, and its search endpoint
+applies a *secondary* rate limit that also arrives as a `403`; this product's
+transport reads both as ordinary failures. So a remote refusal produces an `error`
+row that looks like any other, and the local allowance keeps granting until its own
+window turns over. The search endpoint is the one to watch: its limit is the
+tightest thing this collector touches, and the secondary limit fires on burst
+rather than on rate.
+
+**Egress must be open to two hosts.** `api.github.com` for the repository and the
+staged-recipes search, and `raw.githubusercontent.com` for the recipe. A network
+policy that allowed only the first would leave every determinate row carrying a
+blank `recipe_version` with "the recipe's version could not be read" in `detail` --
+a quiet, permanent degradation rather than a failure anything reports.
+
+**A determinate row found on the absent branch carries no recipe facts.** When
+resolution established no feedstock and the conventional repository turns out to
+exist, the row is `ok` and names that feedstock — but the recipe is not read, so
+`recipe_version`, `recipe_build_number` and `recipe_metadata_url` are all blank
+and `detail` says the recipe was not read on that branch. Both calls a collection
+may make were already spent, and reading the recipe would make it three. The next
+run reaches the recipe once resolution has been corrected to name the feedstock
+this run found.
+
+**Recipe activity is the feedstock's last push, and it is an instant rather than a
+verdict.** `last_recipe_activity_at` is what the repository stated; whether a gap
+makes a feedstock "unmaintained" is a policy with a versioned threshold
+(`CPM-FR-40`), and no such threshold exists yet.
+
+**A package whose feedstock identity is unresolved fails the run rather than being
+recorded absent.** A mapping that is `unknown` or `error` — or a package with no
+mapping row — cannot be turned into a feedstock question, and recording it as
+`not_found` would be exactly what `CPM-UJ-2` forbids: claiming absence of a
+feedstock for a package whose identity nobody has resolved. The ledger row is
+`failed` carrying the reason and no evidence row is written. The same goes for a
+stored feedstock name that is not a repository segment. Until the full-inventory
+sweep selects only askable packages, expect such `failed` runs for any package a
+resolver has not reached; they are a reporting fact about identity, not about
+conda-forge.

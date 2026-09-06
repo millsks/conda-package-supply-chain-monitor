@@ -82,6 +82,7 @@ from celery import shared_task
 from django.db import DatabaseError
 from django.db import transaction
 
+from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
@@ -112,6 +113,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSENT_DETAIL",
     "COLLECTOR_NAME",
+    "COLLECT_FEEDSTOCK_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "INGEST_TASK_NAME",
@@ -125,6 +127,7 @@ __all__ = [
     "InventoryIngestionCollector",
     "InventoryRecord",
     "InventoryRecordError",
+    "collect_feedstock",
     "collect_pypi_release",
     "collect_source_release",
     "declare_inventory_adapter",
@@ -168,6 +171,11 @@ COLLECT_SOURCE_RELEASE_TASK_NAME: Final[str] = "cpm.collect.source_release"
 #: (`CPM-CURRENCY-S02`, `CPM-FR-8`): the `cpm.collect.` namespace routes it, and
 #: the name is the collector's.
 COLLECT_PYPI_RELEASE_TASK_NAME: Final[str] = "cpm.collect.pypi_release"
+
+#: The feedstock-collection task's declared name, on the same terms
+#: (`CPM-CURRENCY-S03`, `CPM-FR-9`): the `cpm.collect.` namespace routes it, and
+#: the name is the collector's.
+COLLECT_FEEDSTOCK_TASK_NAME: Final[str] = "cpm.collect.feedstock"
 
 #: The locator handed to the adapter, and it is deliberately opaque.
 #:
@@ -1242,4 +1250,60 @@ def collect_pypi_release(*, package_id: int, force: bool = False) -> str:
 
     """
     with PyPIReleaseCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
+@shared_task(name=COLLECT_FEEDSTOCK_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_feedstock(*, package_id: int, force: bool = False) -> str:
+    """Observe one package's conda-forge feedstock (`CPM-FR-9`).
+
+    Package-scoped on the same terms as the two release tasks: one question per
+    package (`CPM-AD-7`), one package's transaction and ledger row (`CPM-AD-23`),
+    and no transport passed -- the base builds one from the collector's declared
+    timeout and retry count.
+
+    What is different is that the *question* is chosen from identity before any
+    call is made. A package resolution established a feedstock for is asked about
+    that feedstock and its recipe; a package resolution established none for is
+    asked about the staged-recipes queue and has the conventional feedstock
+    confirmed absent. Both branches make at most two calls, and both land on one
+    row -- which is what keeps `CPM-FR-9`'s "staged-recipe state is recorded
+    separately from an existing feedstock" a property of the row rather than of
+    two.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`). Nothing schedules this yet -- `CPM-CURRENCY-S05` owns
+    the full-inventory sweep.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so
+            this leaves nothing behind at all.
+        FeedstockLocatorError: When resolution has not reached the package's
+            feedstock mapping, or the name it recorded is not a repository this
+            collector could ask about. The ledger row is finalized `failed`
+            carrying the reason; see that class for why `CPM-UJ-2` makes this a
+            refusal rather than an absence row.
+        FeedstockDocumentError: When the source served something that is not the
+            document the branch asked for. An `error` evidence row is written
+            first and the ledger row is `failed`, so the run is on the record
+            either way.
+
+    """
+    with FeedstockCollector(clock=SystemClock()) as collector:
         return str(collector.collect(package_id=package_id, force=force).state.value)
