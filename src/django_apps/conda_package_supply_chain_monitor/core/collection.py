@@ -94,6 +94,21 @@ vocabulary exists to remove. Both states come from `core/outcomes.py`'s
 vocabulary and neither is `ok` (`CPM-AD-5`), and the base checks that the row a
 collector hands back actually carries the state it was asked for.
 
+**A question that does not apply is an observation too, and it is the one path
+that writes a row without reaching the transport.** `CPM-FR-6` keeps
+`not_applicable` apart from `not_found` and from `unknown`, and `CPM-FR-8` says
+a non-Python package "is never marked stale against PyPI for not being
+published there" -- which a package with *no row* would be, because a package
+with no observation reads as `unknown` and ages from there. So a collector may
+say, before any locator is asked for, that the question does not apply to this
+package (`inapplicability`), and the base then writes the `not_applicable`
+sentinel row itself, exactly as it writes `error` and `not_found`: no call is
+made, no allowance is spent, no cache is read, and the run is `succeeded`
+carrying the reason. The window still applies (`CPM-AD-7`), because a decision
+not to observe is the same decision whatever the observation would have said.
+The base decides the sentinel; what it does *not* decide is applicability, which
+is read from `identity` and never guessed (`CPM-FR-1`).
+
 The one path that writes nothing is the observation window, and it writes nothing
 on purpose: `CPM-AD-7` says a second run inside the window records a ledger row
 with status `skipped` and no evidence, which is a *decision not to observe*
@@ -237,6 +252,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COLLECTION_FAILED_EVENT",
+    "COLLECTION_NOT_APPLICABLE_EVENT",
     "COLLECTION_NOT_MODIFIED_EVENT",
     "COLLECTION_NOT_REMEMBERED_EVENT",
     "COLLECTION_PARTIAL_EVENT",
@@ -306,7 +322,18 @@ COLLECTION_NOT_REMEMBERED_EVENT: Final[str] = "collection.not_remembered"
 #: collection observes one package and cannot half-succeed.
 COLLECTION_PARTIAL_EVENT: Final[str] = "collection.partial"
 
-#: The keys every one of the six events above carries, and the reason they are
+#: The event a question that does not apply is logged under. Distinct from a
+#: skip and from a success with a body: the source was never asked, and that is
+#: the right outcome rather than a suppressed one. An operator reading "why does
+#: this collector never call its source for these packages" needs to tell a
+#: window that is suppressing runs from a collector that has, correctly, nothing
+#: to ask. It carries `EVENT_KEYS` like every other event, and its `source` is
+#: the empty string -- no locator exists on this path, because the collector was
+#: never asked for one, and inventing one for the log line would be worse than
+#: saying so.
+COLLECTION_NOT_APPLICABLE_EVENT: Final[str] = "collection.not_applicable"
+
+#: The keys every one of the seven events above carries, and the reason they are
 #: named here. A `detail` that is an exception's `"Type: message"` on two paths
 #: and a sentence on the third is two schemas wearing one key, and a log query
 #: written against either would be wrong half the time. So the value is fixed as
@@ -853,6 +880,38 @@ class Collector(ABC):
             status=status,
         )
 
+    def inapplicability(self, *, package_id: int) -> str:
+        """Say why the question this collector asks does not apply to one package, or say nothing.
+
+        The hook `CPM-FR-6`'s `not_applicable` arrives through. It is asked
+        **before** `source_for`, because a collector that cannot name a locator
+        for a package its question does not apply to must not be asked for one
+        -- and it is not abstract, because most collectors' questions apply to
+        every package: a source repository is a thing any package may have. The
+        default is therefore "applies", and the two collectors that predate this
+        hook declare nothing new.
+
+        What a subclass answers here is read from `identity` and never guessed
+        (`CPM-FR-1`): "this package's type makes the question inapplicable" is a
+        fact resolution recorded, and a collector inferring it from a name would
+        be the guess `CPM-FR-1` forbids. What the base does with a reason is
+        write the `not_applicable` sentinel row itself, with no call made and no
+        allowance spent -- see the module docstring.
+
+        Args:
+            package_id: The package being collected, by the integer primary key
+                `CPM-AD-3` fixes. Keyword only, as every other argument in this
+                module is.
+
+        Returns:
+            The empty string when the question applies -- or when the collector
+            cannot yet tell, in which case `source_for` is where the refusal
+            belongs -- and otherwise the reason it does not, in words worth
+            storing on the row and on the ledger.
+
+        """
+        return ""
+
     @abstractmethod
     def source_for(self, *, package_id: int) -> str:
         """Return the locator this collector reads for one package.
@@ -908,12 +967,16 @@ class Collector(ABC):
         result rather than trusting it.
 
         Args:
-            state: `OutcomeState.ERROR` or `OutcomeState.NOT_FOUND`. Never
+            state: `OutcomeState.ERROR`, `OutcomeState.NOT_FOUND` or
+                `OutcomeState.NOT_APPLICABLE` -- the first two for a call that
+                failed or was answered "absent", the third for a question this
+                collector said does not apply (`inapplicability`). Never
                 `OutcomeState.OK` -- the base does not call this for a
-                successful observation. Keyword only, as every other argument in
-                this module is: eight subclasses implement this by hand, and a
-                positional first argument is the one place their signatures
-                could quietly disagree.
+                successful observation -- and never `OutcomeState.UNKNOWN`,
+                which is what a package with *no* row reads as. Keyword only, as
+                every other argument in this module is: eight subclasses
+                implement this by hand, and a positional first argument is the
+                one place their signatures could quietly disagree.
             package_id: The package the observation is about.
             observed_at: The instant to stamp the row with. The base refuses a
                 row stamped with anything else.
@@ -935,21 +998,23 @@ class Collector(ABC):
 
         The recorder is opened first and nothing wraps it -- see the module
         docstring for why that ordering is the whole of `CPM-EVIDENCE-S03`'s
-        deferred constraint. Inside it: the window, the rate limit, the cache
-        read, the call, and one `transaction.atomic()` around the evidence write.
+        deferred constraint. Inside it: applicability, the window, the rate
+        limit, the cache read, the call, and one `transaction.atomic()` around
+        the evidence write.
 
-        **Seven returns, one per terminal path, and that is what the `noqa`
+        **Eight returns, one per terminal path, and that is what the `noqa`
         licenses.** They are the I/O matrix's rows: the window suppressed the
-        run; the allowance was spent; the source did not answer; it answered
-        `304` with nothing behind the request; it answered that the resource is
-        absent; the parser found nothing; the observation was written. Each
-        declares its own `detail`, which is the string the ledger row and the
-        returned result both carry, so collapsing two of them into a shared
-        return would mean a shared explanation -- and a reader asking "why did
-        this collect nothing" would get a sentence written for a different
-        reason. The alternative shape, a helper returning `Payload | CollectionResult`
-        for the caller to type-test, moves the ordering this module's docstring
-        is written about out of the method it is written about.
+        run; the question does not apply to this package; the allowance was
+        spent; the source did not answer; it answered `304` with nothing behind
+        the request; it answered that the resource is absent; the parser found
+        nothing; the observation was written. Each declares its own `detail`,
+        which is the string the ledger row and the returned result both carry,
+        so collapsing two of them into a shared return would mean a shared
+        explanation -- and a reader asking "why did this collect nothing" would
+        get a sentence written for a different reason. The alternative shape, a
+        helper returning `Payload | CollectionResult` for the caller to
+        type-test, moves the ordering this module's docstring is written about
+        out of the method it is written about.
 
         Args:
             package_id: The package to collect, by the integer primary key
@@ -974,9 +1039,11 @@ class Collector(ABC):
                 for a package that was never resolved, which is a caller defect
                 rather than a collection outcome.
             CollectorConfigurationError: When a row this collector produced does
-                not carry the instant it was handed, or when a sentinel row does
-                not carry the state it was asked for. Both are defects in the
-                subclass; both are caught before the row reaches the table.
+                not carry the instant it was handed, when a sentinel row does
+                not carry the state it was asked for, or when `inapplicability`
+                answered something that is neither a reason nor the empty
+                string. All are defects in the subclass; all are caught before
+                a row reaches the table.
             CollectionWriteError: When the evidence write itself failed on a
                 path that was already recording a failure. It carries the
                 original reason, so the ledger never records only the epitaph.
@@ -990,11 +1057,15 @@ class Collector(ABC):
         """
         with collection_run(collector=self._name, clock=self._clock, package_id=package_id) as run:
             observed_at = self._clock.now()
-            # Asked for once, before the window is consulted, so that every log
-            # line and every message below names the same locator -- and so that
-            # a `source_for` which cannot answer fails the run rather than
-            # failing only on the paths that happen to reach the transport.
-            source = self.source_for(package_id=package_id)
+            # Applicability first, and the locator only when the question
+            # applies: a collector whose question does not apply to this package
+            # has no locator to name and must not be asked for one. Otherwise the
+            # locator is asked for once, before the window is consulted, so that
+            # every log line and every message below names the same one -- and
+            # so that a `source_for` which cannot answer fails the run rather
+            # than failing only on the paths that happen to reach the transport.
+            reason = _require_reason(self.inapplicability(package_id=package_id), label=type(self).__name__)
+            source = "" if reason else self.source_for(package_id=package_id)
 
             if not force and self._inside_window(package_id=package_id, now=observed_at):
                 detail = (
@@ -1010,6 +1081,9 @@ class Collector(ABC):
                 )
                 run.skipped(detail=detail)
                 return CollectionResult(state=RunState.SKIPPED, evidence_rows=0, detail=detail)
+
+            if reason:
+                return self._not_applicable(reason=reason, package_id=package_id, observed_at=observed_at, run=run)
 
             if not self._limiter.acquire(
                 collector=self._name,
@@ -1613,6 +1687,61 @@ class Collector(ABC):
             return
         self._response_cache.forget(collector=self._name, source=source)
 
+    def _not_applicable(
+        self,
+        *,
+        reason: str,
+        package_id: int,
+        observed_at: datetime,
+        run: RunHandle,
+    ) -> CollectionResult:
+        """Write the `not_applicable` row for a question this collector said does not apply.
+
+        The counterpart to the `not_found` branch of `collect`, reached before
+        the allowance, the cache and the transport rather than after them: the
+        source is never asked, so nothing is charged, nothing is read and nothing
+        is remembered or forgotten. The row goes through `_write_evidence` like
+        every other, so it is checked against the declared model and the run's
+        instant on the way in, and `_sentinel` checks it carries the state.
+
+        `succeeded`, not `failed`: the collector answered, and the answer was
+        "this question is not about this package" (`CPM-FR-6`). The reason is
+        declared to the ledger so the ledger row says what the returned result
+        says, on this path as on every other -- and it is the same string the
+        row's own `detail` carries, because there is only one reason.
+
+        Args:
+            reason: Why the question does not apply, as `inapplicability` said
+                it.
+            package_id: The package the observation is about.
+            observed_at: The instant to stamp the row with.
+            run: The recorder's handle.
+
+        Returns:
+            The succeeded result, carrying the row count and the reason.
+
+        """
+        logger.info(
+            COLLECTION_NOT_APPLICABLE_EVENT,
+            collector=self._name,
+            package_id=package_id,
+            source="",
+            detail=reason,
+        )
+        rows = self._write_evidence(
+            [
+                self._sentinel(
+                    OutcomeState.NOT_APPLICABLE,
+                    package_id=package_id,
+                    observed_at=observed_at,
+                    detail=reason,
+                ),
+            ],
+            observed_at=observed_at,
+        )
+        run.succeeded(detail=reason)
+        return CollectionResult(state=RunState.SUCCEEDED, evidence_rows=rows, detail=reason)
+
     def _failed(
         self,
         *,
@@ -1932,6 +2061,45 @@ def _entry_to_remember(payload: Payload, *, remembered: CachedResponse | None) -
     """
     body = remembered.body if payload.not_modified and remembered is not None else payload.body
     return CachedResponse(body=body, etag=payload.etag, last_modified=payload.last_modified)
+
+
+def _require_reason(reason: object, *, label: str) -> str:
+    """Refuse an `inapplicability` answer that is not a usable reason or a usable silence.
+
+    The hook's answer is written verbatim into the row's `detail`, the ledger
+    row's `detail` and the log line, and it decides whether a locator is asked
+    for -- so an answer of the wrong kind is a defect in the subclass rather than
+    a fact about the package. The empty string is the one silence: "applies".
+
+    Args:
+        reason: What the subclass answered.
+        label: The class's own name, for the message.
+
+    Returns:
+        The reason, unchanged.
+
+    Raises:
+        CollectorConfigurationError: When the answer is not a string -- `None`,
+            a boolean, an object whose truthiness would have decided the path --
+            or when it is a non-empty string of nothing but whitespace, which is
+            a collector saying "does not apply" with no reason to record.
+
+    """
+    if not isinstance(reason, str):
+        message = (
+            f"{label}.inapplicability answered {reason!r}, which is not a string. The answer is the reason a "
+            f"not_applicable row records and the ledger carries; return the empty string when the question "
+            f"applies and a sentence when it does not."
+        )
+        raise CollectorConfigurationError(message)
+    if reason and not reason.strip():
+        message = (
+            f"{label}.inapplicability answered {reason!r}, which says the question does not apply and gives no "
+            f"reason. A not_applicable row with a blank detail is an observation nobody can read back "
+            f"(CPM-FR-6); return the empty string for a question that applies."
+        )
+        raise CollectorConfigurationError(message)
+    return reason
 
 
 def _require_name(name: str, *, label: str) -> str:

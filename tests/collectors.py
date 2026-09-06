@@ -63,6 +63,17 @@ trusting it, and these are what measure that check. The last two are the only
 shapes that reach the database's own refusals, which is what the per-package
 transaction and the failing-write wrapper are each about.
 
+**One collector whose question does not apply, and one that cannot say so on a
+row.** `CPM-CURRENCY-S02` gave the base an `inapplicability` hook, and the
+ordinary fixture answers it as the base's default does -- "applies" -- so the
+window, the allowance and the transport cases stay about what they were about.
+`inapplicable_collector_class` overrides that one method with a fixed reason, so
+the base's `not_applicable` path -- a row, no call, no allowance, no cache read,
+a `succeeded` run -- is measurable against the fixture table. Its subclass
+refuses the `not_applicable` sentinel, which is the one collector mistake that
+path can meet: a collector saying "this does not apply" and then having no row
+shape for it.
+
 A helper module, not a collected one. `[tool.pytest.ini_options] python_files`
 matches `test_*.py` and `tests.py`, so nothing here is collected, and it sits at
 `tests/` rather than under `tests/unit/` for the reason `tests/source_scan.py`,
@@ -90,8 +101,10 @@ from django.db import transaction
 from django.test.utils import isolate_apps
 
 from conda_package_supply_chain_monitor.core.collection import Collector
+from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
 from conda_package_supply_chain_monitor.core.collection import SweepOutcome
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.registry import CollectorRegistryError
 from conda_package_supply_chain_monitor.core.registry import register
@@ -108,7 +121,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from conda_package_supply_chain_monitor.core.clock import Clock
-    from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
     from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
     from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
     from conda_package_supply_chain_monitor.core.transport import Transport
@@ -234,6 +246,12 @@ A_LAST_MODIFIED: Final[str] = "Wed, 03 Sep 2026 12:00:00 GMT"
 #: from a freshly fetched one -- which is the assertion, and it would be vacuous
 #: if the two strings were equal.
 A_CACHED_BODY: Final[str] = '{"version": "2.3.0"}'
+
+#: Why the inapplicable fixture collector says its question does not apply. A
+#: sentence rather than a token, because it is what the base writes into the
+#: row's `detail` and the ledger row's `detail`, and a case asserting the two
+#: agree should be asserting about words a reader would meet.
+A_NOT_APPLICABLE_REASON: Final[str] = "the fixture question is not about this package (CPM-FR-6)"
 
 #: A naive instant, for the collector that ignores the one it was handed.
 #:
@@ -1029,6 +1047,111 @@ def unwritable_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]
             )
 
     return _UnwritableSentinelCollector
+
+
+def inapplicable_collector_class(
+    *,
+    declared_model: type[AppendOnlyModel],
+    reason: str = A_NOT_APPLICABLE_REASON,
+) -> type[Collector]:
+    """Build a fixture collector whose question does not apply to any package.
+
+    The subject for the base's `not_applicable` path (`CPM-CURRENCY-S02`). A
+    subclass of the ordinary fixture overriding `inapplicability` and nothing
+    else, so a case about that path is a case about the hook: the same
+    `source_for` is still there and must never be called, the same `translate`
+    is still there and must never be reached, and the same `sentinel_evidence`
+    is what shapes the row the base writes.
+
+    Args:
+        declared_model: The evidence model the `not_applicable` row is written to.
+        reason: What the collector says, which is what the base writes to the row
+            and to the ledger.
+
+    Returns:
+        A concrete `Collector` subclass whose `inapplicability` always answers
+        with `reason`.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _InapplicableCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector with nothing to ask about any package."""
+
+        def inapplicability(self, *, package_id: int) -> str:
+            """Say the question does not apply, whichever package is asked about.
+
+            Args:
+                package_id: The package being collected, which changes nothing.
+
+            Returns:
+                The fixed reason.
+
+            """
+            return reason
+
+    return _InapplicableCollector
+
+
+def refusing_inapplicable_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build an inapplicable collector that has no row shape for `not_applicable`.
+
+    The one subclass mistake the `not_applicable` path can meet: a collector that
+    says "this does not apply" and refuses the sentinel the base then asks for.
+    `CPM-CURRENCY-S01`'s collector refuses exactly this state, correctly, because
+    its question applies to every package; a collector that copied that refusal
+    and then grew an `inapplicability` would be this. The base must let the
+    refusal out rather than write nothing and call the run a success.
+
+    Args:
+        declared_model: The evidence model the row would have been written to.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence` refuses
+        `OutcomeState.NOT_APPLICABLE` and shapes every other sentinel as the
+        ordinary fixture does.
+
+    """
+    inapplicable = inapplicable_collector_class(declared_model=declared_model)
+
+    class _RefusingInapplicableCollector(inapplicable):  # type: ignore[valid-type, misc]
+        """A collector that declares a question inapplicable and cannot record that."""
+
+        def sentinel_evidence(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> AppendOnlyModel:
+            """Refuse the one state this collector said it would produce.
+
+            Args:
+                state: The sentinel the base asked for.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                The ordinary fixture's row, for every state but one.
+
+            Raises:
+                CollectorConfigurationError: When asked for
+                    `OutcomeState.NOT_APPLICABLE`.
+
+            """
+            if state is OutcomeState.NOT_APPLICABLE:
+                message = f"{type(self).__name__} shapes no row for {state.value!r}"
+                raise CollectorConfigurationError(message)
+            return super().sentinel_evidence(  # type: ignore[no-any-return]
+                state=state,
+                package_id=package_id,
+                observed_at=observed_at,
+                detail=detail,
+            )
+
+    return _RefusingInapplicableCollector
 
 
 def sweeping_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:

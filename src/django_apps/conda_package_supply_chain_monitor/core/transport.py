@@ -29,11 +29,13 @@ value is applied per connect and per read phase, not as a cap on the whole call:
 a source dripping one byte inside the read timeout holds the connection
 indefinitely, and a retried call spends the budget again per attempt. So the
 worst case of one `fetch` is roughly `(1 + retries) * 2 * timeout` plus the
-backoff schedule, and `MAX_TIMEOUT` exists to keep that bounded against the
-inherited Celery limits (`CPM-AD-9`: a 60-second soft limit and a 5-minute hard
-one). A total-call cap is not something `requests` offers, and inventing one here
-would mean a thread or a signal in a Celery worker; the bound is stated instead
-of pretended.
+backoff schedule -- `worst_case_call_seconds` below computes it, so a collector's
+declarations are reconciled against the inherited soft limit by arithmetic rather
+than by a reader's head -- and `MAX_TIMEOUT` exists to keep that bounded against
+the inherited Celery limits (`CPM-AD-9`: a 60-second soft limit and a 5-minute
+hard one). A total-call cap is not something `requests` offers, and inventing one
+here would mean a thread or a signal in a Celery worker; the bound is stated
+instead of pretended.
 
 **Retry with backoff is `urllib3`'s, reached through `requests`' own surface.**
 `requests.adapters` re-exports `Retry`, so `HTTPAdapter(max_retries=Retry(...))`
@@ -160,6 +162,7 @@ __all__ = [
     "RequestsTransport",
     "Transport",
     "TransportError",
+    "worst_case_call_seconds",
 ]
 
 #: The statuses that mean "the source answered, and the thing is not there".
@@ -251,6 +254,66 @@ MAX_TIMEOUT: Final[float] = 30.0
 #: The header a charset is declared in, and the parameter within it.
 CONTENT_TYPE_HEADER: Final[str] = "Content-Type"
 CHARSET_PARAMETER: Final[str] = "charset"
+
+
+def worst_case_call_seconds(*, timeout: float, retries: int, backoff_factor: float = DEFAULT_BACKOFF_FACTOR) -> float:
+    """Return the longest one collection's outbound call can take.
+
+    The module docstring states the arithmetic in prose; this is the same
+    arithmetic as a function, so the one thing a declared timeout has to be
+    checked against -- the inherited Celery soft limit (`CPM-AD-9`) -- is a
+    computation a case can make against the settings module's own declared limit
+    rather than a sum a reader does in their head. It lives here rather than
+    beside the first collector that needed it because every collector needs it
+    and no collector may import another (`CPM-AD-7`).
+
+    **It over-reports rather than under-reports, and the direction is the point.**
+    `urllib3` caps each backoff at `Retry.DEFAULT_BACKOFF_MAX` (120 seconds), which
+    this sum ignores: at the declared factor and retry count the schedule never
+    approaches the cap, so ignoring it costs nothing today and keeps the
+    arithmetic readable. Should either grow, this answers with a number larger
+    than the real worst case -- which fails a reconciliation that would otherwise
+    have passed, rather than passing one that should have failed.
+
+    Args:
+        timeout: Seconds a single connect or read phase may take. Must be
+            positive.
+        retries: How many times a failed request is tried again. Must not be
+            negative.
+        backoff_factor: `urllib3`'s backoff multiplier, in seconds. Must not be
+            negative.
+
+    Returns:
+        The timeout spent per connect and per read on every attempt, plus
+        `urllib3`'s backoff schedule between them. `urllib3` treats the first
+        retry's delay as zero and then sleeps `backoff_factor * 2 ** (attempt - 1)`,
+        which is why the sum below starts at the second retry -- and is why at
+        three retries and half a second the schedule is `0s, 1s, 2s`, the series
+        `DEFAULT_BACKOFF_FACTOR`'s comment writes out beside the formula it
+        disagrees with at the first term.
+
+    Raises:
+        ValueError: When `timeout` is not positive, or when either count is
+            negative. Refused rather than answered, because the answer would be
+            zero or negative and would satisfy any ceiling it were compared
+            against -- a reconciliation that passes because its input was
+            nonsense is worse than no reconciliation.
+
+    """
+    if timeout <= 0:
+        message = f"a call cannot be bounded by a timeout of {timeout!r}; every outbound call carries a positive one"
+        raise ValueError(message)
+    if retries < 0 or backoff_factor < 0:
+        message = (
+            f"a retry schedule cannot be built from retries={retries!r} and backoff_factor={backoff_factor!r}; "
+            f"neither is a count or a delay."
+        )
+        raise ValueError(message)
+    attempts = 1 + retries
+    backoff = 0.0
+    for attempt in range(2, retries + 1):
+        backoff += backoff_factor * 2 ** (attempt - 1)
+    return attempts * 2 * timeout + backoff
 
 
 class TransportError(Exception):

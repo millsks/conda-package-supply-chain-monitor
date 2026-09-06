@@ -5,8 +5,9 @@ Celery's autodiscovery imports each installed application's `tasks` module and n
 other (`config/celery_app.py`), so a `@shared_task` in a sibling module is
 registered by whatever happens to import it -- which is the suite, and not a
 worker. `CPM-CURRENCY-S01`'s collector therefore lives in
-`collectors/source_release.py` while its task lives at the foot of this file: the
-collector is code a reader wants beside the source it reads, and the task is a
+`collectors/source_release.py` and `CPM-CURRENCY-S02`'s in
+`collectors/pypi_release.py`, while their tasks live at the foot of this file: a
+collector is code a reader wants beside the source it reads, and a task is a
 line that has to be *here* to run at all.
 
 `CPM-FR-42` acquires the package inventory from a declared source, and
@@ -82,6 +83,7 @@ from django.db import DatabaseError
 from django.db import transaction
 
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
+from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.core.clock import SystemClock
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
@@ -110,6 +112,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSENT_DETAIL",
     "COLLECTOR_NAME",
+    "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "INGEST_TASK_NAME",
     "INVENTORY_SOURCE",
@@ -122,6 +125,7 @@ __all__ = [
     "InventoryIngestionCollector",
     "InventoryRecord",
     "InventoryRecordError",
+    "collect_pypi_release",
     "collect_source_release",
     "declare_inventory_adapter",
     "declared_inventory_adapter",
@@ -132,10 +136,11 @@ __all__ = [
 ]
 
 #: This module declares no logger and emits no events of its own, deliberately.
-#: `core/collection.py` owns the six a collection can emit -- skipped, refused,
-#: failed, partial, not-modified, not-remembered -- and fixes the keys every one
-#: of them carries so a log query does not have to know which path produced it.
-#: A seventh emitted from here would be a second schema for the same run, and a
+#: `core/collection.py` owns the seven a collection can emit -- skipped, refused,
+#: failed, partial, not-modified, not-remembered, not-applicable -- and fixes the
+#: keys every one of them carries so a log query does not have to know which path
+#: produced it.
+#: An eighth emitted from here would be a second schema for the same run, and a
 #: "sweep completed" line would say what the run ledger row already records
 #: durably.
 
@@ -158,6 +163,11 @@ INGEST_TASK_NAME: Final[str] = "cpm.collect.inventory"
 #: work in this same package and a route keyed on module path could not tell a
 #: compute-backed build from an HTTP read (`R-11`).
 COLLECT_SOURCE_RELEASE_TASK_NAME: Final[str] = "cpm.collect.source_release"
+
+#: The PyPI-release collection task's declared name, on the same terms
+#: (`CPM-CURRENCY-S02`, `CPM-FR-8`): the `cpm.collect.` namespace routes it, and
+#: the name is the collector's.
+COLLECT_PYPI_RELEASE_TASK_NAME: Final[str] = "cpm.collect.pypi_release"
 
 #: The locator handed to the adapter, and it is deliberately opaque.
 #:
@@ -1180,4 +1190,56 @@ def collect_source_release(*, package_id: int, force: bool = False) -> str:
 
     """
     with SourceReleaseCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
+@shared_task(name=COLLECT_PYPI_RELEASE_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_pypi_release(*, package_id: int, force: bool = False) -> str:
+    """Observe one package's PyPI project (`CPM-FR-8`).
+
+    Package-scoped on the same terms as `collect_source_release`: one locator per
+    package (`CPM-AD-7`), one package's transaction and ledger row (`CPM-AD-23`),
+    and no transport passed -- the base builds one from the collector's declared
+    timeout and retry count.
+
+    What is different is the third answer. A package whose release-ecosystem
+    identity says it is not a Python package is never asked about on PyPI: the
+    collector says so before any locator is built, the base writes the
+    `not_applicable` row itself, and the run is `succeeded` with the reason --
+    which is what keeps `CPM-FR-8`'s "never marked stale against PyPI for not
+    being published there" true through `core/freshness.py`.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`). Nothing schedules this yet -- `CPM-CURRENCY-S05` owns
+    the full-inventory sweep.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so
+            this leaves nothing behind at all.
+        PyPILocatorError: When the package's release-ecosystem identity is not
+            established, or its purl cannot be read as a PyPI project. The
+            ledger row is finalized `failed` carrying the reason; see that class
+            for why it is not an evidence row.
+        PyPIDocumentError: When the source served something that is not a
+            project document. An `error` evidence row is written first and the
+            ledger row is `failed`, so the run is on the record either way.
+
+    """
+    with PyPIReleaseCollector(clock=SystemClock()) as collector:
         return str(collector.collect(package_id=package_id, force=force).state.value)

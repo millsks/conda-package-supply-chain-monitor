@@ -90,8 +90,6 @@ from dataclasses import dataclass
 from dataclasses import replace
 from datetime import datetime
 from datetime import timedelta
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 from typing import ClassVar
@@ -99,6 +97,15 @@ from typing import Final
 from urllib.parse import quote
 from urllib.parse import urlsplit
 
+# The User-Agent identity and the worst-case arithmetic were written here first
+# and moved to shared homes when the second collector arrived: `CPM-AD-7` says no
+# collector imports another, so the pieces two of them need live in neither.
+# They stay in this module's `__all__` so every existing importer is untouched.
+from conda_package_supply_chain_monitor.collectors.agent import DISTRIBUTION_NAME
+from conda_package_supply_chain_monitor.collectors.agent import PROJECT_URL
+from conda_package_supply_chain_monitor.collectors.agent import UNKNOWN_VERSION
+from conda_package_supply_chain_monitor.collectors.agent import USER_AGENT
+from conda_package_supply_chain_monitor.collectors.agent import distribution_version
 from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.collection import Collector
@@ -108,9 +115,9 @@ from conda_package_supply_chain_monitor.core.ledger import current_trace_id
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.core.transport import ALLOWED_SCHEMES
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_BACKOFF_FACTOR
 from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
 from conda_package_supply_chain_monitor.core.transport import TransportError
+from conda_package_supply_chain_monitor.core.transport import worst_case_call_seconds
 from conda_package_supply_chain_monitor.identity.models import Package
 
 if TYPE_CHECKING:
@@ -232,7 +239,7 @@ SOURCE_RELEASE_RETRIES: Final[int] = DEFAULT_RETRIES
 #: chosen for comfort. `core/transport.py` states what the value does and does not
 #: bound: it is spent per connect *and* per read *and* again per attempt, so one
 #: collection's worst case is `(1 + retries) x 2 x timeout` plus the backoff
-#: schedule -- `worst_case_call_seconds()` below computes it. At five seconds that
+#: schedule -- `core/transport.py`'s `worst_case_call_seconds()` computes it. At five seconds that
 #: is 43, which fits inside the inherited 60-second soft limit (`CPM-AD-9`) with
 #: room for the ledger writes around it; at eight it would not.
 #: `tests/unit/django_apps/test_source_release.py` reconciles the arithmetic
@@ -252,55 +259,16 @@ SOURCE_RELEASE_TIMEOUT: Final[float] = 5.0
 #: sweep that needs it belong together, and none of the three is this story's.
 SOURCE_RELEASE_RATE_LIMIT: Final[RateLimit] = RateLimit(calls=60, per=timedelta(hours=1))
 
-#: This product's distribution name, its home, and the version to report when the
-#: distribution metadata cannot be found.
-#:
-#: The name is `pyproject.toml`'s `[project] name`. It is spelled here rather than
-#: imported from `django_service.__init__`, which reads the same metadata: a
-#: domain application importing the reference application would invert the
-#: dependency direction the second import root exists to keep straight, for one
-#: string and a `try`.
-DISTRIBUTION_NAME: Final[str] = "conda-package-supply-chain-monitor"
-PROJECT_URL: Final[str] = "https://github.com/millsks/conda-package-supply-chain-monitor"
-UNKNOWN_VERSION: Final[str] = "0.0.0"
-
-
-def distribution_version() -> str:
-    """Return this product's version, as the installed distribution reports it.
-
-    Returns:
-        The version `hatch-vcs` derived from the git tag at build time, or
-        `UNKNOWN_VERSION` in a checkout that was never installed. The fallback is
-        a real state rather than a defensive one -- a source tree imported without
-        an editable install has no distribution metadata -- and it is exercised
-        rather than pragma'd out, on the terms `tests/unit/test_package_version.py`
-        argues for the same fallback in `django_service`.
-
-    """
-    try:
-        return version(DISTRIBUTION_NAME)
-    except PackageNotFoundError:
-        return UNKNOWN_VERSION
-
-
-#: What this collector calls itself on the wire.
-#:
-#: GitHub requires a `User-Agent` and asks that it identify the caller; an
-#: operator reading an access log, and a source owner deciding whether to block a
-#: caller, both need to know *which deployment* issued a request rather than only
-#: which product. So it carries the distribution name, the version the running
-#: build reports, and a way to reach the owner -- which is the form GitHub's own
-#: guidance asks for and the form every other well-behaved crawler uses.
-USER_AGENT: Final[str] = f"{DISTRIBUTION_NAME}/{distribution_version()} (+{PROJECT_URL})"
-
 #: What this collector's source expects on every request (`CPM-AD-20`,
 #: `CPM-AD-27`): declared here, merged and sent by the base, never by this module.
 #:
 #: `Accept` selects the versioned JSON representation and `X-GitHub-Api-Version`
 #: pins the API version, so a future default at the source cannot silently change
-#: the shape `release_facts` reads. Nothing conditional is declared --
-#: `If-None-Match` and `If-Modified-Since` are the base's, composed from what the
-#: response cache holds, and a collector declaring one is refused at construction.
+#: the shape `release_facts` reads. The `User-Agent` is the one identity every
+#: collector shares (`collectors/agent.py`): GitHub requires one and asks that it
+#: identify the caller. Nothing conditional is declared -- `If-None-Match` and
+#: `If-Modified-Since` are the base's, composed from what the response cache
+#: holds, and a collector declaring one is refused at construction.
 SOURCE_RELEASE_HEADERS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "Accept": "application/vnd.github+json",
@@ -506,65 +474,6 @@ class ReleaseFacts:
     releases_seen: int
     detail: str
     source: str
-
-
-def worst_case_call_seconds(*, timeout: float, retries: int, backoff_factor: float = DEFAULT_BACKOFF_FACTOR) -> float:
-    """Return the longest one collection's outbound call can take.
-
-    `core/transport.py` states the arithmetic in prose and nothing computes it,
-    which leaves the one thing a declared timeout has to be checked against -- the
-    inherited Celery soft limit (`CPM-AD-9`) -- as a sum a reader does in their
-    head. It is written here instead, so a case can reconcile this collector's
-    declarations against the limit the settings module actually declares rather
-    than against a number copied beside it.
-
-    **It over-reports rather than under-reports, and the direction is the point.**
-    `urllib3` caps each backoff at `Retry.DEFAULT_BACKOFF_MAX` (120 seconds), which
-    this sum ignores: at the declared factor and retry count the schedule never
-    approaches the cap, so ignoring it costs nothing today and keeps the
-    arithmetic readable. Should either grow, this answers with a number larger
-    than the real worst case -- which fails a reconciliation that would otherwise
-    have passed, rather than passing one that should have failed.
-
-    Args:
-        timeout: Seconds a single connect or read phase may take. Must be
-            positive.
-        retries: How many times a failed request is tried again. Must not be
-            negative.
-        backoff_factor: `urllib3`'s backoff multiplier, in seconds. Must not be
-            negative.
-
-    Returns:
-        The timeout spent per connect and per read on every attempt, plus
-        `urllib3`'s backoff schedule between them. `urllib3` treats the first
-        retry's delay as zero and then sleeps `backoff_factor * 2 ** (attempt - 1)`,
-        which is why the sum below starts at the second retry -- and is why at
-        three retries and half a second the schedule is `0s, 1s, 2s`, the series
-        `core/transport.py` writes out beside the formula it disagrees with at the
-        first term.
-
-    Raises:
-        ValueError: When `timeout` is not positive, or when either count is
-            negative. Refused rather than answered, because the answer would be
-            zero or negative and would satisfy any ceiling it were compared
-            against -- a reconciliation that passes because its input was
-            nonsense is worse than no reconciliation.
-
-    """
-    if timeout <= 0:
-        message = f"a call cannot be bounded by a timeout of {timeout!r}; every outbound call carries a positive one"
-        raise ValueError(message)
-    if retries < 0 or backoff_factor < 0:
-        message = (
-            f"a retry schedule cannot be built from retries={retries!r} and backoff_factor={backoff_factor!r}; "
-            f"neither is a count or a delay."
-        )
-        raise ValueError(message)
-    attempts = 1 + retries
-    backoff = 0.0
-    for attempt in range(2, retries + 1):
-        backoff += backoff_factor * 2 ** (attempt - 1)
-    return attempts * 2 * timeout + backoff
 
 
 def releases_locator(repository_url: str) -> str:
