@@ -102,6 +102,7 @@ from conda_package_supply_chain_monitor.core.transport import TransportError
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_CACHED_BODY
 from tests.collectors import A_FABRICATED_ROW_COUNT
+from tests.collectors import A_FOREIGN_PACKAGE
 from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import A_NOT_APPLICABLE_REASON
 from tests.collectors import A_PAYLOAD_BODY
@@ -119,9 +120,11 @@ from tests.collectors import FIXTURE_USER_AGENT
 from tests.collectors import FIXTURE_USER_AGENT_HEADER
 from tests.collectors import FIXTURE_WINDOW
 from tests.collectors import OTHER_FIXTURE_COLLECTOR
+from tests.collectors import SEVERAL_SENTINEL_ROWS
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordedTransport
 from tests.collectors import RecordingResponseCache
+from tests.collectors import barren_sentinel_collector_class
 from tests.collectors import barren_sweep_collector_class
 from tests.collectors import breaking_collector_class
 from tests.collectors import bypassing_sweep_collector_class
@@ -131,13 +134,16 @@ from tests.collectors import collector_class
 from tests.collectors import empty_translation_collector_class
 from tests.collectors import fixture_evidence_model
 from tests.collectors import foreign_model_sweep_collector_class
+from tests.collectors import foreign_package_sentinel_collector_class
 from tests.collectors import inapplicable_collector_class
 from tests.collectors import lying_sentinel_collector_class
 from tests.collectors import miscounting_sweep_collector_class
 from tests.collectors import other_fixture_evidence_model
 from tests.collectors import recorded_payload
 from tests.collectors import refusing_inapplicable_collector_class
+from tests.collectors import several_sentinels_collector_class
 from tests.collectors import sweeping_collector_class
+from tests.collectors import unsequenced_sentinel_collector_class
 from tests.collectors import unstamped_collector_class
 from tests.collectors import unstamped_sweep_collector_class
 from tests.collectors import unwritable_collector_class
@@ -147,6 +153,8 @@ from tests.packages import packages_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from collections.abc import Sequence
+    from datetime import datetime
 
     from pytest_django import DjangoDbBlocker
     from structlog.typing import EventDict
@@ -987,12 +995,207 @@ def test_a_sentinel_that_ignores_the_state_it_was_asked_for_is_refused(
     observation. The base checks the row rather than trusting it -- `CPM-AD-24`
     requires the value to be emitted verbatim, which is exactly what makes the
     check possible -- and nothing is written.
+
+    Since `CPM-CURRENCY-S04` the check reads "at least one of the rows", because a
+    collector answering for surfaces the base's call never touched reports what
+    *those* surfaces said. This case is the half that did not move: a collector
+    whose whole answer is determinate rows carries the base's own verdict nowhere,
+    and is refused exactly as it was before.
     """
     built = lying_sentinel_collector_class(declared_model=fixture_evidence_model())
     transport = RecordedTransport(failure=TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX))
     collector = built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
 
-    with pytest.raises(CollectorConfigurationError, match="carrying no field with that value"):
+    with pytest.raises(CollectorConfigurationError, match="sentinel_evidence_rows was asked for"):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert evidence_table.objects.count() == 0
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("scripted", "expected"),
+    [
+        ({"payload": recorded_payload(found=False, body="")}, RunState.SUCCEEDED),
+        ({"failure": TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX)}, RunState.FAILED),
+    ],
+    ids=["absent", "unreachable"],
+)
+def test_a_collector_that_owes_several_sentinel_rows_has_all_of_them_written(
+    evidence_table: type[AppendOnlyModel],
+    scripted: dict[str, Any],
+    expected: RunState,
+) -> None:
+    """The hook `CPM-CURRENCY-S04` added, proved where it matters: the base writes what it returns.
+
+    A collector that observes several surfaces in one collection owes a row per
+    surface on the paths the base decides -- `not_found` and `error` alike -- and
+    before the hook existed both of those paths wrote exactly one. Asserted on
+    both, because they reach `_write_evidence` by different routes: the
+    `not_found` branch inside `collect()`, and `_write_sentinel` beneath
+    `_failed`.
+
+    The count the base *reports* is asserted beside the count it wrote, because
+    `CollectionResult.evidence_rows` is what a caller reads and a hard-coded `1`
+    there would have survived every other assertion here.
+    """
+    built = several_sentinels_collector_class(declared_model=fixture_evidence_model())
+    collector = built(clock=_clock(), transport=RecordedTransport(**scripted), limiter=FixedLimiter(permitted=True))
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is expected
+    assert result.evidence_rows == SEVERAL_SENTINEL_ROWS
+    rows = _rows(evidence_table)
+    assert len(rows) == SEVERAL_SENTINEL_ROWS
+    # Every row carries the run's own instant and the state the base decided,
+    # which are the two checks the base makes on the way in and which a hook
+    # returning several rows must not be able to slip past.
+    assert {row.observed_at for row in rows} == {FIXED_INSTANT}
+    assert len({row.state for row in rows}) == 1
+    assert _finished_run().status == expected
+
+
+@pytest.mark.django_db
+def test_a_determinate_row_returned_on_a_failing_path_is_refused_and_nothing_is_written(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """ "Never a clean result" against a real table: the row would have been permanent.
+
+    `_failed` declares the run's verdict before the rows are written, so a
+    determinate row returned there is evidence that the source answered cleanly
+    underneath a ledger row saying it did not -- and this table is append-only, so
+    nothing could correct it afterwards. The refusal is what makes it never
+    written rather than written and regretted.
+    """
+    built = several_sentinels_collector_class(declared_model=fixture_evidence_model())
+
+    class _MixedSentinelCollector(built):  # type: ignore[valid-type, misc]
+        """A collector that slips one clean row in beside the sentinels."""
+
+        def sentinel_evidence_rows(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> Sequence[AppendOnlyModel]:
+            """Return the sentinel rows with a determinate one appended.
+
+            Args:
+                state: The sentinel the base decided on.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the rows with.
+                detail: What happened.
+
+            Returns:
+                The ordinary rows plus one carrying the determinate value.
+
+            """
+            rows = list(
+                super().sentinel_evidence_rows(
+                    state=state,
+                    package_id=package_id,
+                    observed_at=observed_at,
+                    detail=detail,
+                ),
+            )
+            model = fixture_evidence_model()
+            rows.append(
+                model(
+                    observed_at=observed_at,
+                    package_id=package_id,
+                    state=DETERMINATE_VALUE,
+                    detail=detail,
+                    body="another surface has it",
+                    source="",
+                ),
+            )
+            return rows
+
+    transport = RecordedTransport(failure=TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX))
+    collector = _MixedSentinelCollector(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
+
+    with pytest.raises(CollectorConfigurationError, match=OutcomeState.OK.value):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert evidence_table.objects.count() == 0
+    assert _finished_run().status == RunState.FAILED
+
+    # The same set is legitimate on the `not_found` path, where the base
+    # finalizes the run `succeeded` and one surface having the thing while
+    # another does not is the observation rather than a contradiction.
+    answering = _MixedSentinelCollector(
+        clock=_clock(),
+        transport=RecordedTransport(payload=recorded_payload(found=False, body="")),
+        limiter=FixedLimiter(permitted=True),
+    )
+
+    assert answering.collect(package_id=ANOTHER_PACKAGE).state is RunState.SUCCEEDED
+    assert evidence_table.objects.filter(package_id=ANOTHER_PACKAGE, state=DETERMINATE_VALUE).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_sentinel_row_about_another_package_is_written_as_the_base_was_handed_it(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """What the base checks about a sentinel row, and what it does not -- stated rather than assumed.
+
+    The base checks three things on the way in: the row belongs to the declared
+    evidence model, it carries the run's own instant, and one of the rows carries
+    the state it asked for. It does **not** check that the row is about the
+    package the run is about, so a hook answering for another one writes evidence
+    attributed to a package this run never looked at.
+
+    Pinned as a characterisation rather than as a refusal: adding a fourth check
+    is a change to the base's contract for all five collectors, and this case is
+    what a story making that change would delete.
+    """
+    built = foreign_package_sentinel_collector_class(declared_model=fixture_evidence_model())
+    transport = RecordedTransport(failure=TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX))
+    collector = built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
+
+    result = collector.collect(package_id=A_PACKAGE)
+
+    assert result.state is RunState.FAILED
+    assert [row.package_id for row in _rows(evidence_table)] == [A_FOREIGN_PACKAGE]
+    assert evidence_table.objects.filter(package_id=A_PACKAGE).count() == 0
+
+
+@pytest.mark.django_db
+def test_a_sentinel_hook_that_returns_no_rows_is_refused_and_writes_nothing(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """ "Never no row" cannot depend on a defaulted hook being implemented carefully.
+
+    A `sentinel_evidence_rows` that answered with nothing would leave a failing
+    run with no observation at all -- on the one path where nobody is looking,
+    because the run is already recording a failure. The base refuses instead, and
+    the ledger row is still finalized, so the refusal is on the record too.
+    """
+    built = barren_sentinel_collector_class(declared_model=fixture_evidence_model())
+    transport = RecordedTransport(failure=TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX))
+    collector = built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
+
+    with pytest.raises(CollectorConfigurationError, match="no rows"):
+        collector.collect(package_id=A_PACKAGE)
+
+    assert evidence_table.objects.count() == 0
+    assert _finished_run().status == RunState.FAILED
+
+
+@pytest.mark.django_db
+def test_a_sentinel_hook_that_returns_a_row_rather_than_rows_is_refused_and_writes_nothing(
+    evidence_table: type[AppendOnlyModel],
+) -> None:
+    """Refused where it is readable rather than at `bulk_create`, where the message is about a field."""
+    built = unsequenced_sentinel_collector_class(declared_model=fixture_evidence_model())
+    transport = RecordedTransport(failure=TransportError("nothing answered", source=FIXTURE_SOURCE_PREFIX))
+    collector = built(clock=_clock(), transport=transport, limiter=FixedLimiter(permitted=True))
+
+    with pytest.raises(CollectorConfigurationError, match="rather than a sequence"):
         collector.collect(package_id=A_PACKAGE)
 
     assert evidence_table.objects.count() == 0

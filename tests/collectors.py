@@ -208,6 +208,16 @@ A_PAYLOAD_BODY: Final[str] = '{"version": "2.4.0"}'
 #: asserting "no row carries `ok`" has the same string the fixture writes.
 DETERMINATE_VALUE: Final[str] = "ok"
 
+#: How many rows `several_sentinels_collector_class` answers with. More than
+#: one, which is the whole property, and small enough that a case can assert
+#: the set rather than only the count.
+SEVERAL_SENTINEL_ROWS: Final[int] = 3
+
+#: The package `foreign_package_sentinel_collector_class` answers about, which
+#: is never the one a case collects. Its own constant so the assertion reads as
+#: "a package this run is not about" rather than as an arbitrary integer.
+A_FOREIGN_PACKAGE: Final[int] = 999_001
+
 #: What one collection costs the rate limiter: the request plus its retry budget
 #: (`Collector.request_cost`). Derived rather than written out, so a case that
 #: exhausts an allowance stays correct if the default retry count changes.
@@ -947,6 +957,231 @@ def lying_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> 
             )
 
     return _LyingSentinelCollector
+
+
+def several_sentinels_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector that owes several sentinel rows rather than one.
+
+    The shape `CPM-CURRENCY-S04` added `sentinel_evidence_rows` for: a collector
+    that observes several surfaces in one collection owes a row per surface on
+    the paths the base decides, not the single row `sentinel_evidence` shapes.
+    This fixture is the smallest thing with that property, so the base's own
+    cases can prove it without reaching for a real collector and its settings.
+
+    Args:
+        declared_model: The evidence model the rows are built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence_rows` returns
+        `SEVERAL_SENTINEL_ROWS` rows, each carrying the state it was asked for.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _SeveralSentinelsCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that answers for more than one surface."""
+
+        def sentinel_evidence_rows(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> Sequence[AppendOnlyModel]:
+            """Return one row per surface this collector stands for.
+
+            Args:
+                state: The sentinel the base decided on.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp every row with.
+                detail: What happened.
+
+            Returns:
+                `SEVERAL_SENTINEL_ROWS` unsaved rows, distinguishable by `body`
+                so a case can tell them apart.
+
+                `source` is composed here rather than read back from
+                `source_for`, deliberately: this hook is called from paths that
+                are already recording a failure, where anything that raises
+                replaces the reason being recorded -- and `source_for` is exactly
+                the kind of method that raises, in three of the four real
+                collectors. A fixture the next collector copies should not model
+                the call it must not make.
+
+            """
+            model = fixture_evidence_model()
+            return [
+                model(
+                    observed_at=observed_at,
+                    package_id=package_id,
+                    state=state.value,
+                    detail=detail,
+                    body=f"surface {index}",
+                    source=f"{FIXTURE_SOURCE_PREFIX}{package_id}",
+                )
+                for index in range(SEVERAL_SENTINEL_ROWS)
+            ]
+
+    return _SeveralSentinelsCollector
+
+
+def foreign_package_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose sentinel rows are about a package nobody asked about.
+
+    The one thing the base does **not** check about a sentinel row, isolated so
+    the gap is a stated fact rather than an assumption. The base checks the
+    declared model and the run's instant, and it checks the state verbatim; it
+    does not check that the row is about the package the run is about, so a hook
+    answering for the wrong one writes evidence attributed to a package this run
+    never looked at.
+
+    Args:
+        declared_model: The evidence model the rows are built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence_rows` stamps
+        `A_FOREIGN_PACKAGE` on every row.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _ForeignPackageSentinelCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that answers about the wrong package."""
+
+        def sentinel_evidence_rows(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> Sequence[AppendOnlyModel]:
+            """Return one row about a package this run is not about.
+
+            Args:
+                state: The sentinel the base decided on.
+                package_id: The package the observation is about, discarded.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                One unsaved row carrying `A_FOREIGN_PACKAGE`.
+
+            """
+            del package_id
+            model = fixture_evidence_model()
+            return [
+                model(
+                    observed_at=observed_at,
+                    package_id=A_FOREIGN_PACKAGE,
+                    state=state.value,
+                    detail=detail,
+                    body="",
+                    source="",
+                ),
+            ]
+
+    return _ForeignPackageSentinelCollector
+
+
+def barren_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose sentinel hook answers with no rows at all.
+
+    The way a defaulted hook can turn `CPM-NFR-3`'s guarantee off silently: every
+    path that reaches it has already promised an observation, so an empty answer
+    is a failing run with nothing on the record -- and it happens on a path that
+    is already recording a failure, where nobody is looking.
+
+    Args:
+        declared_model: The evidence model the rows would have been built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence_rows` returns an
+        empty list.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _BarrenSentinelCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that writes nothing where it promised something."""
+
+        def sentinel_evidence_rows(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> Sequence[AppendOnlyModel]:
+            """Return nothing.
+
+            Args:
+                state: The sentinel the base decided on, discarded.
+                package_id: The package the observation is about, discarded.
+                observed_at: The instant, discarded.
+                detail: What happened, discarded.
+
+            Returns:
+                An empty sequence.
+
+            """
+            del state, package_id, observed_at, detail
+            return []
+
+    return _BarrenSentinelCollector
+
+
+def unsequenced_sentinel_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:
+    """Build a collector whose sentinel hook answers with a row rather than with rows.
+
+    The other plausible way to implement the plural hook wrongly, and the one that
+    would otherwise land at `bulk_create` as a message about a field: a single
+    model instance is not a sequence at all, and a `str` is one of the wrong
+    things.
+
+    Args:
+        declared_model: The evidence model the row is built for.
+
+    Returns:
+        A concrete `Collector` subclass whose `sentinel_evidence_rows` returns one
+        unsaved row, unwrapped.
+
+    """
+    ordinary = collector_class(declared_model=declared_model)
+
+    class _UnsequencedSentinelCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector that forgot the brackets."""
+
+        def sentinel_evidence_rows(
+            self,
+            *,
+            state: OutcomeState,
+            package_id: int,
+            observed_at: datetime,
+            detail: str,
+        ) -> Sequence[AppendOnlyModel]:
+            """Return the row itself rather than a sequence holding it.
+
+            Args:
+                state: The sentinel the base decided on.
+                package_id: The package the observation is about.
+                observed_at: The instant to stamp the row with.
+                detail: What happened.
+
+            Returns:
+                Annotated as a sequence and deliberately not one -- which is the
+                whole of what the case is about.
+
+            """
+            return self.sentinel_evidence(  # type: ignore[return-value]
+                state=state,
+                package_id=package_id,
+                observed_at=observed_at,
+                detail=detail,
+            )
+
+    return _UnsequencedSentinelCollector
 
 
 def unstamped_collector_class(*, declared_model: type[AppendOnlyModel]) -> type[Collector]:

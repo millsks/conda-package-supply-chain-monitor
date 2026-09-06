@@ -4,16 +4,16 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01`, `CPM-CURRENCY-S02` and
-`CPM-CURRENCY-S03` -- the three surface tables beside it: upstream releases,
-PyPI releases and conda-forge feedstocks.
+against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` -- the
+four surface tables beside it: upstream releases, PyPI releases, conda-forge
+feedstocks and published conda packages.
 
-**One module, four tables, and no shared columns beyond the ones every evidence
+**One module, five tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
-`source_release_snapshots`, `pypi_release_snapshots` and `feedstock_snapshots`
-are written by four collectors that share nothing but the log, and none reads
-another's. They live
+`source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots` and
+`conda_package_snapshots` are written by five collectors that share nothing but
+the log, and none reads another's. They live
 together because Django auto-imports `<app>.models` and no other module, so a
 model declared elsewhere in this application is registered only by whatever
 happens to import it -- which is a table that exists on a developer's machine and
@@ -93,6 +93,10 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 __all__ = [
+    "CHANNEL_AND_PLATFORM_CONSTRAINT",
+    "CONDA_PACKAGE_FACTS_CONSTRAINT",
+    "CONDA_PACKAGE_PAIR_INDEX",
+    "CONDA_PACKAGE_READ_INDEX",
     "COUNTS_PRESENT_CONSTRAINT",
     "FEEDSTOCK_FACTS_CONSTRAINT",
     "FEEDSTOCK_READ_INDEX",
@@ -103,6 +107,7 @@ __all__ = [
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
     "STAGED_RECIPE_CONSTRAINT",
+    "CondaPackageSnapshot",
     "FeedstockSnapshot",
     "InventoryReadError",
     "InventorySnapshot",
@@ -231,6 +236,53 @@ _FEEDSTOCK_NAME_LENGTH: Final[int] = 160
 FEEDSTOCK_FACTS_CONSTRAINT: Final[str] = "feedstock_facts_present_exactly_when_observed"
 STAGED_RECIPE_CONSTRAINT: Final[str] = "staged_recipe_only_when_absent"
 FEEDSTOCK_READ_INDEX: Final[str] = "feedstock_pkg_observed"
+
+#: How wide the channel column is. A channel is one path segment a channel host
+#: serves a package under -- `conda-forge`, `bioconda`, an internal mirror's name
+#: -- so it is a name an operator declared rather than a machine-generated
+#: identifier, and is sized like `identity/models.py` sizes a name. Restated
+#: rather than imported, on the terms `_FEEDSTOCK_NAME_LENGTH` states.
+_CHANNEL_LENGTH: Final[int] = 128
+
+#: How wide the platform column is. A conda subdir is a short, closed-vocabulary
+#: word -- `linux-64`, `osx-arm64`, `win-64`, `noarch` -- so 64 is two orders of
+#: magnitude above anything conda produces and is a bound rather than an
+#: expectation. Its own constant rather than `_CHANNEL_LENGTH` reused: a channel
+#: is a name somebody chose and a subdir is a value conda defines, and one of
+#: them changing is not a reason to move the other.
+_PLATFORM_LENGTH: Final[int] = 64
+
+#: How wide the build-string column is. A build string is machine-generated from
+#: a recipe's variant -- `py312h5f2b1e0_0`, and longer where a variant hash and a
+#: dependency pin are folded into it -- so it is sized like an identifier rather
+#: than like a name, and 256 is an order of magnitude above what conda-build
+#: produces.
+_BUILD_STRING_LENGTH: Final[int] = 256
+
+#: The names of the conda-package table's two constraints and its one read index,
+#: on the terms every name above is declared.
+#:
+#: The second constraint is this table's own, and it is `CPM-FR-10`'s "channels
+#: are never merged" made into a database rule: **every** row names the channel
+#: and the platform it is about, sentinel rows included. A row that could not say
+#: which `(channel, platform)` pair it observed would not be an observation at
+#: all -- it would be a fact about "somewhere", in a table whose entire purpose is
+#: keeping the surfaces apart.
+CONDA_PACKAGE_FACTS_CONSTRAINT: Final[str] = "conda_package_facts_present_exactly_when_observed"
+CHANNEL_AND_PLATFORM_CONSTRAINT: Final[str] = "conda_package_names_channel_and_platform"
+CONDA_PACKAGE_READ_INDEX: Final[str] = "conda_pkg_pkg_observed"
+
+#: The index the read this table exists to serve actually needs, and the one
+#: index no sibling table has an analogue of.
+#:
+#: Every stated purpose of `conda_package_snapshots` is a question about one
+#: `(package, channel, platform)` -- what is published on this channel for this
+#: platform, newest first. `CONDA_PACKAGE_READ_INDEX` serves the package-wide
+#: read every evidence table has; without this one the per-pair read scans every
+#: row a package has accumulated across **all** its pairs, and this table grows
+#: `channels x platforms` times faster than any sibling, so the scan is the one
+#: that degrades first and worst.
+CONDA_PACKAGE_PAIR_INDEX: Final[str] = "conda_pkg_pair_observed"
 
 
 class InventoryReadError(ValueError):
@@ -1067,3 +1119,204 @@ class FeedstockSnapshot(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{feedstock} for {scope}: {self.state} at {when}"
+
+
+class CondaPackageSnapshot(AppendOnlyModel):
+    """One observation of one package on one channel and one platform. Table `conda_package_snapshots`.
+
+    PRD Appendix A.2 gives this table "published version, channel, build string",
+    and `CPM-FR-10` is where they come from: "published version, build string,
+    and channel for each monitored channel", with each monitored channel
+    producing its own observation and channels never merged.
+
+    **One row per `(channel, platform)`, and that shape is the whole of AC 1.**
+    A build string is a property of a *build*, and a build is per platform, so a
+    row that named a channel and one build string would already have merged the
+    platforms to produce it. Splitting on both is the only shape in which no row
+    stands for two of anything -- and it is what makes "installable on `linux-64`
+    but not on `osx-arm64`" expressible, which is what a packaging engineer
+    reading this table is looking for.
+
+    **`channel` and `platform` are required of every row, sentinel rows
+    included**, and `conda_package_names_channel_and_platform` is the database
+    saying so. This is the one column pair the other three evidence tables have
+    no analogue of: the surfaces they observe are singular -- a repository, a
+    project, a feedstock -- while this one observes a *set* of surfaces that a
+    reader must be able to tell apart for ever. A row that could not say which
+    pair it was about would be an observation of "somewhere", which is precisely
+    the merge `CPM-FR-10` forbids.
+
+    **The published version is the one the channel itself states as latest**, and
+    nothing here compares it to anything. `CPM-FR-16`'s currency comparison is a
+    policy pass (`CPM-AD-8`), so a collector that ranked or normalised a version
+    would be writing a derived status into an append-only row.
+
+    **Presence is `state`, over `OutcomeState`, and never a boolean**
+    (`CPM-AD-5`). `ok` is a published artifact this run read; `not_found` is the
+    channel answering that there is none for this pair -- either the channel does
+    not serve the package at all, or its latest version has no file on this
+    platform; `error` is a look that failed. The column is called `state` rather
+    than `*_status` for the reason `SourceReleaseSnapshot.state` is.
+
+    **A `not_found` row is the point of the table rather than an edge of it.** A
+    package that is current upstream, current on PyPI and current in the recipe
+    while nothing is installable on a platform is exactly the gap `CPM-FR-10`
+    exists to surface, and it is only visible if the absence is a row carrying
+    this run's instant rather than a missing one.
+
+    **`build_string` and `build_number` are not required of a determinate row**,
+    on the terms `SourceReleaseSnapshot` does not require a date of one. The fact
+    `state` claims is that the channel publishes this version for this platform;
+    the build a channel states beside it is a second fact it may state poorly or
+    not at all, and requiring it here would make the honest answer unwritable and
+    push the collector into inventing one. `detail` says why it is blank.
+
+    **NULL means missing and `0` means zero** for `build_number`: a first build of
+    a version is `0`, and a build whose number the channel did not state is not a
+    first build. PRD Appendix A.1's rule, applied to the one integer here where
+    both are reachable.
+
+    **`PROTECT`, and it is required rather than preferred**
+    (`EVIDENCE.02-AUDIT-001`), on the terms `InventorySnapshot.package` states.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="conda_package_snapshots",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from -- the channel's own package
+    #: document. Recorded on the row for the reason `SourceReleaseSnapshot.source`
+    #: is, and for one this table adds: a run reads several locators and writes
+    #: several rows, so `source` is what ties each row to the answer it came from
+    #: rather than to the one the run happened to start with.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the lookup concluded, over `OutcomeState` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=OutcomeState.choices)
+
+    #: The channel this row is about, as the operator declared it and lower-cased.
+    #: Required of every row -- see `Meta.constraints`.
+    channel = models.CharField(_("channel"), max_length=_CHANNEL_LENGTH)
+
+    #: The conda subdir this row is about -- `linux-64`, `osx-arm64`, `noarch`.
+    #: Required of every row, for the same reason and by the same constraint.
+    platform = models.CharField(_("platform"), max_length=_PLATFORM_LENGTH)
+
+    #: The version the channel itself states as this package's latest, exactly as
+    #: spelled and unnormalised (`CPM-AD-8`). Blank on every row that is not a
+    #: determinate observation -- see `Meta.constraints`.
+    published_version = models.CharField(
+        _("published version"),
+        max_length=_VERSION_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: The build string of the file that publishes that version on this platform,
+    #: exactly as the channel spelled it. May be blank on a determinate row -- see
+    #: the class docstring -- and is blank on every row that is not one.
+    build_string = models.CharField(_("build string"), max_length=_BUILD_STRING_LENGTH, blank=True, default="")
+
+    #: That file's build number. NULL means the channel stated none and `0` means
+    #: the first build; NULL on every row that is not a determinate observation.
+    build_number = models.PositiveIntegerField(_("build number"), null=True, blank=True, default=None)
+
+    #: What the collector or the base had to say about this observation -- which
+    #: version exists on another platform, that the channel named no latest
+    #: version at all, or why one channel's answer could not be read while
+    #: another's was.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_condapackagesnapshot` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one package on one channel and platform are two rows, and
+        idempotency is the run ledger's property rather than this table's -- and
+        here a unique constraint would be worse than elsewhere, because the pair
+        that looks unique (`package`, `channel`, `platform`, `observed_at`) is
+        exactly the tuple a re-observation repeats.
+        """
+
+        db_table = "conda_package_snapshots"
+        verbose_name = _("conda package snapshot")
+        verbose_name_plural = _("conda package snapshots")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `RELEASE_READ_INDEX` states.
+            models.Index(fields=["package", "-observed_at"], name=CONDA_PACKAGE_READ_INDEX),
+            # The read this table exists for: one package, one channel, one
+            # platform, newest first. See `CONDA_PACKAGE_PAIR_INDEX`.
+            models.Index(
+                fields=["package", "channel", "platform", "-observed_at"],
+                name=CONDA_PACKAGE_PAIR_INDEX,
+            ),
+        ]
+        constraints = [
+            # The biconditional, and every conjunct is load bearing.
+            #
+            # A determinate observation with no version is a row saying "this
+            # channel publishes this package for this platform" while declining
+            # to say what. A row that is *not* determinate and carries a version,
+            # a build string or a build number is claiming to have observed a
+            # published artifact the run never found.
+            #
+            # A build string is deliberately *not* required of a determinate row:
+            # the fact `state` claims is that the version is published here, and
+            # a channel that states the version while stating the build poorly is
+            # an answer rather than a defect. Requiring it would push the
+            # collector into inventing one.
+            #
+            # `state` is NOT NULL and an `IS NULL` test is never itself NULL, so
+            # this expression is always true or false and never the third thing a
+            # SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=OutcomeState.OK) & ~models.Q(published_version=""))
+                    | (
+                        ~models.Q(state=OutcomeState.OK)
+                        & models.Q(published_version="", build_string="", build_number__isnull=True)
+                    )
+                ),
+                name=CONDA_PACKAGE_FACTS_CONSTRAINT,
+            ),
+            # AC 1, as a database rule. Every row names the channel and the
+            # platform it is about -- including the sentinel rows the base writes,
+            # which is the half a convention would have missed. A blank in either
+            # column is a row that has merged every monitored surface into one,
+            # which is the merge `CPM-FR-10` forbids.
+            models.CheckConstraint(
+                condition=~models.Q(channel="") & ~models.Q(platform=""),
+                name=CHANNEL_AND_PLATFORM_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the version, the pair it is about, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `package_id` rather than off `package`
+            for the reason `SourceReleaseSnapshot.__str__` gives: the related
+            object of an unsaved instance raises, and a `__str__` that raises
+            breaks a debugger and a traceback alike.
+
+        """
+        version = self.published_version or "(nothing published)"
+        where = f"{self.channel or '(no channel)'}/{self.platform or '(no platform)'}"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{version} on {where} for {scope}: {self.state} at {when}"

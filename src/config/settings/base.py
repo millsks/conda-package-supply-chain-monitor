@@ -303,6 +303,34 @@ ROLE_CONTRACT = load_role_contract(env)
 # component that has to read a different one restarts.
 # See src/django_apps/conda_package_supply_chain_monitor/collectors/watchlist.py.
 INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
+# The conda channels and platforms the published-package collector observes
+# (CPM-FR-10, CPM-CURRENCY-S04). Both ship EMPTY, and that is the decision rather
+# than an omission.
+#
+# Which channels and which platforms this product monitors is PRD Open Question
+# 4, and it is unresolved. Choosing one here would answer it by default and would
+# be wrong in exactly the way a populated watchlist would be wrong: a component
+# that observed a channel nobody chose would record facts about the wrong
+# surface, permanently, in an append-only log nothing may correct. So the
+# mechanism ships, the declaration ships empty, and a collection refuses --
+# loudly, naming the setting -- until an operator declares both. See
+# docs/deployment.md.
+#
+# Declared here rather than read from the environment, on the same terms the
+# watchlist is a reviewed file rather than a variable: which surfaces this
+# product records evidence about is a decision worth a pull request and a
+# reviewer, not one worth an unreviewed export. Read at *run* time by the
+# collector rather than frozen into a locator here, so a declaration changed by
+# deploy takes effect on the next collection rather than needing the value to be
+# threaded through anything.
+#
+# The names are single path segments, lower-cased: a channel is the segment
+# api.anaconda.org serves a package under ("conda-forge"), and a platform is a
+# conda subdir ("linux-64", "osx-arm64", "noarch"). An entry that is blank, not a
+# string, duplicated, or carries a path separator is refused rather than encoded.
+# See src/django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py.
+CPM_MONITORED_CHANNELS: tuple[str, ...] = ()
+CPM_MONITORED_PLATFORMS: tuple[str, ...] = ()
 
 # PASSWORDS
 # ------------------------------------------------------------------------------

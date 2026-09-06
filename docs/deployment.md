@@ -981,3 +981,146 @@ stored feedstock name that is not a repository segment. Until the full-inventory
 sweep selects only askable packages, expect such `failed` runs for any package a
 resolver has not reached; they are a reporting fact about identity, not about
 conda-forge.
+
+## The published-package collector observes nothing until you declare channels and platforms
+
+`cpm.collect.conda_package` observes what each monitored conda channel actually
+publishes for a package (`CPM-FR-10`) — the version the channel states as latest,
+the build string and the build number — by asking `api.anaconda.org` for one
+package document per channel. It sends **no credential**, and its declared
+allowance is **thirty requests a minute**.
+
+**It ships monitoring nothing, and that is the intended behaviour rather than a
+gap.** Two settings decide what it observes:
+
+```python
+# config/settings/base.py
+CPM_MONITORED_CHANNELS: tuple[str, ...] = ()
+CPM_MONITORED_PLATFORMS: tuple[str, ...] = ()
+```
+
+Both ship **empty**. Which conda channels and which platforms this product
+watches is PRD Open Question 4 and is unresolved: a component that picked one for
+you would record facts about a surface nobody chose, permanently, in an
+append-only log nothing may correct — the same trade the inventory watchlist
+makes above, and for the same reason.
+
+**What the failure looks like until you declare them.** Every collection fails.
+The task raises a `CondaChannelError` naming the setting, the run's ledger row
+finalizes `failed` carrying that message, and **no evidence row is written at
+all** — there is nothing honest to write, because every row must name the channel
+and platform it is about and an empty declaration names neither. A component in
+this state starts, serves and reports normally; it simply records no conda
+package evidence.
+
+**Declare them by pull request**, in `config/settings/base.py`, beside the
+watchlist that ships unpopulated for the same reason. Each entry is a single
+lower-case path segment: a channel is the segment `api.anaconda.org` serves a
+package under (`conda-forge`, `bioconda`, an internal mirror's name), and a
+platform is a conda subdir (`linux-64`, `osx-arm64`, `win-64`, `noarch`). The
+declaration is read at **run** time, so a change takes effect on the next
+collection.
+
+**A declaration is refused whole rather than read for the entries that parse.** An
+entry that is blank, is not a string, carries a path separator, or repeats another
+entry once lower-cased fails the run naming the entry and its position. So does a
+bare string where a list was expected — `CPM_MONITORED_CHANNELS = "conda-forge"`
+is eleven one-character channels to Python and is refused rather than misread.
+
+**At most four channels.** Every channel costs a full, *retried* call — this
+component's HTTP retry policy is mounted on the session, so it applies to every
+request the collector issues — and the inherited soft time limit is sixty seconds
+(`CPM-AD-9`); a declaration whose worst case exceeds it is a task the platform
+kills before it writes anything. Four channels, a 2.5-second per-phase timeout and
+a retry budget of one come to forty seconds. Platforms are not bounded: a platform
+costs a row rather than a call.
+
+**Platform names are checked against conda's own subdir vocabulary.** `linux_64`
+or `osx-arm-64` is refused at the declaration rather than observed: a subdir that
+does not exist would otherwise record, for every package and for ever, that a
+channel's latest version has no file on it — a false statement about the channel
+that nothing may correct and nothing could tell from a true one. The refusal names
+the permitted set.
+
+**One row per `(channel, platform)`, always, and channels are never merged.** That
+is `CPM-FR-10`'s acceptance criterion and the database enforces it
+(`conda_package_names_channel_and_platform`): every row names both, sentinel rows
+included. Two channels and two platforms is four rows from one run. A pair with
+nothing published is a written `not_found` row carrying that run's instant, never
+a missing one — which is the whole point, because "installable on `linux-64` but
+not on `osx-arm64`" is only visible if the absence is recorded.
+
+**One channel failing never discards another channel's answer.** The channels
+after the first are read by bounded calls from inside the translation step: a
+transport failure, an unreadable document, or a `304` to a request that carried no
+validator becomes `error` rows for *that channel's* pairs, beside the rows the
+channels that answered earned, and the run is still `succeeded`. That is
+`CPM-FR-15`'s partial success on the per-package path. Read the row's `detail`
+before treating an `error` row as a statement about the channel: it says whether
+the channel answered or whether this run failed to find out.
+
+**A `not_found` row means one of four things and `detail` says which.** The
+channel does not serve the package at all — read from the channel's own `404`,
+whether that channel was the one the base asked or one the run asked afterwards;
+it serves the package but states no latest version at all; or it states one whose
+files do not include this platform, in which case `detail` names the version that
+exists elsewhere. None of them is a claim that the package is absent from conda
+generally: this collector asks only the channels you declared.
+
+**The recorded version is what the channel calls latest, not what `conda install`
+resolves to.** anaconda.org's `latest_version` spans every label, so a package
+whose newest upload is a release candidate on a `dev` or `rc` label records that
+candidate — while a default install resolves to something older. That is
+deliberate: `CPM-FR-10` asks for the version the channel states, and substituting
+a different question would answer something nobody asked. What the row does is say
+so: when the file it observed is served under labels that do not include `main`,
+`detail` names them. Read it before comparing a published version against
+anything.
+
+**A build string is a choice where a platform carries several builds.** The
+recorded one is the greatest by build number, ties broken by the greatest build
+string, and `detail` says how many there were. Do not read the column as the only
+build of that version on that platform.
+
+**A channel that does not serve the package never stops the others being
+asked.** The first declared channel is asked by the collector base and the rest
+from inside the run, and a `404` from that first one is an ordinary answer: every
+remaining channel is still asked and every pair still gets its row, so a package
+absent from `conda-forge` and published on your internal mirror records both. The
+declaration's order therefore does not change what is observed.
+
+**A run that fails outright records `error` for every pair and calls nothing
+further.** If the first channel is unreachable, serves a document that cannot be
+read, or the local allowance refuses the call, the run is `failed` and each
+monitored pair gets an `error` row carrying the reason. No further channel is
+called, deliberately: the allowance may be exactly what refused the first call,
+and issuing more would defeat it. Retry the run rather than reading those rows as
+statements about the channels.
+
+**Only the first channel's call is charged against the local allowance, and only
+its answer is cached.** The base charges `1 + retries` once, before the first
+call, so every package spends more of the *remote* budget than the local counter
+believes — the same gap the upstream-release and feedstock collectors carry, and
+it matters only at sweep volume, which nothing reaches yet. The response cache is
+the base's too, and it covers that same one call: channels two onward carry no
+validator and remember nothing, so **they re-transfer their whole document on
+every run**, and a `304` from one of them is a source answering a question nobody
+asked, which the row records as `error`. Both are recorded as deferred work on
+`CPM-CURRENCY-S04`. Nothing is scheduled: no cadence entry exists for this
+collector, and the full-inventory sweep is a later story.
+
+**A misconfiguration and a transient failure leave this task the same way.** An
+undeclared channel raises out of `cpm.collect.conda_package` like any other
+error, and Celery cannot tell a permanent refusal from something a retry would
+fix — so under a retry policy an unconfigured component would run an unbounded
+series of identical failed collections. Do not enable a retry policy for this
+task before the channels are declared. Also recorded as deferred work.
+
+**Egress must be open to `api.anaconda.org`**, and to nothing else for this
+collector. `repodata.json` is deliberately never read: a channel's per-platform
+index runs to hundreds of megabytes and answers a question about every package,
+while the per-package document answers the question about one in kilobytes.
+
+**Nothing here compares versions.** The published version is recorded exactly as
+the channel spelled it. Whether it is *behind* anything is `CPM-FR-16`'s policy
+with a versioned threshold, and no such policy exists yet.

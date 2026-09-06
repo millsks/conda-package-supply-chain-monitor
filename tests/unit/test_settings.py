@@ -14,6 +14,8 @@ import importlib
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
+from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORMS_SETTING
 from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core import roles
 from config.authorization import claims
@@ -1235,6 +1237,12 @@ def any_settings_module(monkeypatch: pytest.MonkeyPatch) -> None:
 #: The four settings modules, as one list the Celery cases parametrize over.
 EVERY_SETTINGS_MODULE = (BASE, LOCAL, PRODUCTION, TEST)
 
+#: The two settings the published-conda-package collector reads its monitored
+#: surfaces from, read from the collector that reads them rather than spelled
+#: again here: a literal in this file would be a second declaration of a name,
+#: and it would keep passing while the two drifted apart.
+MONITORED_SETTINGS = (CHANNELS_SETTING, PLATFORMS_SETTING)
+
 
 @pytest.mark.usefixtures("no_database_env")
 def test_the_celery_block_contributes_the_route_table_core_owns():
@@ -1307,3 +1315,58 @@ def test_cadence_lives_in_the_database_scheduler(module: str):
 
     assert settings_module.CELERY_BEAT_SCHEDULER == DATABASE_SCHEDULER
     assert not hasattr(settings_module, "CELERY_BEAT_SCHEDULE")
+
+
+# ---------------------------------------------------------------------------
+# CPM-CURRENCY-S04 -- the monitored channels and platforms, declared and empty.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("any_settings_module")
+@pytest.mark.parametrize("module", EVERY_SETTINGS_MODULE, ids=lambda name: name.rpartition(".")[2])
+@pytest.mark.parametrize("setting", MONITORED_SETTINGS)
+def test_the_monitored_surfaces_are_declared_and_ship_empty(module: str, setting: str):
+    """PRD Open Question 4: the mechanism ships, the choice does not (`CPM-FR-10`).
+
+    Two halves, and both are load bearing.
+
+    *Declared.* `CollectorsConfig.ready()` refuses to boot a settings module that
+    carries neither name, so a module that dropped one would be a component that
+    will not start. Asserted over all four rather than over `base` alone: the leaf
+    modules inherit through `from .base import *`, and the one whose value a
+    deployed component actually runs under is `production.py` -- exactly the one a
+    case reading only `base` cannot see.
+
+    *Empty.* Which conda channels and platforms this product watches is an
+    operator's decision and is unresolved. A default here would answer it, and the
+    component would record evidence about a surface nobody chose -- permanently,
+    in an append-only log nothing may correct. What the emptiness buys is a run
+    that fails loudly naming the setting, which
+    `tests/integration/django_apps/test_conda_package.py` asserts end to end.
+    """
+    settings_module = importlib.import_module(module)
+
+    declared = getattr(settings_module, setting)
+
+    assert declared == ()
+    # A tuple rather than a list, and asserted rather than assumed: a mutable
+    # default in a settings module is one an importer can append to, and "which
+    # surfaces does this component observe" is not a question an import order may
+    # answer.
+    assert isinstance(declared, tuple)
+
+
+@pytest.mark.usefixtures("any_settings_module")
+@pytest.mark.parametrize("setting", MONITORED_SETTINGS)
+def test_the_monitored_surfaces_are_the_names_the_collector_reads(setting: str):
+    """The anti-vacuity half: settings and the collector must name the same two settings.
+
+    The case above would pass just as happily against two names nothing reads.
+    What ties them together is that the collector declares the names and this
+    asserts the settings module assigns *those* -- so a rename on either side is a
+    failure here rather than a component that boots, starts, and silently observes
+    nothing for ever.
+    """
+    settings_module = importlib.import_module(BASE)
+
+    assert hasattr(settings_module, setting)

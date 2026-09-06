@@ -8,6 +8,23 @@ from django.utils.translation import gettext_lazy as _
 #: for -- a literal in each would be two names that can drift apart.
 WATCHLIST_PATH_SETTING: Final[str] = "INVENTORY_WATCHLIST_PATH"
 
+# The two settings the published-conda-package collector reads its monitored
+# surfaces from (CPM-CURRENCY-S04, PRD Open Question 4) are spelled *once* in the
+# whole component, in collectors/conda_package.py beside the read that uses them,
+# and are imported inside ready() rather than restated here: the boot refusal
+# below and the run-time read must name the same two settings, and two literals
+# would be two names that can drift apart.
+#
+# The distinction the refusal rests on has three parts rather than two. A
+# settings module that declares *nothing* is a misconfiguration, refused at boot
+# on the terms WATCHLIST_PATH_SETTING is. One that declares the wrong *shape* --
+# a bare string, most plausibly, which Python reads as one channel per character
+# -- is refused at boot too, because it can never become a usable declaration and
+# would otherwise fail every run for ever with nothing said at start-up. One that
+# declares an *empty* list boots: that is what ships, it is a component honestly
+# saying no operator has chosen yet, and what it costs is a failed run naming the
+# setting rather than a component nobody can start.
+
 
 class CollectorsConfig(AppConfig):
     """The collectors application, third under the second import root.
@@ -103,10 +120,11 @@ class CollectorsConfig(AppConfig):
 
         Raises:
             ImproperlyConfigured: When the settings module declares no
-                `INVENTORY_WATCHLIST_PATH`. Refused rather than left to an
-                `AttributeError`: a settings module that dropped the assignment
-                is a misconfiguration like every other one here, and a bare
-                attribute error out of a boot hook says nothing about which
+                `INVENTORY_WATCHLIST_PATH`, or neither of the two settings the
+                published-conda-package collector reads. Refused rather than left
+                to an `AttributeError`: a settings module that dropped an
+                assignment is a misconfiguration like every other one here, and a
+                bare attribute error out of a boot hook says nothing about which
                 setting is missing or what declares it.
 
         """
@@ -117,6 +135,18 @@ class CollectorsConfig(AppConfig):
         from django.conf import settings  # noqa: PLC0415 - see above
         from django.core.exceptions import ImproperlyConfigured  # noqa: PLC0415 - see above
 
+        from conda_package_supply_chain_monitor.collectors.conda_package import (  # noqa: PLC0415 - see above
+            CHANNELS_SETTING,
+        )
+        from conda_package_supply_chain_monitor.collectors.conda_package import (  # noqa: PLC0415 - see above
+            PLATFORMS_SETTING,
+        )
+        from conda_package_supply_chain_monitor.collectors.conda_package import (  # noqa: PLC0415 - see above
+            CondaPackageCollector,
+        )
+        from conda_package_supply_chain_monitor.collectors.conda_package import (  # noqa: PLC0415 - see above
+            declaration_fault,
+        )
         from conda_package_supply_chain_monitor.collectors.feedstock import (  # noqa: PLC0415 - see above
             FeedstockCollector,
         )
@@ -146,9 +176,35 @@ class CollectorsConfig(AppConfig):
             SourceReleaseCollector,
             PyPIReleaseCollector,
             FeedstockCollector,
+            CondaPackageCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)
+
+        for monitored_setting in (CHANNELS_SETTING, PLATFORMS_SETTING):
+            # `is None` rather than a truth test, and the difference is the whole
+            # posture: an *absent* declaration is a settings module that dropped
+            # an assignment, and an *empty* one is the shipped state PRD Open
+            # Question 4 leaves an operator to change. A truth test here would
+            # refuse to boot a component that is behaving exactly as designed.
+            declared = getattr(settings, monitored_setting, None)
+            if declared is None:
+                message = (
+                    f"{monitored_setting} is not configured, so this component cannot tell which conda "
+                    f"channels and platforms the published-package collector observes (CPM-FR-10). "
+                    f"config/settings/base.py assigns it -- empty, because the choice is PRD Open Question "
+                    f"4's and an operator's to make -- and an empty declaration is a failed collection "
+                    f"naming the setting rather than a component that will not start."
+                )
+                raise ImproperlyConfigured(message)
+            # The shape as well as the presence, asked through the collector's own
+            # rule so boot and run time cannot come to disagree. A declaration of
+            # the wrong shape can never become a usable one, so refusing it here
+            # is the difference between an operator learning at start-up and a
+            # component that boots clean and fails every collection for ever.
+            unusable = declaration_fault(declared, setting=monitored_setting)
+            if unusable:
+                raise ImproperlyConfigured(unusable)
 
         selected = getattr(settings, WATCHLIST_PATH_SETTING, None)
         if selected is None:
