@@ -42,14 +42,22 @@ block (each holds a reference to the registry it was defined in) and are cached,
 so the unit tier's types and the integration tier's real tables are the same
 classes.
 
-**No fixture pass contributes a rollup column, and that is the honest state
-rather than an omission.** `core/rollup.py` offers none: the rollup declares its
-identity, its stamps and the confidence, and no domain status column, because
-`epics.md` says it "grows as passes are added" and none has been. So
-`register_pass` would *refuse* a fixture contributing one -- correctly, and that
-refusal is itself a case. The contribution path is therefore proved by the
-refusals and by the writer's own composition, and the first real pass is what
-exercises it end to end.
+**No fixture pass contributes a *real* rollup column, and that is deliberate
+rather than left over.** `core/rollup.py` now offers exactly one,
+`currency_status`, which `CPM-CURRENCY-S06`'s `CurrencyPass` owns -- so a fixture
+contributing it would be refused for colliding with a real owner, and every case
+about the contribution mechanism would then be measuring that collision instead
+of the mechanism. The fixtures therefore keep contributing nothing, and
+`rollup_with_a_domain_column()` below supplies a column nobody owns where a case
+needs one. What the real pass exercises end to end is
+`tests/integration/django_apps/test_currency_policy.py`.
+
+**The adopted passes are live in the registry from `django.setup()` onwards.**
+`policies/apps.py`'s `ready()` registers `CurrencyPass`, so no module in this
+suite meets an empty pass registry any more. `ADOPTED_PASS_NAMES` below is the
+one declaration of what that set is, and `registry_without_adopted_passes()` is
+how a module that measures the registry's *own* behaviour gets a controlled one
+back without pretending the adoption did not happen.
 
 **Five fixture passes, each differing in exactly one way.** One that works, one
 that raises for a nominated package, one that reads the first one's rows, one
@@ -73,14 +81,19 @@ from functools import cache as memoized
 from typing import TYPE_CHECKING
 from typing import Final
 
+import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
+from conda_package_supply_chain_monitor.core import rollup as rollup_module
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.policy import PolicyPass
 from conda_package_supply_chain_monitor.core.policy import PolicyPassError
+from conda_package_supply_chain_monitor.core.policy import pass_registrations
 from conda_package_supply_chain_monitor.core.policy import register_pass
 from conda_package_supply_chain_monitor.core.policy import unregister_pass
+from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -117,7 +130,15 @@ A_VERDICT: Final[str] = OutcomeState.OK.value
 #: A rollup column no rollup declares, for the refusal that is about exactly
 #: that. Spelled as a column a real epic would plausibly add, so the refusal
 #: message reads as the mistake it stands for.
-AN_UNDECLARED_COLUMN: Final[str] = "currency_status"
+#:
+#: It was `currency_status` until `CPM-CURRENCY-S06` made that column real, which
+#: is the shape of edit this constant is expected to take: as each policy epic
+#: lands its column, the stand-in moves to one that has not landed yet. It must
+#: never name a column `core/rollup.py` actually offers, or the refusal it is
+#: about would stop being a refusal and the case would pass for the opposite
+#: reason. `test_the_undeclared_column_is_one_the_rollup_really_does_not_offer`
+#: in `tests/unit/django_apps/test_policy_registry.py` is what says so.
+AN_UNDECLARED_COLUMN: Final[str] = "vulnerability_status"
 
 #: How wide the fixture verdict column is. Wide enough for any `OutcomeState`
 #: value and for a per-status verdict a later epic composes.
@@ -126,6 +147,20 @@ _VERDICT_LENGTH: Final[int] = 32
 #: What a pass that has no derived table of its own declares. Used by the
 #: refusal case, and never registered.
 NO_DERIVED_MODEL: Final = None
+
+#: The passes this component adopts at boot, by declared name, in adoption order.
+#:
+#: `policies/apps.py`'s `ready()` is what performs the adoption and
+#: `config/settings/base.py` is what installs the application; this is the
+#: suite's one record of what that produces, so a pass that stopped registering
+#: fails a case rather than quietly leaving an audit sweeping nothing again. A
+#: hand-written roster on purpose, on the terms `tests/model_registry.py`'s
+#: `RUN_LEDGER_MODEL_LABELS` is one: adopting a pass is a decision, and a
+#: roster derived from the registry would only ever agree with itself.
+ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (CURRENCY_POLICY_NAME,)
+
+#: The adopted pass classes, in the same order, so a case can re-register them.
+ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass,)
 
 
 @memoized
@@ -438,6 +473,78 @@ def registered_pass(policy_pass: type[PolicyPass]) -> Iterator[type[PolicyPass]]
             unregister_pass(policy_pass.name)
 
 
+@contextmanager
+def substituted_rollup() -> Iterator[None]:
+    """Point `core/rollup.py`'s model at the synthetic rollup for the body of a `with`.
+
+    A context manager rather than the `monkeypatch` fixture, and the reason is
+    ordering rather than taste. `registry_without_adopted_passes` restores the
+    adopted passes on the way out, and restoring one means `register_pass`
+    re-reading `contributable_columns()` -- so a substitution still in place at
+    that moment refuses `CurrencyPass` for contributing a column the *synthetic*
+    rollup does not declare, and every later case in the module then fails on an
+    entry assertion naming nothing that went wrong. A `with` block ends where a
+    reader can see it ends, before any fixture teardown runs. The module that
+    does not restore anything uses it too, so the two cannot drift into two
+    substitutions with different lifetimes.
+
+    The substitution is of `core/rollup.py`'s model rather than of a name inside
+    `core/policy.py`: the registry reads `rollup.contributable_columns()` at call
+    time precisely so that patching the rollup reaches it, and a case that
+    patched a name bound at import would be describing a path it never took.
+
+    Yields:
+        Nothing; the substitution is the fixture.
+
+    """
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(rollup_module, "ROLLUP_MODEL", rollup_with_a_domain_column())
+        yield
+
+
+@contextmanager
+def registry_without_adopted_passes() -> Iterator[None]:
+    """Withdraw the adopted passes for the body of a `with`, and put them back after.
+
+    `policies/apps.py` registers `CurrencyPass` during `django.setup()`, so the
+    pass registry is never empty in this suite. That is the correct state of the
+    world and `tests/unit/django_apps/test_pass_ownership_audit.py` sweeps it as
+    it is -- but a module measuring the *registry's own* refusals needs a set it
+    controls: "registering this pass makes `registered_passes()` return exactly
+    it" is a statement about the registry that a live adoption would make
+    unwritable.
+
+    Withdraw-and-restore rather than a patched module global, because
+    `register_pass` and `unregister_pass` are the only two functions that keep
+    `_REGISTERED` and `_COLUMN_OWNERS` in step -- a case that emptied one by hand
+    would leave `currency_status` owned by a pass that is no longer registered,
+    and the next contribution to it would be refused for a reason nothing in the
+    case explains.
+
+    Both ends are asserted. The registry must hold exactly the adopted set on the
+    way in, so a module that ran after one which leaked fails here rather than
+    somewhere downstream; and the restoration is checked, so a case that
+    re-registered a pass itself cannot leave the suite with two.
+
+    Yields:
+        Nothing; the withdrawal and the restoration are the fixture.
+
+    """
+    assert sorted(pass_registrations()) == sorted(ADOPTED_PASS_NAMES), (
+        f"the pass registry does not hold exactly the adopted passes on entry: {sorted(pass_registrations())}"
+    )
+    for name in ADOPTED_PASS_NAMES:
+        unregister_pass(name)
+    try:
+        yield
+    finally:
+        for policy_pass in ADOPTED_PASSES:
+            register_pass(policy_pass)
+        assert sorted(pass_registrations()) == sorted(ADOPTED_PASS_NAMES), (
+            f"the adopted passes were not restored: {sorted(pass_registrations())}"
+        )
+
+
 #: The domain status column the synthetic rollup below declares, and what it
 #: holds when nobody contributes it.
 #:
@@ -452,15 +559,17 @@ THE_COLUMN_DEFAULT: Final[str] = OutcomeState.NOT_APPLICABLE.value
 
 @memoized
 def rollup_with_a_domain_column() -> type[models.Model]:
-    """Return a synthetic rollup declaring one contributable column.
+    """Return a synthetic rollup declaring one *unowned* contributable column.
 
-    **The real rollup offers none, so several rules have no subject without
-    this.** `PackageHealth` declares its identity, its stamps and the confidence
-    and no domain status column, because `epics.md` says the table "grows as
-    passes are added" and no policy epic has run. The confidence gate applied to
-    a column, the full-row replace's defaulting, and every refusal about what a
-    pass may *return* therefore have nowhere to happen against it -- and
-    inventing a column on the real model is what this story forbids.
+    **The real rollup's one column already has an owner, which is why this is
+    still needed.** `PackageHealth.currency_status` arrived with
+    `CPM-CURRENCY-S06` and `CurrencyPass` owns it from `django.setup()` onwards,
+    so a fixture pass contributing it would be refused for colliding with a real
+    owner -- and every case about the *mechanism* would be measuring that
+    collision instead. `licence_status` here is a column a later epic will add
+    and nothing owns today, which is what lets the confidence gate applied to a
+    column, the full-row replace's defaulting, and every refusal about what a
+    pass may *return* be exercised against a subject that is nobody's.
 
     So the cases substitute this where `core/rollup.py` names the model. It is the
     same device `tests/unit/django_apps/test_derived_status_writability_audit.py`

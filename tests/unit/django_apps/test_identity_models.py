@@ -69,6 +69,13 @@ CANONICAL_NAME: Final[str] = "canonical_name"
 #: provenance, confidence -- projected onto PRD Appendix A.1's stored-field
 #: column, and nothing else. Written out rather than counted: a length assertion
 #: would pass while a field was swapped for another.
+#:
+#: `version_authority_order` arrived with `CPM-CURRENCY-S06` and sits with the
+#: cross-ecosystem mappings deliberately: `CPM-AD-6` makes "which ecosystem is
+#: authoritative for this package" data on the package, and that is a statement
+#: about which ecosystem the package *belongs to* rather than a status any policy
+#: derived. It holds no verdict, no observation and no workflow state, which is
+#: what keeps it inside `CPM-AD-1`'s categories rather than a fifth one.
 EXPECTED_PACKAGE_FIELDS: Final[tuple[str, ...]] = (
     "id",
     "canonical_name",
@@ -79,6 +86,7 @@ EXPECTED_PACKAGE_FIELDS: Final[tuple[str, ...]] = (
     "conda_purl",
     "alternative_purls",
     "cpes",
+    "version_authority_order",
     "identity_source",
     "associator_key",
     "resolved_at",
@@ -912,8 +920,14 @@ def test_the_package_field_set_is_unchanged_by_this_story() -> None:
     `test_the_package_row_holds_exactly_the_identity_fields` above already pins
     the set; this says why the pinning matters here. `CPM-FR-1` needed three
     states per mapping and the cheapest-looking way to get them is a column per
-    mapping on the row that already holds the values. The set is the same as
-    `CPM-IDENTITY-S01` left it, and the outcome went somewhere else.
+    mapping on the row that already holds the values. The mapping *outcome* went
+    somewhere else, and the two sets still meet only on the surrogate key and the
+    resolution instant.
+
+    The set is no longer the one `CPM-IDENTITY-S01` left: `CPM-CURRENCY-S06` added
+    `version_authority_order`, which is `CPM-AD-6`'s per-package data and is not a
+    per-mapping outcome by any reading -- the disjointness below is what says so,
+    and it is the assertion this case is actually about.
     """
     assert _field_names(Package) == EXPECTED_PACKAGE_FIELDS
     assert set(_field_names(Package)) & set(EXPECTED_MAPPING_FIELDS) == {"id", "resolved_at"}

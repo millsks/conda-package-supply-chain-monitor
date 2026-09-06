@@ -1,17 +1,18 @@
 """`CPM-FR-37`: no current-status field is directly writable from outside a policy run.
 
-Two rules about a table that does not exist yet, and that is deliberate.
+Two rules, written before the table they are about existed, and that was
+deliberate.
 
 `CPM-AD-11` puts current package health in a Django-managed rollup written by the
 orchestrating policy run, and says in as many words that **only the rollup writer
-writes it**. That table arrives with `CPM-EVIDENCE-S07`. Writing its guard in the
-same story that creates it is how a guard comes to be shaped around the thing it
-is meant to constrain rather than around the rule -- the constraint gets
-discovered as "whatever the writer happens to do" and stops being able to reject
-anything. So the rule is written first, and what keeps it honest in the meantime
-is that every detector here is measured against synthetic declarations parsed in
-this module: an audit that has gone blind must fail *here*, not report a clean
-repository forever.
+writes it**. `CPM-EVIDENCE-S07` built that table and `CPM-CURRENCY-S06` gave it
+its first domain status column. Writing a guard in the same story that creates
+the thing it guards is how a constraint comes to be shaped around that thing
+rather than around the rule -- it gets discovered as "whatever the writer happens
+to do" and stops being able to reject anything. So the rules were written first,
+and what still keeps them honest is that every detector here is *also* measured
+against synthetic declarations parsed in this module: an audit that has gone
+blind must fail *here*, not report a clean repository forever.
 
 **Rule one: a current-status column is not editable.** `editable=False` is
 Django's own spelling of "not directly writable" -- the field leaves every
@@ -159,26 +160,29 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: database. Recorded rather than special-cased by model type, because this scan
 #: reads syntax and cannot know which model an attribute belongs to -- and a
 #: heuristic that guessed would be the door a real write later walks through.
-#: **`core/rollup.py` is the rollup writer and has no entry, which is a recorded
-#: state rather than an oversight.** `CPM-EVIDENCE-S07` built the writer this
-#: table was written in anticipation of, and the rollup it writes declares no
-#: domain status column: `epics.md` says the table "grows as passes are added"
-#: and no policy epic has run, so `core/rollup.py` composes the stamps and the
-#: confidence and nothing this scan matches. An entry recording zero of a form
-#: would license nothing and assert nothing, and one recording a form that is not
-#: there fails `test_every_recorded_exemption_still_describes_the_file` -- so the
-#: honest record is the absence, plus `THE_ROLLUP_WRITER` below, which keeps the
-#: file in the scan's view and makes the day it acquires its first write a
-#: decision somebody has to record here.
+#: **`core/rollup.py` is the rollup writer and still has no entry, which is a
+#: recorded state rather than an oversight.** It now writes a real domain status
+#: -- `currency_status`, added by `CPM-CURRENCY-S06` -- but it reaches every
+#: column as a mapping, `update_or_create(defaults=...)`, built by name from
+#: `contributable_columns()`. This scan does not see that, and that is stated
+#: rather than left to be discovered: it is one of the four shapes
+#: `ORM_WRITE_METHODS` already records as outside its reach.
 #:
-#: The writer reaches its columns as a mapping -- `update_or_create(defaults=...)`
-#: -- which this scan does not see, and that is stated rather than left to be
-#: discovered: it is one of the four shapes `ORM_WRITE_METHODS` already records
-#: as outside its reach. What it means for the first pass's `currency_status` is
-#: that the write becomes visible here only if it is spelled as a keyword or an
-#: assignment, and that is the shape the entry should record when it arrives.
-#: Routing a real status column through the mapping *to stay out of this table*
-#: would be the `**kwargs` dodge that constant names.
+#: The mapping is not a dodge here, and the difference is worth naming. The
+#: writer writes *every* contributable column by iterating the model's own
+#: fields, precisely so a column added by a later epic is written without an edit
+#: -- there is no list of column names to spell as keywords, and spelling them
+#: would reintroduce the roster the writer exists not to have. Routing a status
+#: column through a mapping *to stay out of this table* is the `**kwargs` dodge
+#: that constant names, and `policies/currency.py` is where the honest form is
+#: taken instead: explicit keywords, recorded below.
+#:
+#: An entry recording zero of a form would license nothing and assert nothing,
+#: and one recording a form that is not there fails
+#: `test_every_recorded_exemption_still_describes_the_file` -- so the honest
+#: record is the absence, plus `THE_ROLLUP_WRITER` below, which keeps the file in
+#: the scan's view and makes the day it acquires a keyword write a decision
+#: somebody has to record here.
 #
 #: `identity/services.py` -- `CPM-IDENTITY-S02`'s resolution recorder, and the
 #: second collision of the same kind. `PackageMapping.outcome` is *not* current
@@ -196,12 +200,40 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: routing a real status column through `defaults` to stay out of this table is
 #: the `**kwargs` dodge `ORM_WRITE_METHODS` already names -- the honest form is
 #: the visible one plus an entry somebody had to write.
+#
+#: `policies/currency.py` -- `CPM-CURRENCY-S06`'s currency pass, and the third
+#: collision of the same kind. `PackageCurrency` is a *per-domain derived table*
+#: (`CPM-AD-21`), not current package health: it carries no `computed_at`, so
+#: `derived_state_models()` correctly does not find it, and `CPM-AD-11`'s single
+#: writer is about `core/rollup.py` and the `package_health` table alone. What
+#: collides is the naming convention -- five columns on that table are named for
+#: the statuses they hold, because renaming them to dodge the convention is the
+#: option `tests/model_registry.py` names as the worse one.
+#:
+#: Five entries, all `create()` keywords, and they are deliberately *visible*:
+#: the pass could have written the row through a `defaults` mapping and stayed
+#: out of this table entirely, which is the `**kwargs` dodge `ORM_WRITE_METHODS`
+#: already names. The honest form is the keyword plus an entry somebody had to
+#: write. The count is five because the row carries four per-surface verdicts and
+#: one overall; a sixth would fail here until it is recorded.
+#:
+#: What is *not* exempted, and must never be: this module contributes
+#: `currency_status` to the rollup by **returning** it, never by writing it. The
+#: return is not a write form this scan matches and is not meant to be --
+#: `core/rollup.py` is what writes the column, after `CPM-AD-4`'s gate.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
     },
     "django_apps/conda_package_supply_chain_monitor/identity/services.py": {
         ASSIGNMENT_FORM.format(name="outcome"): 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/policies/currency.py": {
+        KEYWORD_FORM.format(name="source_status", method="create"): 1,
+        KEYWORD_FORM.format(name="pypi_status", method="create"): 1,
+        KEYWORD_FORM.format(name="feedstock_status", method="create"): 1,
+        KEYWORD_FORM.format(name="conda_package_status", method="create"): 1,
+        KEYWORD_FORM.format(name="overall_status", method="create"): 1,
     },
 }
 
@@ -431,13 +463,12 @@ def test_the_rollup_is_recognised_as_derived_state() -> None:
     do -- and its docstring names `CPM-EVIDENCE-S07` as the story that makes the
     registry sweep meaningful. That story has run. `PackageHealth` declares
     `computed_at`, so `holds_derived_state` finds it, and the editability rule
-    below now inspects a real model rather than an empty list.
+    below inspects a real model rather than an empty list.
 
-    The rollup declares no status column *yet*, which is why that rule finds
-    nothing to fault: `epics.md` says the table grows as passes are added. What
-    this case asserts is that the model is in view, so the first
-    `currency_status` declared without `editable=False` fails there rather than
-    passing through an empty sweep.
+    `CPM-CURRENCY-S06` closed the other half: the rollup now declares
+    `currency_status`, so the rule below has a real field to be about rather than
+    a model with nothing on it that the convention matches. This case asserts the
+    model is in view; the case below asserts the field it carries is not editable.
     """
     found = {model._meta.label for model in derived_state_models()}  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
 
@@ -517,11 +548,12 @@ def test_the_write_detector_recognises_each_form(source: str, expected: list[str
 def test_no_derived_state_model_leaves_a_status_editable() -> None:
     """Rule one, against whatever the registry actually holds.
 
-    Empty until `CPM-EVIDENCE-S07` defines the rollup. It is kept here rather
-    than deferred with the table because the guard has to exist before the thing
-    it guards, or it is shaped by that thing instead of by the rule -- and
-    because the moment the rollup is declared with an editable `licence_status`,
-    this is what says so.
+    No longer vacuous in either direction: `PackageHealth` is found by
+    `derived_state_models()` and it carries `currency_status`, so this sweep both
+    reaches a model and inspects a field the convention matches.
+    `test_the_rollup_carries_a_status_field_for_this_rule_to_be_about` below is
+    what keeps that second half honest, because an offender list that is empty
+    because there was nothing to look at reads exactly like a clean repository.
     """
     offenders = {
         f"{model._meta.label}.{field}"  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
@@ -533,6 +565,30 @@ def test_no_derived_state_model_leaves_a_status_editable() -> None:
         f"a current-status field is editable, so a form or the admin can write it directly: {sorted(offenders)}. "
         f"CPM-AD-11 says only the rollup writer writes current health; declare editable=False."
     )
+
+
+def test_the_rollup_carries_a_status_field_for_this_rule_to_be_about() -> None:
+    """The anti-vacuity guard for the case above, on the half the model sweep misses.
+
+    `derived_state_models()` finding `PackageHealth` says the sweep reaches a
+    model; it says nothing about whether that model has a field the convention
+    matches. Until `CPM-CURRENCY-S06` it did not, so the editability rule was
+    running over a real model and inspecting no fields -- which passes exactly as
+    a conforming model does.
+
+    Asserted through `is_derived_status_name` rather than by comparing the string
+    to a literal: what makes `currency_status` this rule's business is the
+    convention, and a convention that had stopped recognising it is the failure
+    worth catching.
+    """
+    rollup = next(model for model in derived_state_models() if model._meta.label == THE_ROLLUP_MODEL_LABEL)  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+    matched = [field.name for field in rollup._meta.concrete_fields if is_derived_status_name(field.name)]  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
+
+    assert matched != [], (
+        f"{THE_ROLLUP_MODEL_LABEL} carries no field this rule's naming convention matches, so "
+        f"test_no_derived_state_model_leaves_a_status_editable inspects nothing"
+    )
+    assert editable_status_fields(rollup) == [], matched
 
 
 def test_the_editability_detector_would_notice_an_editable_status() -> None:

@@ -128,19 +128,29 @@ NOT_EVIDENCE_ATTRIBUTE: Final[str] = "not_evidence"
 #: by somebody who decided to, not discovered by a predicate.
 RUN_LEDGER_MODEL_LABELS: Final[frozenset[str]] = frozenset({"core.CollectionRun", "core.PolicyRun"})
 
-#: Four applications that must be in scope, so a scope that had narrowed to
-#: nothing is caught. `core` is where the base lives; `identity` is the second
-#: application under the second import root, and naming it is what keeps the
-#: anchor honest now that the scope predicate has more than one `django_apps`
-#: subtree to find; `collectors` is the third and is where evidence models
-#: actually land (`CPM-AD-7` gives each collector its own table in its own
-#: application), so a scope that reached the first two and not it would sweep a
-#: repository with no evidence in it; `users` is inherited platform and is still
-#: this repository's own source, which is what `CPM-AD-5`'s "anywhere" means.
+#: Five applications that must be in scope, so a scope that had narrowed to
+#: nothing -- or to everything but the newest addition -- is caught. `core` is
+#: where the base lives; `identity` is the second application under the second
+#: import root, and naming it is what keeps the anchor honest now that the scope
+#: predicate has more than one `django_apps` subtree to find; `collectors` is the
+#: third and is where evidence models actually land (`CPM-AD-7` gives each
+#: collector its own table in its own application), so a scope that reached the
+#: first two and not it would sweep a repository with no evidence in it;
+#: `policies` is the fourth, added by `CPM-CURRENCY-S06`, and it is the one that
+#: makes this list worth extending rather than freezing -- it declares the first
+#: *derived* table, which is a third kind of model these audits are about and one
+#: no earlier entry would have covered; `users` is inherited platform and is
+#: still this repository's own source, which is what `CPM-AD-5`'s "anywhere"
+#: means.
+#:
+#: **Extended by hand on purpose, once per adopted application.** A roster
+#: derived from `first_party_app_names()` would agree with the predicate it is
+#: meant to anchor, which is the vacuum every audit here exists to close.
 FIRST_PARTY_APP_NAMES: Final[tuple[str, ...]] = (
     "conda_package_supply_chain_monitor.collectors",
     "conda_package_supply_chain_monitor.core",
     "conda_package_supply_chain_monitor.identity",
+    "conda_package_supply_chain_monitor.policies",
     "django_service.users",
 )
 

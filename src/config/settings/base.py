@@ -209,6 +209,14 @@ LOCAL_APPS = [
     # stay after the stage-2 owner exactly as the two above do, which appending
     # is what guarantees.
     "conda_package_supply_chain_monitor.collectors",
+    # The policy application, and the second adopted application declaring a
+    # `ready()` (CPM-CURRENCY-S06). It adopts its passes into `core`'s policy
+    # registry, which is what the orchestrating policy run walks -- so it has to
+    # stay after the stage-2 owner exactly as the three above do, which appending
+    # is what guarantees. Last, because `CPM-AD-21` keeps the pass registry in
+    # declaration order: a later pass may read an earlier pass's derived rows, so
+    # the order applications are adopted in is part of what is declared.
+    "conda_package_supply_chain_monitor.policies",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps

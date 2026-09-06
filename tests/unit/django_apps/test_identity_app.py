@@ -220,6 +220,7 @@ def test_the_application_ships_a_migrations_package() -> None:
         "0001_package_identity.py",
         "0002_resolution.py",
         "0003_identity_override.py",
+        "0004_version_authority_order.py",
     ]
 
 

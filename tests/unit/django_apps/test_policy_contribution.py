@@ -20,11 +20,13 @@ sentinels to say it with (`CPM-FR-6`), and one that means "I did not run here"
 omits the key.
 
 **The synthetic rollup is `tests/passes.py`'s**, for the reason that module
-gives: the real one declares no contributable column, so against it there is
-nothing for a pass to return and none of these refusals is reachable. Sharing one
-declaration with `tests/unit/django_apps/test_rollup_row.py` is what stops two
-synthetic rollups disagreeing about which column is contributable while both
-modules pass.
+gives: the real one now declares exactly one contributable column,
+`currency_status`, and `CurrencyPass` owns it from `django.setup()` onwards -- so
+a fixture pass returning it would be refused for colliding with a real owner, and
+each refusal here would be measuring that collision rather than the rule it names.
+A column nobody owns is what these cases need. Sharing one declaration with
+`tests/unit/django_apps/test_rollup_row.py` is what stops two synthetic rollups
+disagreeing about which column is contributable while both modules pass.
 
 Reads no database and opens no network: the validation is a function over a
 mapping.
@@ -46,6 +48,7 @@ from conda_package_supply_chain_monitor.core.outcomes import outcome_type
 from conda_package_supply_chain_monitor.core.policy import PolicyPassError
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.core.rollup import permitted_values
+from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import FIRST_DOMAIN
 from tests.passes import rollup_with_a_domain_column
@@ -202,13 +205,25 @@ def test_a_column_declaring_no_vocabulary_is_refused_rather_than_waved_through()
         permitted_values("policy_versions")
 
 
-def test_the_real_rollup_offers_nothing_yet_which_is_why_the_synthetic_one_exists() -> None:
-    """The honest statement of what this module stands in for.
+def test_the_real_rollups_one_column_already_has_an_owner() -> None:
+    """The honest statement of what this module stands in for, now that a column is real.
 
-    If `PackageHealth` ever declares a contributable column, these refusals stop
-    needing a substitute and the integration cases should exercise them end to
-    end instead.
+    `PackageHealth` declares exactly one contributable column since
+    `CPM-CURRENCY-S06` -- `currency_status` -- and `CurrencyPass` owns it from
+    `django.setup()` onwards. So the refusals here still need a substitute: a
+    fixture pass contributing the real column would collide with the real owner,
+    and each case would be measuring that collision instead of the rule it names.
+    A column nobody owns is what the synthetic rollup supplies.
+
+    The end-to-end half is no longer missing, which is the other thing this says:
+    `tests/integration/django_apps/test_currency_policy.py` drives a real
+    contribution through the orchestration onto a real rollup row.
+
+    Both directions, because either alone passes for the wrong reason: the offered
+    set must be exactly the one real column, and `A_STAMP` must still be outside
+    it -- a stamp that had drifted into the contributable set would make every
+    refusal in this module about a column a pass is entitled to.
     """
-    assert contributable_columns() == frozenset()
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN})
     assert rollup_module.ROLLUP_MODEL is PackageHealth
     assert A_STAMP not in contributable_columns()

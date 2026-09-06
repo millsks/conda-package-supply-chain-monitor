@@ -63,7 +63,8 @@ destroy observations when a package went and every append-only refusal in
 refuse instead -- which is also `CPM-AD-25`'s "no package row is ever deleted",
 enforced rather than intended.
 
-**Reading is cut-off bound, and `snapshot_as_of` is the only supported way.**
+**Reading is cut-off bound, and `snapshot_as_of` is the only supported way
+to read `inventory_snapshots`.**
 `CPM-AD-25`: "a policy reading a usage signal reads the latest snapshot at or
 before its run's cut-off, never the current value", which is what makes
 `CPM-FR-22`'s replay reproduce identical results. A caller that reached for

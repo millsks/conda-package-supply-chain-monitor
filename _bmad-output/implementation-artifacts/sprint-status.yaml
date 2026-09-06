@@ -84,7 +84,7 @@ development_status:
   cpm-currency-s03-feedstock-evidence: done
   cpm-currency-s04-published-conda-package-evidence: done
   cpm-currency-s05-source-failing-never-stops-others: done
-  cpm-currency-s06-currency-judged-against-right-authority: ready-for-dev
+  cpm-currency-s06-currency-judged-against-right-authority: done
   cpm-currency-s07-feedstock-presence-maintenance: ready-for-dev
   epic-currency-retrospective: optional
 

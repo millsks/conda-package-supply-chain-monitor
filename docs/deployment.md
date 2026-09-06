@@ -1293,3 +1293,293 @@ not change that arithmetic: it enqueues the work, and the per-collector limiter
 refuses the calls it cannot afford, which records `error` rows rather than
 exceeding the source's budget. Expect `skipped` dispatch rows and `error`
 collection rows at that scale until the allowances are raised.
+
+## The currency policy: what it compares, and what it will not
+
+`CPM-CURRENCY-S06` adds the first policy pass. It runs inside the orchestrating
+policy run rather than on a schedule of its own, so there is nothing here to
+configure: no setting, no cadence, no allowance. What starts it is the
+`cpm.policy.run` task (routed to the `policy` queue), and what it reads is the
+evidence the four collectors above have already written. **Nothing in
+`CELERY_BEAT_SCHEDULE` fires that task today** — a policy run is enqueued
+explicitly, with the policy version it applies, and choosing a cadence for it is
+not this component's decision to have made for you.
+
+**It makes no outbound call of any kind.** A pass reads the evidence log and
+writes derived rows (`CPM-AD-8`, `CPM-AD-9`). Nothing here is affected by a rate
+limit, a credential, or a source being down — a source that was down when the
+collector ran shows up as an `error` row the pass reports as `error`, and the
+policy run itself is unaffected.
+
+### It reads evidence as of the run's cut-off, never as of now
+
+The cut-off is a `finished_at` from the collection-run ledger, chosen by
+`choose_evidence_cutoff` — the newest ending that no still-running collection can
+write evidence behind — and a ledger with nothing settled behind it makes the
+policy run refuse rather than invent one. **A stuck collection run therefore
+holds policy runs back**, deliberately: reading past it would include evidence
+from a run that is still writing, and every replay would then read a different
+set. Evidence written after the cut-off is not read.
+
+### Replaying a run
+
+`execute_policy_run` takes an optional `evidence_cutoff`. A scheduled run passes
+nothing and gets the ledger's answer; **a replay passes the cut-off of the run it
+is replaying**, which is on that run's `policy_runs` row and copied onto every
+`package_health` row it wrote:
+
+```python
+from conda_package_supply_chain_monitor.core.clock import SystemClock
+from conda_package_supply_chain_monitor.core.models import PolicyRun
+from conda_package_supply_chain_monitor.core.policy_run import execute_policy_run
+
+original = PolicyRun.objects.get(pk=...)
+execute_policy_run(
+    policy_version=original.policy_version,
+    clock=SystemClock(),
+    evidence_cutoff=original.evidence_cutoff,
+)
+```
+
+Passing the cut-off is what makes this a replay rather than a repetition. Without
+it, any collection run that finished in between moves the boundary, the second
+run reads a different evidence set, and the comparison is not the one you wanted.
+A supplied cut-off is used as given and is **not** re-derived from the ledger:
+the run being replayed may well sit behind a collection that has since started,
+and refusing it would refuse the whole operation.
+
+The replay writes its own rows — a new `policy_runs` row, a new
+`package_currency` row per package keyed to it — and leaves the original's alone.
+The rows to diff are `package_currency` filtered by the two `policy_run_id`s. A
+difference means the *rules* changed, never that the sweep happened to run at a
+different minute.
+
+### The verdicts, and what each one means
+
+Each package gets one row in `package_currency` per policy run, carrying a
+verdict for each of the four surfaces and one overall. The vocabulary is `core`'s
+four sentinels plus two verdicts of its own:
+
+| Verdict | What it means |
+|---|---|
+| `current` | The surface states the same version as the chosen authority. |
+| `behind` | The surface states a **different** version from the authority. |
+| `unknown` | Nothing was observed for the surface at the cut-off; or the observation itself records `unknown`; or it is determinate but states no version (a feedstock whose recipe names its version in a way the collector does not read); or no authority could be chosen to compare against. |
+| `not_found` | The source itself answered that it has no version for this package. |
+| `error` | The lookup failed. Not the same as an absence, and never folded into one. |
+| `not_applicable` | The surface is not one this package is published on at all — a non-Python package against PyPI, for instance. |
+
+The overall verdict is the worst of the surfaces the question applied to, ranked
+worst-first as `error`, `behind`, `unknown`, `not_found`, `current`. `error`
+outranks `behind` on purpose: a surface that could not be read may be hiding a
+worse discrepancy than the one that was found, so a read failure never disappears
+behind a finding. Two consequences are worth knowing before you read a report:
+
+- **A package current on the surfaces somebody looked at and unobserved on the
+  rest reads `unknown` overall.** An unobserved surface outranks a determinate
+  one, so a full inventory that has only ever run the source collector reads
+  `unknown` across the board. That is the honest answer, not a defect: schedule
+  all four collectors before treating the overall column as a health signal.
+- **A surface that does not apply to the package does not take its verdict
+  away.** A non-Python package reads `not_applicable` against PyPI and still
+  reads `current` overall when the other three surfaces agree: an inapplicable
+  surface is excluded from the package-level reduction rather than ranked in it.
+  The surface column keeps `not_applicable`, which is what `CPM-FR-6` is about.
+  Only a package where *every* surface is inapplicable reads `not_applicable`
+  overall.
+
+### `behind` means *different*, not *older*
+
+This is the limit worth reading twice. The comparison is **equality against the
+authoritative surface**, not a version ordering. Ordering across four ecosystems
+— PEP 440, conda's own ordering, and a recipe's Jinja-set string — does not have
+one grammar, and nothing in the product's requirements fixes a rule for it, so
+none was invented. What follows from that:
+
+- A surface that has moved **ahead** of the authority reads `behind`. There is no
+  `ahead` verdict.
+- Two spellings of one version read as two versions. `1.0` against `1.0.0`, an
+  epoch, a build suffix, a PEP 440 normalisation: each reads `behind`.
+- The **one** spelling difference that is reconciled is a leading `v` followed by
+  a digit, plus surrounding whitespace. `v1.2.3` and `1.2.3` are the same version
+  here, because `CPM-FR-7` records "the latest release **or tag**" and a Git tag
+  is conventionally written that way — without this, almost every feedstock would
+  read `behind` against its own source. Nothing else is normalised.
+
+Expect false `behind` verdicts where an upstream project and a recipe spell one
+version differently. The row references the exact evidence rows the verdict rests
+on, so what each surface actually said is one join away.
+
+### The authority order, and the default when a package records none
+
+Which ecosystem is authoritative for a package is data on the package
+(`CPM-AD-6`), in `packages.version_authority_order`. It is a JSON list of surface
+names, best first, and the surfaces it may name are exactly:
+
+```
+source          the upstream repository's latest release or tag
+pypi            the PyPI project's latest version
+feedstock       the version the conda-forge recipe pins
+conda_package   the version a monitored conda channel publishes
+```
+
+**Every package ships with an empty list, and that is the ordinary state.** An
+empty list means no authority has been chosen, and the documented default order
+is applied:
+
+```
+source -> pypi -> feedstock -> conda_package
+```
+
+The chosen authority is the **first entry of the applied order that actually
+stated a version at the cut-off**. A surface earlier in the order that was
+unobserved, that errored, that answered `not_found`, or that is `not_applicable`
+to the package is passed over — which is what stops a package being judged
+against a registry it never published to. The row records which order was applied
+and whether it was the default, so a report can tell a package that chose the
+default order from one that chose nothing.
+
+`CPM-AD-6`'s stated default ends "→ internal deployed version". **This product
+observes no such surface**: no collector reads a deployed inventory and no
+evidence table holds one, so the entry is absent from both the vocabulary and the
+default rather than present and unusable.
+
+**A recorded order may name fewer than four surfaces**, and the consequence is
+worth stating: a surface the order leaves out is still read and still recorded,
+but can never be the authority. An order naming only `feedstock` on a package
+with no feedstock observation therefore produces `unknown` everywhere, because
+there is nothing to compare against.
+
+**An order naming anything else fails that package's evaluation.** A misspelling
+(`pypy`), a surface this product does not observe (`deployed`), a repeated entry,
+or a value that is not a list at all is refused rather than quietly replaced by
+the default — replacing it would write a row claiming an order the package's own
+data contradicts. `CPM-AD-23` contains the refusal to one package: that package's
+derived rows roll back and it keeps whatever rollup row it had, every other
+package commits, the run finalizes `partial`, and the failure is logged under
+`policy_pass_failed` with the package's primary key and the traceback. Nothing in
+this product writes that column yet, so today it can only get a bad value from a
+hand-written `UPDATE` or a data migration.
+
+### The rollup column, and why an unmapped package always reads `unknown`
+
+The pass contributes one column to `package_health`: `currency_status`, carrying
+the overall verdict. It never writes that table — it returns the value and the
+rollup writer writes it, after applying `CPM-AD-4`'s confidence gate. So a
+package whose identity is `unmapped` reads `unknown` in `package_health`
+**whatever the pass computed**, while `package_currency` still records the
+verdict the pass actually reached. If those two disagree for a package, the
+identity confidence is why, and the fix is resolution rather than anything here.
+
+A package no policy run has evaluated reads `unknown` too: that is the column's
+own default, and it is deliberately not a clean value.
+
+### Running it, and where the result lands
+
+There is no beat entry (see above). A run is enqueued as the `cpm.policy.run`
+task on the `policy` queue, or executed in-process:
+
+```sh
+pixi run manage shell -c "
+from conda_package_supply_chain_monitor.core.tasks import run_policy
+run_policy.delay('<your policy version>')
+"
+```
+
+The `policy_version` is yours: `CPM-AD-8` makes it the version of the *rule data*
+a run applies, not a version this component ships. It lands on the run's ledger
+row and in every rollup row's per-domain version map, and it is the string a
+replay must match.
+
+Three places to read the result:
+
+| Table | What it holds |
+|---|---|
+| `package_health.currency_status` | One value per package: the overall verdict, **after** the confidence gate. This is the read surface. |
+| `package_currency` | One row per package **per run**: the four per-surface verdicts, the overall verdict ungated, the chosen authority, the order that was applied and where it came from, `detail` for anything called `behind`, and a foreign key to each of the four evidence rows the verdicts rest on. |
+| `policy_runs` | One row per run: the version, the cut-off, the instants, and the ending — `succeeded`, or `partial` with a count when some packages could not be computed. |
+
+A package that could not be computed is logged under `policy_pass_failed` with
+its primary key and the traceback; the ledger row carries the count, and the log
+is the only place the names are.
+
+### `package_currency` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted. At ten thousand
+packages a daily run adds ten thousand rows a day, and **every relation on the
+table is `PROTECT`** — to the package, to the policy run, and to each of the four
+evidence rows — so nothing else can be deleted while its rows reference it.
+
+That is deliberate: the rows are what a replay is compared against and what an
+audit reads, and `CASCADE` would let an operational tidy-up of old policy runs
+silently empty the evidence for every verdict still on the rollup. It also means
+**there is no retention path here yet**. Deleting old runs is a decision nobody
+has taken, it would have to delete `package_currency` rows before the
+`policy_runs` rows they protect, and no story currently claims it. Size the
+database accordingly, or run the policy less often than you collect.
+
+### Nothing in this product can set a package's authority order
+
+`packages.version_authority_order` is data (`CPM-AD-6`), and **no code path in
+this component writes it**. Resolution does not set it, the identity override
+does not cover it, and there is no admin surface for it. Every package therefore
+holds `[]` and is judged on the documented default.
+
+The only way to record an authority today is a hand-written `UPDATE`:
+
+```sql
+UPDATE packages
+   SET version_authority_order = '["feedstock", "source"]'
+ WHERE canonical_name = 'numpy';
+```
+
+Two things follow, and neither is guarded:
+
+- **Such a change alters derived verdicts and leaves no audit row.**
+  `CPM-IDENTITY-S05`'s identity override writes an append-only record of who
+  changed what and why; this column has no equivalent, so a verdict that changed
+  because somebody edited an order is indistinguishable from one that changed
+  because the evidence did.
+- **A bad value is not refused at write time.** The column carries a Django
+  validator, which runs from a form and never from `save()` or from SQL — so an
+  order naming a surface this product does not observe is stored happily and is
+  refused later, when the pass reads it, which fails that one package's
+  evaluation and finalizes the run `partial`.
+
+Both are recorded as deferred work on `CPM-CURRENCY-S06`.
+
+### What a run costs
+
+This pass issues **five queries per package** — one read per surface, plus the
+insert of the derived row — inside the orchestration's per-package loop. Nothing
+batches them. At `CPM-NFR-1`'s ten thousand packages that is fifty thousand round
+trips for this pass alone, and it multiplies as the remaining policy passes land.
+The count is pinned by a test at three inventory sizes so a regression is
+visible; making it set-based is recorded as deferred work.
+
+### One published-package verdict, and which channel it is about
+
+`conda_package_snapshots` holds one row per `(channel, platform)`, and this pass
+produces **one** conda verdict per package. Which pair it is about is decided by
+a stated key, not by luck: one sweep stamps every row it writes with the run's
+single instant, so all of a package's rows tie on `observed_at`, and without a
+key the answer would be whichever row was inserted last — which changes when you
+reorder `CPM_MONITORED_CHANNELS`, silently.
+
+**The key is the channel, then the platform, both ascending, then the newest row
+for that pair.** Alphabetical is arbitrary and is chosen only because it is
+*fixed*: the same evidence produces the same verdict on every replay. The row
+references the observation, so the channel and platform the verdict concerns are
+readable from it.
+
+Two costs follow, and both are real:
+
+- A package current on one channel and behind on another gets the
+  first-sorting channel's verdict.
+- **A channel that simply does not carry the package answers `not_found`**, and
+  if that channel sorts first, `not_found` becomes the package's conda verdict
+  even where a later-sorting channel publishes the authority's exact version. Read
+  the referenced observation before acting on a conda `not_found`.
+
+A verdict per pair is a larger table than this one's `(package, policy_run)` key
+describes, and it is not built here.

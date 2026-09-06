@@ -18,12 +18,18 @@ did not is the one that escapes -- the argument `tests/model_registry.py` record
 for models and `tests/unit/django_apps/test_task_routing_audit.py` records for
 tasks, applied to passes.
 
-**The sweep is empty today, and that is the load-bearing problem.** No policy
-epic has run, so `registered_passes()` returns nothing and every assertion below
-would pass whether or not the detector works. What keeps it honest is that each
-detector is measured against fixture passes built in `tests/passes.py` and
-registered around the case -- one conforming, one not -- so an audit that had
-gone blind fails *here* rather than reporting a clean registry forever.
+**The sweep is no longer empty, and this module says so rather than assuming
+it.** `CPM-CURRENCY-S06` landed `CurrencyPass`, which `policies/apps.py` adopts
+during `django.setup()`, so `registered_passes()` returns a real pass owning a
+real rollup column and the three sweeps below inspect something. It was written
+before that pass existed, deliberately, so the rules would be shaped by
+`CPM-AD-11` rather than by whatever the first pass happened to do.
+
+What still keeps it honest either way is that each detector is *also* measured
+against fixture passes built in `tests/passes.py` and registered around the case
+-- one conforming, one not -- because a single real subject can be conforming for
+reasons the detector never had to notice. `test_the_sweep_reaches_the_adopted_passes`
+is the anti-vacuity guard for the sweeps themselves.
 
 Reads the pass registry and the model registry: no database, no network, no
 subprocess.
@@ -36,7 +42,6 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import rollup as rollup_module
 from conda_package_supply_chain_monitor.core.models import PackageHealth
 from conda_package_supply_chain_monitor.core.policy import PolicyPassError
 from conda_package_supply_chain_monitor.core.policy import column_owners
@@ -46,12 +51,15 @@ from conda_package_supply_chain_monitor.core.policy import registered_passes
 from conda_package_supply_chain_monitor.core.rollup import ROLLUP_MODEL
 from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
+from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
+from tests.passes import ADOPTED_PASS_NAMES
 from tests.passes import FIRST_DOMAIN
 from tests.passes import SECOND_DOMAIN
 from tests.passes import fixture_derived_models
 from tests.passes import registered_pass
-from tests.passes import rollup_with_a_domain_column
+from tests.passes import substituted_rollup
 from tests.passes import working_pass_class
 
 if TYPE_CHECKING:
@@ -61,7 +69,8 @@ if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.policy import PolicyPass
 
 #: The column the substituted rollup offers, for the cases that need a
-#: contributable column to exist at all -- the real one declares none.
+#: contributable column *nobody owns* -- the real one's single column,
+#: `currency_status`, is owned by `CurrencyPass` from `django.setup()` onwards.
 #:
 #: `tests/passes.py` owns both the name and the model that declares it, so the
 #: substitution and the column it is about cannot drift. And the substitution is
@@ -73,16 +82,28 @@ A_SHARED_COLUMN: Final[str] = A_DOMAIN_STATUS
 
 
 @pytest.fixture(autouse=True)
-def _empty_registry() -> Iterator[None]:
-    """Assert the registry starts and ends empty, so cases cannot leak into each other.
+def _only_the_adopted_passes() -> Iterator[None]:
+    """Assert the registry holds exactly the adopted passes, before and after each case.
+
+    Not "empty": the registry has not been empty since `policies/apps.py` adopted
+    `CurrencyPass`, and this module's whole point is to sweep the registry as it
+    really is. What it must catch is *leakage* -- a case that failed after
+    registering a fixture pass would otherwise leave it behind, the next case's
+    sweep would fail for a reason it does not name, and
+    `tests/unit/django_apps/test_policy_registry.py` would fail in a different
+    module with no indication of where the pass came from.
+
+    `ADOPTED_PASS_NAMES` is `tests/passes.py`'s single declaration of the roster,
+    so this and the withdrawal that module offers cannot disagree about it.
 
     Yields:
         Nothing; the assertions are the fixture.
 
     """
-    assert pass_registrations() == {}, "a previous case left a policy pass registered"
+    expected = sorted(ADOPTED_PASS_NAMES)
+    assert sorted(pass_registrations()) == expected, "a previous case left a policy pass registered"
     yield
-    assert pass_registrations() == {}, "this case left a policy pass registered"
+    assert sorted(pass_registrations()) == expected, "this case left a policy pass registered"
 
 
 def rollup_claimants(passes: Iterable[type[PolicyPass]]) -> list[str]:
@@ -160,11 +181,12 @@ def uncontributable_columns(passes: Iterable[type[PolicyPass]]) -> list[str]:
 def test_no_registered_pass_claims_the_rollup() -> None:
     """`EVIDENCE.07-AUDIT-002`, against whatever the registry actually holds.
 
-    Empty until the first policy epic declares a pass. It is kept here rather
-    than deferred with those epics because the guard has to exist before the
-    thing it guards, or it is shaped by that thing instead of by `CPM-AD-11` --
-    and because the moment a pass declares `derived_model = PackageHealth`, this
-    is what says so.
+    Real since `CPM-CURRENCY-S06`: `CurrencyPass` declares `PackageCurrency` as
+    its derived table, so this sweep now compares a live declaration against the
+    rule rather than comparing nothing. It was written before that pass existed
+    because the guard has to exist before the thing it guards, or it is shaped by
+    that thing instead of by `CPM-AD-11` -- and because the moment a pass declares
+    `derived_model = PackageHealth`, this is what says so.
     """
     claimants = rollup_claimants(registered_passes())
 
@@ -185,6 +207,32 @@ def test_no_registered_pass_contributes_a_stamp_or_an_unoffered_column() -> None
 
     assert stamp_claimants(passes) == [], "a policy pass contributes one of the rollup writer's own stamps"
     assert uncontributable_columns(passes) == [], "a policy pass contributes a column the rollup does not declare"
+
+
+def test_the_sweep_reaches_the_adopted_passes() -> None:
+    """The three sweeps above mean nothing if the registry they read is empty.
+
+    That was the honest state of this module until `CPM-CURRENCY-S06`: no policy
+    epic had run, so every assertion passed over nothing and would have passed
+    just as well with the detectors broken. `CurrencyPass` is now adopted at
+    `django.setup()`, and this is what says the sweeps are reading it -- so a
+    `policies/apps.py` that stopped registering, or an application dropped from
+    `LOCAL_APPS`, fails here rather than quietly restoring the vacuum.
+
+    Both halves, because either alone is satisfiable for the wrong reason: the
+    adopted pass must be in the registry, and it must own a column that the
+    rollup really offers -- an ownership map naming a column nobody declares
+    would be the very state `uncontributable_columns` exists to report.
+    """
+    registered = {declared.name for declared in registered_passes()}
+
+    assert set(ADOPTED_PASS_NAMES) <= registered, (
+        f"the adopted passes are not in the registry the sweeps read: {sorted(registered)}"
+    )
+    assert ROLLUP_COLUMN in contributable_columns(), (
+        f"{ROLLUP_COLUMN!r} is not a column the rollup offers, so the adopted pass's contribution is not "
+        f"something these sweeps can be about"
+    )
 
 
 def test_no_rollup_column_has_two_owners() -> None:
@@ -213,14 +261,21 @@ def test_the_claim_detector_would_notice_a_pass_claiming_the_rollup() -> None:
     assert rollup_claimants([conforming, claimant]) == [SECOND_DOMAIN]
 
 
-def test_the_contest_detector_would_notice_two_owners(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_contest_detector_would_notice_two_owners() -> None:
     """The anti-vacuity guard for the contested-column case.
 
     The offered set is substituted for the reason
-    `tests/unit/django_apps/test_policy_registry.py` gives at length: the rollup
-    declares no contributable column yet, so against the real model *neither* pass
-    below could be registered -- both would be refused for inventing a column --
-    and the two-owner rule would never be reached.
+    `tests/unit/django_apps/test_policy_registry.py` gives at length: the rollup's
+    one real column, `currency_status`, is owned by `CurrencyPass` from
+    `django.setup()` onwards, so against the real model the *first* pass below
+    would collide with a real owner and the two-fixture-pass rule would never be
+    reached. The substitution puts an *unowned* column in the world.
+
+    `substituted_rollup()` rather than a bare `monkeypatch`, and for the reason
+    `tests/passes.py` records: the substitution has to end before any fixture
+    teardown that re-registers a real pass, because `register_pass` re-reads
+    `contributable_columns()` and would refuse `CurrencyPass` against a synthetic
+    rollup that does not declare its column.
 
     **The first pass really is registered, which is the point of the patch.** The
     detector reads declarations rather than the ownership map, so it would answer
@@ -231,12 +286,15 @@ def test_the_contest_detector_would_notice_two_owners(monkeypatch: pytest.Monkey
     makes the patch load-bearing.
     """
     first, second = fixture_derived_models()
-    monkeypatch.setattr(rollup_module, "ROLLUP_MODEL", rollup_with_a_domain_column())
     owner = working_pass_class(name=FIRST_DOMAIN, derived_model=first, contributes=(A_SHARED_COLUMN,))
     rival = working_pass_class(name=SECOND_DOMAIN, derived_model=second, contributes=(A_SHARED_COLUMN,))
 
-    with registered_pass(owner):
-        assert column_owners() == {A_SHARED_COLUMN: FIRST_DOMAIN}
+    with substituted_rollup(), registered_pass(owner):
+        assert column_owners()[A_SHARED_COLUMN] == FIRST_DOMAIN
+        assert column_owners()[ROLLUP_COLUMN] == CURRENCY_POLICY_NAME, (
+            "the adopted currency pass no longer owns the rollup column it declares, so this case is "
+            "measuring the ownership map with a piece missing"
+        )
         assert contested_columns(registered_passes()) == []
         with pytest.raises(PolicyPassError, match=A_SHARED_COLUMN):
             register_pass(rival)
@@ -275,7 +333,11 @@ def test_the_audit_reaches_a_pass_that_is_actually_registered() -> None:
     with registered_pass(working_pass_class()) as declared:
         assert declared in registered_passes()
         assert rollup_claimants(registered_passes()) == []
-        assert column_owners() == {}
+        # The fixture pass contributes nothing, so the only entry in the map is
+        # the adopted pass's own column. Asserted as equality rather than as a
+        # containment check: an ownership map that had acquired a second owner
+        # for `currency_status` some other way is exactly what this audit is for.
+        assert column_owners() == {ROLLUP_COLUMN: CURRENCY_POLICY_NAME}
 
 
 def test_the_rollup_the_audit_guards_is_the_one_the_writer_writes() -> None:

@@ -69,6 +69,7 @@ import pytest
 
 from conda_package_supply_chain_monitor.core import outcomes
 from tests.source_scan import REPO_ROOT
+from tests.source_scan import SRC_ROOT
 from tests.source_scan import dotted_name
 from tests.source_scan import parse
 from tests.source_scan import project_files
@@ -449,13 +450,66 @@ def test_the_declaring_module_declares_the_order() -> None:
     assert any(entry.endswith(f": {DECLARED_ORDER_NAME}") for entry in declared), declared
 
 
+def _recorded_key(path: Path) -> str:
+    """Return the key `RECORDED_ORDERINGS` uses for one file, or `""` for one outside `src/`.
+
+    The recorded table is keyed relative to `src/` so its entries read as the
+    module paths this repository's other exemption tables use, while the sweep
+    itself walks the whole repository -- tests included, because a second
+    precedence order written into a test is still a second precedence order.
+
+    Args:
+        path: A file the sweep would otherwise cover.
+
+    Returns:
+        Its `src/`-relative POSIX path, or `""` when it does not live under
+        `src/` and therefore can never match an entry.
+
+    """
+    if not path.is_relative_to(SRC_ROOT):
+        return ""
+    return path.relative_to(SRC_ROOT).as_posix()
+
+
+#: The modules permitted to declare an ordering besides `core/outcomes.py`, and
+#: the name each one must bind it to.
+#:
+#: **One entry, and it is a *different kind* of order rather than a second copy
+#: of the same one.** `core/outcomes.py` ranks the five values a single derived
+#: status can hold, and `CPM-AD-5` gives it that job alone.
+#: `policies/outcomes.py`'s `CURRENCY_PRECEDENCE` ranks four *surfaces' verdicts
+#: about one package* against each other, over a vocabulary `PRECEDENCE` cannot
+#: rank at all: `core.outcomes.aggregate` refuses a per-status determinate
+#: verdict outright and says in as many words that the decision "belongs to
+#: whichever story introduces such a type". `CPM-CURRENCY-S06` is that story.
+#:
+#: **Recorded here rather than written as control flow, which is the point.** The
+#: first version of that reduction expressed the same ranking as a chain of `if`
+#: statements, specifically because a module-scope tuple would have tripped this
+#: audit. That is an order nobody can enumerate, hidden from the one check built
+#: to enumerate them -- strictly worse than the duplication the ban exists to
+#: prevent. So the order is data, spelled with `OutcomeState` members for its
+#: four sentinel ranks so that the detector below can *see* it, and licensed here
+#: by somebody who decided to.
+#:
+#: Both directions are checked, as every recorded table in this repository is:
+#: the entry must still describe a real declaration under that name, and no
+#: unrecorded module may declare one.
+RECORDED_ORDERINGS: Final[dict[str, str]] = {
+    "django_apps/conda_package_supply_chain_monitor/policies/outcomes.py": "CURRENCY_PRECEDENCE",
+}
+
 #: Every module the ban applies to: the repository, less the one module that
-#: holds the declaration. Filtered out of the parametrize list rather than
-#: skipped inside the case, because a `pytest.skip` is an evasion
-#: `tests/unit/test_suite_policy.py` bans outright -- and rightly: a skip here
-#: would report a green case for the one file where a second declaration would
-#: mean the most.
-SUBJECT_MODULES: Final[tuple[Path, ...]] = tuple(path for path in project_files(REPO_ROOT) if path != DECLARING_MODULE)
+#: holds the declaration and less the recorded ones above. Filtered out of the
+#: parametrize list rather than skipped inside the case, because a `pytest.skip`
+#: is an evasion `tests/unit/test_suite_policy.py` bans outright -- and rightly:
+#: a skip here would report a green case for the one file where a second
+#: declaration would mean the most.
+SUBJECT_MODULES: Final[tuple[Path, ...]] = tuple(
+    path
+    for path in project_files(REPO_ROOT)
+    if path != DECLARING_MODULE and _recorded_key(path) not in RECORDED_ORDERINGS
+)
 
 
 @pytest.mark.parametrize(
@@ -469,12 +523,37 @@ def test_no_module_but_core_declares_a_precedence_order(path: Path) -> None:
     Parameterized per file so that a violation names the module that introduced
     it rather than reporting the repository as broken.
 
-    There is no exemption table here, unlike the clock audit next door. Nothing
-    is grandfathered because nothing predates the rule: `core/outcomes.py` is the
-    first module in this repository to know what an `OutcomeState` is, so a
-    second order can only ever be new.
+    Nothing is grandfathered: `core/outcomes.py` is the first module in this
+    repository to know what an `OutcomeState` is, so a second order can only ever
+    be new, and the one recorded in `RECORDED_ORDERINGS` was recorded by somebody
+    who decided to rather than found later.
     """
     assert declarations_in(path) == [], f"{path.relative_to(REPO_ROOT)} declares a second precedence order"
+
+
+@pytest.mark.parametrize("relative", sorted(RECORDED_ORDERINGS), ids=str)
+def test_every_recorded_ordering_still_declares_the_order_it_records(relative: str) -> None:
+    """An exemption that no longer applies is a licence nobody meant to leave open.
+
+    Checked in the direction the exemption is granted, exactly as the clock
+    audit's table is: the file must still declare an ordering, and it must still
+    be bound to the recorded name. Delete the declaration and this fails until
+    the entry goes with it; rename it and this says which name it was looking
+    for.
+
+    The name matters as much as the presence. A module licensed to declare
+    `CURRENCY_PRECEDENCE` and found declaring something else has had a *second*
+    order added to it, which is the thing the ban is about -- and the sweep above
+    cannot see it, because the whole file is out of its subject list.
+    """
+    declared = declarations_in(SRC_ROOT / relative)
+    expected = RECORDED_ORDERINGS[relative]
+
+    assert declared, f"{relative} declares no ordering, so its entry in RECORDED_ORDERINGS licenses nothing"
+    assert [entry for entry in declared if entry.endswith(f": {expected}")], (
+        f"{relative} no longer binds its ordering to {expected!r}: {declared}"
+    )
+    assert len(declared) == 1, f"{relative} declares more than the one ordering it is recorded for: {declared}"
 
 
 @pytest.mark.parametrize(
