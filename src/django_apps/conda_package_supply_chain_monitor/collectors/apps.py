@@ -117,6 +117,9 @@ class CollectorsConfig(AppConfig):
         from django.conf import settings  # noqa: PLC0415 - see above
         from django.core.exceptions import ImproperlyConfigured  # noqa: PLC0415 - see above
 
+        from conda_package_supply_chain_monitor.collectors.feedstock import (  # noqa: PLC0415 - see above
+            FeedstockCollector,
+        )
         from conda_package_supply_chain_monitor.collectors.pypi_release import (  # noqa: PLC0415 - see above
             PyPIReleaseCollector,
         )
@@ -138,7 +141,12 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.core.registry import register  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.core.registry import registrations  # noqa: PLC0415 - see above
 
-        for collector in (InventoryIngestionCollector, SourceReleaseCollector, PyPIReleaseCollector):
+        for collector in (
+            InventoryIngestionCollector,
+            SourceReleaseCollector,
+            PyPIReleaseCollector,
+            FeedstockCollector,
+        ):
             if registrations().get(collector.name) is not collector:
                 register(collector)
 

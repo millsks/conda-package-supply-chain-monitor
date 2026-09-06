@@ -4,14 +4,16 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` and `CPM-CURRENCY-S02` -- the two
-surface tables beside it: upstream releases and PyPI releases.
+against it, and -- since `CPM-CURRENCY-S01`, `CPM-CURRENCY-S02` and
+`CPM-CURRENCY-S03` -- the three surface tables beside it: upstream releases,
+PyPI releases and conda-forge feedstocks.
 
-**One module, three tables, and no shared columns beyond the ones every evidence
+**One module, four tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
-`source_release_snapshots` and `pypi_release_snapshots` are written by three
-collectors that share nothing but the log, and none reads another's. They live
+`source_release_snapshots`, `pypi_release_snapshots` and `feedstock_snapshots`
+are written by four collectors that share nothing but the log, and none reads
+another's. They live
 together because Django auto-imports `<app>.models` and no other module, so a
 model declared elsewhere in this application is registered only by whatever
 happens to import it -- which is a table that exists on a developer's machine and
@@ -92,12 +94,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COUNTS_PRESENT_CONSTRAINT",
+    "FEEDSTOCK_FACTS_CONSTRAINT",
+    "FEEDSTOCK_READ_INDEX",
     "PYPI_FACTS_CONSTRAINT",
     "PYPI_READ_INDEX",
     "RELEASE_FACTS_CONSTRAINT",
     "RELEASE_READ_INDEX",
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
+    "STAGED_RECIPE_CONSTRAINT",
+    "FeedstockSnapshot",
     "InventoryReadError",
     "InventorySnapshot",
     "PyPIReleaseSnapshot",
@@ -193,6 +199,38 @@ _SPECIFIER_LENGTH: Final[int] = 128
 #: `pypi_release_snapshot` for the same 30-character reason.
 PYPI_FACTS_CONSTRAINT: Final[str] = "pypi_facts_present_exactly_when_observed"
 PYPI_READ_INDEX: Final[str] = "pypi_release_pkg_observed"
+
+#: How wide the feedstock-name column is.
+#:
+#: A feedstock's name is a name a recipe author chose rather than a
+#: machine-generated identifier, so it is sized like `identity/models.py` sizes
+#: `Feedstock.name` -- **and then wider**, which is the part that matters. This
+#: column stores the *repository*, which is the stored name plus conda-forge's
+#: `-feedstock` suffix, so a column merely equal to `identity`'s would leave a
+#: band of names that `feedstocks` accepts and this table can never record: a
+#: 119-character mapping is legally storable there and permanently uncollectable
+#: here, and the refusal would fire on every run for ever. 160 is `identity`'s
+#: 128 plus the ten-character suffix with headroom, so the suffixing can never be
+#: what makes an observation unwritable.
+#:
+#: Restated rather than imported -- that constant is private to its module, and
+#: one spelling shared by import would still be two column declarations -- and
+#: `tests/unit/django_apps/test_feedstock.py` asserts the *relation* the code
+#: actually needs rather than the number, so a change to either width that broke
+#: it fails there.
+_FEEDSTOCK_NAME_LENGTH: Final[int] = 160
+
+#: The names of the feedstock table's two constraints and its one read index, on
+#: the terms every name above is declared: the model declares them and the cases
+#: that assert the database refuses a violation name them too.
+#:
+#: There are *two* constraints here where the other evidence tables have one, and
+#: the second is `CPM-FR-9`'s AC 2 made into a database rule rather than a
+#: convention: a staged recipe is what a package with **no** feedstock has, so a
+#: row that found a feedstock may not also carry one.
+FEEDSTOCK_FACTS_CONSTRAINT: Final[str] = "feedstock_facts_present_exactly_when_observed"
+STAGED_RECIPE_CONSTRAINT: Final[str] = "staged_recipe_only_when_absent"
+FEEDSTOCK_READ_INDEX: Final[str] = "feedstock_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -802,3 +840,230 @@ class PyPIReleaseSnapshot(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{version} on PyPI for {scope}: {self.state} at {when}"
+
+
+class FeedstockSnapshot(AppendOnlyModel):
+    """One observation of a package's conda-forge feedstock. Table `feedstock_snapshots`.
+
+    PRD Appendix A.2 gives this table "feedstock existence, recipe version,
+    recipe activity, build/test outputs", and `CPM-FR-9` is where the first three
+    come from: "feedstock existence, recipe version, recipe metadata, and recent
+    recipe activity", with absence recorded as an observation carrying a
+    timestamp and staged-recipe state recorded separately from an existing
+    feedstock.
+
+    **The build and test outputs are deliberately not here.** They are
+    `CPM-EP-PY314`'s -- a build this product *performed* rather than a fact
+    conda-forge stated -- and a column added for them now would be one nothing
+    writes and nothing may correct.
+
+    **Existence is `state`, over `OutcomeState`, and never a boolean**
+    (`CPM-AD-5`). `ok` is a feedstock this run read; `not_found` is conda-forge
+    answering that there is none -- either the feedstock resolution named is
+    gone, or resolution established none and the conventional repository has
+    none either; `error` is a look that failed; `not_applicable` is a package
+    whose feedstock mapping resolution recorded as inapplicable. The column is
+    called `state` rather than `*_status` for the reason
+    `SourceReleaseSnapshot.state` is: a collector's observation of what a source
+    said is not a status a policy derived (`CPM-AD-8`).
+
+    **An absence row is the point of the table rather than an edge of it.**
+    `CPM-FR-9` says "absence of a feedstock is recorded as an observation with a
+    timestamp, not as a null", and this is where that lives: a row, with this
+    run's `observed_at`, carrying `not_found` and no feedstock fact. A missing
+    row would make the package read as unobserved -- `unknown`, ageing into
+    stale -- and the difference between "we have not looked" and "we looked and
+    conda-forge has nothing" is exactly what `CPM-FR-6` exists to keep.
+
+    **`staged_recipe_url` is a fact about a package that has no feedstock, and
+    the database says so.** AC 2 asks for staged-recipe state "recorded
+    separately from an existing feedstock", and `staged_recipe_only_when_absent`
+    is that separation expressed as a rule a writer can be held to rather than a
+    convention a later collector could quietly break: a row carrying `ok` -- a
+    feedstock was found -- may not also claim a recipe is queued to create one.
+
+    **`last_recipe_activity_at` is an instant and not a verdict.** PRD Open
+    Question 10 asks what counts as recipe activity; `CPM-CURRENCY-S03` answers
+    "a push to the feedstock repository" and records the instant. What makes a
+    gap *inactivity* is `CPM-FR-40`'s policy with a versioned threshold
+    (`CPM-CURRENCY-S07`), and a collector that derived one here would be writing
+    a derived status into an append-only row (`CPM-AD-8`).
+
+    **`recipe_version` may be blank on a determinate row**, and that is the
+    honest shape rather than a gap. The feedstock's existence is what `state`
+    claims; the recipe is a second document, read by a second call whose failure
+    never fails the collection, and a recipe that computes its version in a way
+    this collector does not read leaves the column blank with `detail` saying
+    so. Stored unnormalised (`CPM-AD-8`).
+
+    **`PROTECT`, and it is required rather than preferred**
+    (`EVIDENCE.02-AUDIT-001`), on the terms `InventorySnapshot.package` states.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="feedstock_snapshots",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from -- a feedstock repository, or
+    #: the staged-recipes search this collector asks about a package resolution
+    #: established no feedstock for. Recorded on the row for the reason
+    #: `SourceReleaseSnapshot.source` is: which question was asked is not
+    #: recoverable from the answer, and a package's feedstock mapping is mutable.
+    #: Blank on a `not_applicable` row, because no locator was ever built.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the lookup concluded, over `OutcomeState` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=OutcomeState.choices)
+
+    #: The feedstock's name on conda-forge, as the repository that answered
+    #: spells it. Present on exactly the determinate rows -- see
+    #: `Meta.constraints` -- because "a feedstock exists" and "this is which one"
+    #: are one fact, and a row claiming the first without the second would be an
+    #: existence claim nothing could check.
+    feedstock_name = models.CharField(_("feedstock name"), max_length=_FEEDSTOCK_NAME_LENGTH, blank=True, default="")
+
+    #: Where that feedstock lives, as the repository stated it rather than as
+    #: this collector composed it: the locator asked was an API endpoint, and the
+    #: URL a reader wants is the one a person can open.
+    feedstock_url = models.CharField(_("feedstock URL"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: The version the recipe pins, exactly as the recipe spelled it and
+    #: unnormalised (`CPM-AD-8`). Blank when the recipe could not be read or
+    #: names its version some way this collector does not read -- with `detail`
+    #: saying which -- and blank on every row that is not determinate.
+    recipe_version = models.CharField(_("recipe version"), max_length=_VERSION_LENGTH, blank=True, default="")
+
+    #: The build number the recipe declares. NULL means missing and `0` means
+    #: zero, which is PRD Appendix A.1's rule applied to the one integer here
+    #: where both are reachable: a first build of a version is `0`, and a recipe
+    #: whose build number this collector could not read is not a first build.
+    recipe_build_number = models.PositiveIntegerField(_("recipe build number"), null=True, blank=True, default=None)
+
+    #: Where the recipe metadata this run read lives. Blank when the recipe was
+    #: not read at all, which is the honest value for a row whose `state` rests
+    #: on the repository alone.
+    recipe_metadata_url = models.CharField(
+        _("recipe metadata URL"),
+        max_length=_LOCATOR_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: When the feedstock was last pushed to -- the recipe activity signal
+    #: `CPM-FR-9` asks for, recorded as an instant and never as a verdict. NULL
+    #: when the source stated none this collector could read, and NULL on every
+    #: row that is not determinate.
+    last_recipe_activity_at = models.DateTimeField(
+        _("last recipe activity at"),
+        null=True,
+        blank=True,
+        default=None,
+    )
+
+    #: The open staged-recipes pull request that would create this package's
+    #: feedstock, where exactly one was found. Recordable only on a `not_found`
+    #: row -- see `Meta.constraints` -- and blank where the search matched
+    #: nothing, or matched more than one and was refused rather than picked.
+    staged_recipe_url = models.CharField(_("staged recipe URL"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the collector or the base had to say about this observation -- the
+    #: sentinel path's reason, why the recipe could not be read, how many
+    #: feedstocks the mapping held, or that both a feedstock and a staged recipe
+    #: were looked for and neither found.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_feedstocksnapshot` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one package's feedstock are two rows, and idempotency is
+        the run ledger's property rather than this table's.
+        """
+
+        db_table = "feedstock_snapshots"
+        verbose_name = _("feedstock snapshot")
+        verbose_name_plural = _("feedstock snapshots")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `RELEASE_READ_INDEX` states.
+            models.Index(fields=["package", "-observed_at"], name=FEEDSTOCK_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and every conjunct is load bearing.
+            #
+            # A determinate observation that names no feedstock is a row saying
+            # "conda-forge has one" while declining to say which. A row that is
+            # *not* determinate and carries any feedstock fact -- a name, a URL,
+            # a recipe version, a build number, a metadata URL or an activity
+            # instant -- is claiming to have observed something about a
+            # feedstock the run did not find, and for the `not_applicable` row
+            # in particular a fact about a package nobody asked about.
+            #
+            # A recipe version is deliberately *not* required of a determinate
+            # row: the feedstock's existence is what `state` claims, the recipe
+            # is a second document read by a second call, and requiring it here
+            # would make a real answer unwritable and push the collector into
+            # inventing one.
+            #
+            # `state` is NOT NULL and an `IS NULL` test is never itself NULL, so
+            # this expression is always true or false and never the third thing
+            # a SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=OutcomeState.OK) & ~models.Q(feedstock_name=""))
+                    | (
+                        ~models.Q(state=OutcomeState.OK)
+                        & models.Q(
+                            feedstock_name="",
+                            feedstock_url="",
+                            recipe_version="",
+                            recipe_build_number__isnull=True,
+                            recipe_metadata_url="",
+                            last_recipe_activity_at__isnull=True,
+                        )
+                    )
+                ),
+                name=FEEDSTOCK_FACTS_CONSTRAINT,
+            ),
+            # AC 2, as a database rule. A staged recipe is a proposal to create
+            # a feedstock that does not exist, so it belongs only on the row
+            # that says one does not: `not_found`. An `ok` row carrying one
+            # would say both things at once, and an `error` or `not_applicable`
+            # row carrying one would claim a search this run never made.
+            models.CheckConstraint(
+                condition=models.Q(staged_recipe_url="") | models.Q(state=OutcomeState.NOT_FOUND),
+                name=STAGED_RECIPE_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the feedstock, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `package_id` rather than off `package`
+            for the reason `SourceReleaseSnapshot.__str__` gives: the related
+            object of an unsaved instance raises, and a `__str__` that raises
+            breaks a debugger and a traceback alike.
+
+        """
+        # "(no feedstock)" rather than "(no recipe)": what a row without a name
+        # lacks is the feedstock itself, and a `not_applicable` row is not a
+        # claim that a recipe is missing.
+        feedstock = self.feedstock_name or "(no feedstock)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{feedstock} for {scope}: {self.state} at {when}"

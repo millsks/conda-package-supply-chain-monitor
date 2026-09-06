@@ -101,6 +101,7 @@ EVERY_MARK: Final[tuple[str, ...]] = ("base", "app_label", OBSERVED_AT_FIELD)
 #: rather than per model fails here.
 EVIDENCE_MODEL_LABELS: Final[frozenset[str]] = frozenset(
     {
+        "collectors.FeedstockSnapshot",
         "collectors.InventorySnapshot",
         "collectors.PyPIReleaseSnapshot",
         "collectors.SourceReleaseSnapshot",
