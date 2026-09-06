@@ -601,22 +601,28 @@ def _refuse_collector_without_freshness_target() -> None:
     report it: the collector collects, the rows are written, and every surface
     shows a clean result derived from an observation nobody made this year.
 
-    **At boot rather than at construction, and both, rather than either.**
-    `core/collection.py` refuses the declaration where the collector is built,
-    which is the earliest moment the answer exists -- but "built" is a moment
-    inside a Celery task, with a run-ledger row already `running` and a source
-    already contacted. `CPM-AD-28` wants the process to refuse *before* a worker
-    picks up work, so this sweeps the registered classes at startup and calls
-    the same enforcement point. There is one rule and two moments, not two rules:
-    `core/collection.py`'s `require_freshness_target` is public precisely so that
-    this condition can call it rather than restate it.
+    **One rule, three moments, and this is the third.**
+    `core/collection.py` refuses the declaration where the collector is *built*,
+    which is the earliest moment the answer exists but is a moment inside a Celery
+    task with a run-ledger row already `running`. `collectors/apps.py` refuses it
+    in the `ready()` that registers the collectors, which is the moment a deployed
+    process can actually meet it. And this condition refuses it here, where the
+    refusal contract enumerates it as condition 10 and where the suite drives it
+    against fixture collectors through the real dispatch. All three call
+    `core/collection.py`'s `freshness_target_fault`; none of them restates it.
 
-    **An empty registry is not a failure.** No collector exists until
-    `CPM-EP-CURRENCY` declares the first one (`CPM-AD-7`), and a component that
-    has adopted none has forgotten nothing. The sweep therefore refuses what it
-    finds and never refuses the absence of anything to find -- a condition that
-    demanded at least one registration would make every component in this
-    repository refuse to start today.
+    **In a deployed process this condition sweeps an empty registry, and that is
+    a property of the invocation point rather than of the rule.** Stage two runs
+    from `django_service.users`' `ready()`, and
+    `tests/unit/startup/test_installed_apps_ordering.py` requires every adopted
+    application to be installed *after* that owner -- so no collector is
+    registered yet when this runs. `collectors/apps.py` is what closes that, and
+    it is why this condition is not the deployment's enforcement point even
+    though it reads like one.
+
+    **An empty registry is not a failure.** A component that has adopted no
+    collector has forgotten nothing, and a condition that demanded at least one
+    registration would make every component in this repository refuse to start.
 
     **Classes, never instances.** Constructing a collector to ask what it
     declares would build a `RequestsTransport` and its connection pool inside
@@ -639,34 +645,76 @@ def _refuse_collector_without_freshness_target() -> None:
     # loading, and `core.collection` reaches `core.models`, which defines model
     # classes. A module-scope import would raise `AppRegistryNotReady` and take
     # the boot down with something that is not `ImproperlyConfigured`.
-    from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError  # noqa: PLC0415
-    from conda_package_supply_chain_monitor.core.collection import require_freshness_target  # noqa: PLC0415
+    from conda_package_supply_chain_monitor.core.collection import freshness_target_fault  # noqa: PLC0415
     from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
 
-    # Every offender is collected before any is reported. Raising on the first
-    # one is the shape that costs an operator a restart per collector: they fix
-    # the target the message named, redeploy, and meet the next refusal -- which
-    # with eight collectors coming in `CPM-EP-CURRENCY` is eight boots to learn
-    # what one could have said. The refusal is still a refusal; it is only the
-    # reporting that is complete.
-    undeclared: list[str] = []
-    first: CollectorConfigurationError | None = None
-    for collector in registered_collectors():
-        try:
-            require_freshness_target(collector.freshness_target, label=collector.__name__)
-        except CollectorConfigurationError as refusal:
-            first = first or refusal
-            undeclared.append(f"{collector.__name__} (name={collector.name!r}): {refusal}")
+    fault = freshness_target_fault(registered_collectors())
+    if fault:
+        raise ImproperlyConfigured(fault)
 
-    if undeclared:
-        offenders = "; ".join(undeclared)
-        message = (
-            f"{len(undeclared)} registered collector(s) cannot be started -- {offenders} An unset freshness "
-            "target behaves as 'fresh forever', so evidence collected months ago reads as current on every "
-            "surface -- which is the failure CPM-AD-28 exists to prevent, and it is invisible at run time. "
-            "Declare freshness_target on each class named above."
-        )
-        raise ImproperlyConfigured(message) from first
+
+def _refuse_unreconciled_cadence() -> None:
+    """Refuse a deployed component whose beat schedule and collectors disagree.
+
+    Condition 11, `CPM-AD-20`, and it is the reconciliation `CPM-CURRENCY-S01`
+    recorded as belonging here: "a weekly schedule against a daily-derived
+    two-day target would make the whole inventory read stale five days out of
+    seven, with every gate green." Cadence is *data* -- it lives in
+    `django_celery_beat`'s tables, seeded from `CELERY_BEAT_SCHEDULE`, precisely
+    so an operator can change it without editing code -- and a collector's
+    freshness target and observation window are derived from a cadence the
+    collector declares. Two independent statements of one number is the right
+    shape and it is also a standing invitation to edit one of them, so this is
+    what makes them agree.
+
+    **Its own condition rather than a second rule inside condition 10.**
+    `tests/unit/startup/forbidden_states.py` argues that filing an unrelated rule
+    under an existing condition makes `FR-16`'s "each condition has at least one
+    test that configures the forbidden state" a sentence about a condition
+    covering two things. `CPM-AD-28` is about a target that was never declared;
+    this is about `CPM-AD-20`'s schedule, which is a different architecture
+    decision, a different artefact and a different fix.
+
+    **The rule is `collectors/sweep.py`'s and this condition only asks it**, on
+    exactly the terms condition 10 asks `freshness_target_fault`. It sweeps in
+    both directions -- every registered collector that declares a cadence against
+    the entry that fires it, and every entry against the registry -- and it also
+    refuses a collector that declares a cadence without a selection or a selection
+    without a cadence.
+
+    **In a deployed process this condition, like condition 10, sweeps an empty
+    registry**: stage two runs before the collectors application's own `ready()`.
+    That hook calls the same rule immediately after registering, which is where a
+    deployment actually meets this refusal; here it is enumerated by the contract
+    and driven by the suite. An empty roster reconciles with anything, which is
+    what keeps a deployed boot from refusing over four schedule entries naming
+    collectors the registry does not yet hold.
+
+    **Classes, never instances**, and no query, on exactly the terms condition 10
+    states: the declarations are class attributes and the schedule is a settings
+    value, so this reads two in-memory structures and opens nothing.
+
+    Raises:
+        ImproperlyConfigured: When any collector's declared cadence, freshness
+            target, selection or schedule entry disagrees with the others, or
+            when a schedule entry names a collector nothing registered. Every
+            offender is reported in one message, for the reason condition 10
+            reports all of its.
+
+    """
+    from django.conf import settings  # noqa: PLC0415 - see the module docstring
+
+    from conda_package_supply_chain_monitor.collectors.sweep import (  # noqa: PLC0415 - see the module docstring
+        cadence_reconciliation_fault,
+    )
+    from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
+
+    fault = cadence_reconciliation_fault(
+        registered_collectors(),
+        getattr(settings, "CELERY_BEAT_SCHEDULE", {}),
+    )
+    if fault:
+        raise ImproperlyConfigured(fault)
 
 
 #: The stage-2 conditions, in evaluation order, and the order is part of the
@@ -674,15 +722,22 @@ def _refuse_collector_without_freshness_target() -> None:
 #: location, one owner, and a fixed order", and
 #: `tests/unit/startup/test_stage_two_urlconf.py` asserts this tuple.
 #:
-#: The three in-memory conditions run for **any** deployed process and come
+#: The four in-memory conditions run for **any** deployed process and come
 #: first, because they read object graphs that are already loaded: a component
-#: that routes a credential path, or that has adopted a collector which would
-#: read six-month-old evidence as current, should be told so whether or not it
+#: that routes a credential path, that has adopted a collector which would
+#: read six-month-old evidence as current, or whose beat schedule and collectors
+#: disagree about a cadence, should be told so whether or not it
 #: can reach a database, and telling it costs nothing. The two database
 #: conditions follow and gate on `config.locality.is_serving_process()` inside
 #: their own bodies rather than through a branch here, so that the dispatch has
 #: one shape and each condition owns the whole of its own applicability (AD-1).
 #: Condition 7 is the one R-3 is about.
+#:
+#: **Condition 11 comes after condition 10 and that ordering is deliberate.** A
+#: collector that declares no freshness target at all is condition 10's, and
+#: condition 11 compares a target against a cadence -- so a component missing
+#: both meets the more basic refusal first and is told to declare the target
+#: rather than being told its target is not greater than something.
 #:
 #: **Condition 10 is this product's own, and it is why the settled count moved.**
 #: The inherited platform contract is nine conditions across fourteen forbidden
@@ -693,8 +748,17 @@ def _refuse_collector_without_freshness_target() -> None:
 #: about the platform's configuration. It is numbered rather than folded into an
 #: existing condition so that FR-16's "each condition has at least one test that
 #: configures the forbidden state" stays a partition rather than becoming a
-#: count, and `tests/unit/startup/forbidden_states.py` records the arithmetic:
-#: ten conditions across fifteen states.
+#: count, and `tests/unit/startup/forbidden_states.py` records the arithmetic.
+#:
+#: **Condition 11 is this product's second, on the same terms.**
+#: `CPM-CURRENCY-S05` adds `CPM-AD-20`'s reconciliation -- a registered
+#: collector's declared cadence against the `CELERY_BEAT_SCHEDULE` entry that
+#: fires it, in both directions. It is not folded into condition 10 for the
+#: reason condition 10 is not folded into one of the inherited nine: a target
+#: nobody declared and a schedule that disagrees with one are different rules
+#: about different artefacts, and one condition covering both would make FR-16's
+#: sentence a count rather than a partition. The settled arithmetic for this
+#: repository is therefore **eleven conditions across sixteen states**.
 #:
 #: Epic 9 appends AD-8's navigation-registry check to this tuple when the
 #: composition step exists. That is a contributed-setting validation rather than
@@ -704,6 +768,7 @@ _STAGE_TWO: Final[tuple[Callable[[], None], ...]] = (
     _refuse_credential_minting_route,
     _refuse_local_sign_in_route,
     _refuse_collector_without_freshness_target,
+    _refuse_unreconciled_cadence,
     _refuse_unapplied_migrations,
     _refuse_missing_designated_groups,
 )

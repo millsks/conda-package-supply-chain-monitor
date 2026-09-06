@@ -15,7 +15,17 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 
 from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
+from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
 from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORMS_SETTING
+from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
+from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
+from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
+from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
+from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
+from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
+from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
+from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
 from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core import roles
 from config.authorization import claims
@@ -1243,6 +1253,19 @@ EVERY_SETTINGS_MODULE = (BASE, LOCAL, PRODUCTION, TEST)
 #: and it would keep passing while the two drifted apart.
 MONITORED_SETTINGS = (CHANNELS_SETTING, PLATFORMS_SETTING)
 
+#: The keys `CELERY_BEAT_SCHEDULE` carries, one per per-package collector
+#: (`CPM-CURRENCY-S05`). Named here because a *key* is the one part of an entry
+#: that names nothing else in the repository -- `django_celery_beat` uses it as
+#: the periodic task's own name -- so unlike the task name, the keyword and the
+#: cadences below there is nothing to reconcile it against, and an entry
+#: disappearing would otherwise be invisible to the equality on the collectors.
+EXPECTED_SWEEP_ENTRIES = (
+    "cpm-sweep-source-release",
+    "cpm-sweep-pypi-release",
+    "cpm-sweep-feedstock",
+    "cpm-sweep-conda-package",
+)
+
 
 @pytest.mark.usefixtures("no_database_env")
 def test_the_celery_block_contributes_the_route_table_core_owns():
@@ -1300,21 +1323,79 @@ def test_cadence_lives_in_the_database_scheduler(module: str):
     """`CPM-AD-20` / `CPM-NFR-2`: a schedule is data an operator can change.
 
     The database scheduler is what makes that true: a cadence lives in
-    `django_celery_beat`'s tables, editable without a deploy. A decorator-borne
-    schedule is the alternative this forecloses, and the source sweep in
-    `tests/unit/django_apps/test_task_declaration_audit.py` is the gate on it.
+    `django_celery_beat`'s tables, seeded from the declaration below and editable
+    afterwards without a deploy. A decorator-borne schedule is the alternative
+    this forecloses, and the source sweep in
+    `tests/unit/django_apps/test_task_declaration_audit.py` is the gate on it --
+    `config/settings/` is the one directory that sweep permits a schedule in,
+    which is why this reads all four modules rather than `base` alone: a cadence
+    added to `production.py` is inside the carve-out, parsed by nothing, and is
+    the one that would actually reach a deployed component.
 
-    No `CELERY_BEAT_SCHEDULE` is declared in any of the four and none should be:
-    there is nothing to schedule until `CPM-EP-CURRENCY` registers the first
-    collector. Asserted over all four because `config/settings/` is the one
-    directory the source sweep permits a schedule in -- so a hard-coded cadence in
-    `production.py` is inside the carve-out, parsed by nothing, and would leave
-    both gates green.
+    `CPM-CURRENCY-S05` is what put entries here. Every leaf module inherits them
+    through `from .base import *`, and none may drop or override them silently --
+    a component whose schedule and whose collectors disagree is refused at
+    start-up by `CollectorsConfig.ready()`, which is the hook that registers the
+    collectors and therefore the only one a deployed process reaches with a
+    populated registry (`config/startup/stage_two.py` evaluates the same rule as
+    condition 11). A component with *no* entries is refused there too, which is
+    the half this case pins from the settings side.
     """
     settings_module = importlib.import_module(module)
 
     assert settings_module.CELERY_BEAT_SCHEDULER == DATABASE_SCHEDULER
-    assert not hasattr(settings_module, "CELERY_BEAT_SCHEDULE")
+    assert set(settings_module.CELERY_BEAT_SCHEDULE) == set(EXPECTED_SWEEP_ENTRIES)
+
+
+@pytest.mark.usefixtures("any_settings_module")
+@pytest.mark.parametrize("module", EVERY_SETTINGS_MODULE, ids=lambda name: name.rpartition(".")[2])
+def test_every_schedule_entry_fires_the_dispatch_task_by_the_name_it_declares(module: str):
+    """The anti-drift half: settings' literals are reconciled against the module that owns them.
+
+    A settings module cannot import a collector -- these modules execute before
+    the app registry exists and every collector module reaches a Django model --
+    so the task name and the collector keyword are written out in
+    `config/settings/base.py` as literals. That is a deliberate second spelling,
+    and the start-up reconciliation in `CollectorsConfig.ready()` is what makes it
+    safe in a deployed process. This is what makes it safe at gate time: the
+    literals are compared against `collectors/sweep.py`'s own declarations, so a
+    rename on either side fails here rather than shipping a beat entry that fires
+    into nothing on every tick.
+    """
+    settings_module = importlib.import_module(module)
+
+    for entry in settings_module.CELERY_BEAT_SCHEDULE.values():
+        assert entry["task"] == SWEEP_TASK_NAME
+        assert set(entry["kwargs"]) == {COLLECTOR_KWARG}
+
+
+@pytest.mark.usefixtures("any_settings_module")
+def test_the_schedule_dispatches_each_per_package_collector_exactly_once():
+    """One entry per collector, and the cadences are the collectors' own.
+
+    Asserted against the four collector modules' declared cadences rather than
+    against intervals written out here: a literal in this file would be a third
+    spelling of a number that already lives in two places, and it would keep
+    passing while the schedule and the collectors drifted.
+    `CollectorsConfig.ready()` is the deployed enforcement, and
+    `tests/integration/startup/test_collector_boot_refusal.py` proves it in a
+    child process; this is the one that fails a pull request.
+
+    Inventory ingestion is deliberately not in the mapping. It is run-scoped --
+    one document naming many packages (`CPM-AD-25`) -- so it declares no cadence
+    and a per-package dispatch refuses it by name.
+    """
+    base = importlib.import_module(BASE)
+
+    dispatched = {entry["kwargs"][COLLECTOR_KWARG]: entry["schedule"] for entry in base.CELERY_BEAT_SCHEDULE.values()}
+
+    assert dispatched == {
+        SOURCE_RELEASE_NAME: SourceReleaseCollector.cadence,
+        PYPI_RELEASE_NAME: PyPIReleaseCollector.cadence,
+        FEEDSTOCK_NAME: FeedstockCollector.cadence,
+        CONDA_PACKAGE_NAME: CondaPackageCollector.cadence,
+    }
+    assert len(base.CELERY_BEAT_SCHEDULE) == len(dispatched)
 
 
 # ---------------------------------------------------------------------------

@@ -940,6 +940,68 @@ def test_the_four_collectors_that_predate_the_plural_sentinel_hook_declare_nothi
     assert CondaPackageCollector.sentinel_evidence_rows is not Collector.sentinel_evidence_rows
 
 
+def test_the_selection_hook_answers_none_and_the_cadence_declaration_is_absent_by_default() -> None:
+    """`CPM-CURRENCY-S05`'s two additions, and both defaults say "nothing schedules this".
+
+    A collector written before this story declares neither, which is the only
+    shape in which this base grows. `None` from `selectable_packages` is not an
+    empty selection -- it is "this collector is not swept one package at a time",
+    which `collectors/sweep.py` refuses by name; and `cadence = None` is what keeps
+    `config/startup/stage_two.py` from demanding a `CELERY_BEAT_SCHEDULE` entry
+    for a collector nothing sweeps.
+
+    Asserted on the base and on the fixture, because a subclass could shadow
+    either without the base having changed.
+    """
+    built = collector_class(declared_model=fixture_evidence_model())
+
+    assert Collector.cadence is None
+    assert Collector.selectable_packages() is None
+    assert built.cadence is None
+    assert built.selectable_packages() is None
+
+
+def test_the_selection_hook_is_read_off_the_class_rather_than_an_instance() -> None:
+    """A classmethod, where the other two defaulted hooks are instance methods.
+
+    Both callers read it off a class: a dispatch selects and enqueues without ever
+    collecting, and constructing a collector to ask would build a
+    `RequestsTransport` and its connection pool for a dispatch that makes no call
+    -- the same hazard `config/startup/stage_two.py` avoids by sweeping classes.
+    A hook that had quietly become an instance method would still answer through
+    an instance and would fail at the two places that matter.
+    """
+    assert isinstance(inspect.getattr_static(Collector, "selectable_packages"), classmethod)
+
+    parameters = inspect.signature(Collector.selectable_packages).parameters
+
+    assert set(parameters) == set()
+
+
+def test_the_collectors_that_predate_the_selection_hook_declare_nothing_new() -> None:
+    """The additive half, on the real classes rather than on a fixture.
+
+    Inventory ingestion is run-scoped -- it reads one document naming many
+    packages (`CPM-AD-25`) and refuses all three per-package hooks -- so it
+    inherits the default, and a later edit that gave it a selection would put it
+    on a per-package sweep it cannot serve. The four per-package collectors are
+    asserted to be the ones that *do* override it, which is the anti-vacuity half:
+    an identity check over one class would pass just as happily if nobody had
+    overridden the hook at all.
+    """
+    assert InventoryIngestionCollector.selectable_packages() is None
+    assert InventoryIngestionCollector.cadence is None
+
+    for collector in (
+        SourceReleaseCollector,
+        PyPIReleaseCollector,
+        FeedstockCollector,
+        CondaPackageCollector,
+    ):
+        assert collector.selectable_packages() is not None
+        assert collector.cadence is not None
+
+
 def test_sentinel_evidence_rows_takes_every_argument_by_keyword() -> None:
     """The fifth hook a subclass may implement by hand, pinned as the other four are.
 

@@ -1,7 +1,7 @@
 """FR-16's audit: every forbidden state is claimed by a test that refuses it.
 
 The suite proves the deployed settings *refuse*, rather than merely proving they
-start, only if each of the fifteen distinct forbidden states has a test that
+start, only if each of the sixteen distinct forbidden states has a test that
 configures that state and asserts `ImproperlyConfigured`. This module is what
 makes that true by measurement instead of by review.
 
@@ -76,37 +76,38 @@ REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 #: slower.
 COLLECTION_TIMEOUT_SECONDS: Final[float] = 60.0
 
-#: How many of the fifteen every combination carries. Thirteen is the settled
-#: count of unconditional states -- eight unconditional conditions, three of which
+#: How many of the sixteen every combination carries. Fourteen is the settled
+#: count of unconditional states -- nine unconditional conditions, three of which
 #: cover more than one state -- and it is a literal here rather than a length of
 #: something derived from `FORBIDDEN_STATES`, which would make the assertion
 #: agree with whatever the declaration happened to say.
 #:
 #: It moved from twelve with `CPM-EVIDENCE-S06`, which added `CPM-AD-28`'s
-#: collector-without-a-freshness-target refusal as condition 10.
-#: `tests/unit/startup/forbidden_states.py` records why that is a tenth condition
-#: rather than a second state under an existing one.
-UNCONDITIONAL_STATE_COUNT: Final = 13
+#: collector-without-a-freshness-target refusal as condition 10, and from thirteen
+#: with `CPM-CURRENCY-S05`, which added `CPM-AD-20`'s cadence reconciliation as
+#: condition 11. `tests/unit/startup/forbidden_states.py` records why each is a
+#: condition of its own rather than a second state under an existing one.
+UNCONDITIONAL_STATE_COUNT: Final = 14
 
-#: The numbered conditions every combination carries. Eight of the ten; the other
-#: two leave with their features below. Written out rather than derived from
+#: The numbered conditions every combination carries. Nine of the eleven; the
+#: other two leave with their features below. Written out rather than derived from
 #: `FORBIDDEN_STATES` for the reason the count above is a literal -- and as a
-#: range *plus* condition 10 rather than as `range(1, 11)` minus two, because the
-#: features own 8 and 9 and a contiguous range would quietly re-admit them the
-#: day one of them was dropped.
-UNCONDITIONAL_CONDITIONS: Final[frozenset[int]] = frozenset(range(1, 8)) | {10}
+#: range *plus* conditions 10 and 11 rather than as `range(1, 12)` minus two,
+#: because the features own 8 and 9 and a contiguous range would quietly re-admit
+#: them the day one of them was dropped.
+UNCONDITIONAL_CONDITIONS: Final[frozenset[int]] = frozenset(range(1, 8)) | {10, 11}
 
 #: The conditional states, and the feature that owns each. A **set** of state ids
 #: per feature rather than one id, because a feature that grew a second forbidden
 #: state would otherwise overwrite its first here and the declaration could reach
-#: fifteen entries with every count in this module still green.
+#: sixteen entries with every count in this module still green.
 #:
 #: Each entry sits inside its own AD-24 marker pair for the reason the records
 #: themselves do: a combination materialized without Redis has neither the
 #: condition, nor its declaration, nor this expectation of it, and an entry left
 #: behind would fail a tree that is correct. Fifteen is therefore
 #: `UNCONDITIONAL_STATE_COUNT` plus the states named here rather than a literal,
-#: and it shrinks to fourteen or thirteen exactly when the tree does.
+#: and it shrinks to fifteen or fourteen exactly when the tree does.
 CONDITIONAL_STATE_OWNERS: Final[dict[str, frozenset[str]]] = {
     # feature:redis
     "redis": frozenset({"in-process-cache-backend"}),
@@ -337,7 +338,7 @@ class TestTheDeclarationItself:
 
         assert duplicated == [], f"these state ids are declared more than once: {duplicated}"
 
-    def test_the_escape_route_is_declared_outside_the_fifteen(self) -> None:
+    def test_the_escape_route_is_declared_outside_the_sixteen(self) -> None:
         """FR-12's state is not one of the numbered conditions and must not be tradeable for one.
 
         Inside the tuple it could be dropped and replaced by one more entry with
@@ -346,7 +347,7 @@ class TestTheDeclarationItself:
         assert ESCAPE_ROUTE_STATE.state_id not in {state.state_id for state in FORBIDDEN_STATES}
         assert ESCAPE_ROUTE_STATE.condition == 0
 
-    def test_the_unconditional_states_are_the_settled_thirteen(self) -> None:
+    def test_the_unconditional_states_are_the_settled_fourteen(self) -> None:
         """The count is settled, not re-derivable -- see `forbidden_states.py`.
 
         Asserted over the unconditional records alone so that it holds unchanged
@@ -364,8 +365,8 @@ class TestTheDeclarationItself:
         """The conditional half of the count, in the two directions it can be wrong.
 
         A feature that lost its state fails, and a state naming a feature nothing
-        records fails. Together with the thirteen above this fixes the total at
-        fifteen for this tree, without a literal fifteen that a materialized
+        records fails. Together with the fourteen above this fixes the total at
+        sixteen for this tree, without a literal sixteen that a materialized
         combination would fail on.
 
         A *set* per feature, not one id. Keyed the other way -- feature to a
@@ -380,11 +381,11 @@ class TestTheDeclarationItself:
 
         assert owned == {feature: set(states) for feature, states in CONDITIONAL_STATE_OWNERS.items()}
 
-    def test_the_declared_total_is_the_thirteen_plus_the_states_the_features_own(self) -> None:
+    def test_the_declared_total_is_the_fourteen_plus_the_states_the_features_own(self) -> None:
         """The arithmetic itself, asserted rather than left as a comment.
 
-        Thirteen plus two is fifteen in this tree, and until this case existed
-        nothing said so: the thirteen were counted, the two were reconciled
+        Fourteen plus two is sixteen in this tree, and until this case existed
+        nothing said so: the fourteen were counted, the two were reconciled
         against their features, and the *sum* was a sentence in a docstring. One
         more unconditional state added without touching either expectation would
         have failed the first assertion -- but one added under a feature that
@@ -393,21 +394,22 @@ class TestTheDeclarationItself:
         expected = UNCONDITIONAL_STATE_COUNT + sum(len(states) for states in CONDITIONAL_STATE_OWNERS.values())
 
         assert len(FORBIDDEN_STATES) == expected, (
-            f"the declaration carries {len(FORBIDDEN_STATES)} forbidden states; the thirteen unconditional "
+            f"the declaration carries {len(FORBIDDEN_STATES)} forbidden states; the fourteen unconditional "
             f"plus the states the features own come to {expected}"
         )
 
     def test_every_state_names_a_condition_and_a_stage_the_contract_has(self) -> None:
-        """Ten numbered conditions and two evaluation stages; nothing else exists to belong to.
+        """Eleven numbered conditions and two evaluation stages; nothing else exists to belong to.
 
-        `range(11)` rather than `range(10)`: the inherited contract numbers nine,
-        and `CPM-EVIDENCE-S06` added `CPM-AD-28`'s as condition 10. Zero stays
-        admissible because FR-12's escape route declares it.
+        `range(12)` rather than `range(10)`: the inherited contract numbers nine,
+        `CPM-EVIDENCE-S06` added `CPM-AD-28`'s as condition 10 and
+        `CPM-CURRENCY-S05` added `CPM-AD-20`'s cadence reconciliation as condition
+        11. Zero stays admissible because FR-12's escape route declares it.
         """
         misfiled = [
             state.state_id
             for state in (*FORBIDDEN_STATES, ESCAPE_ROUTE_STATE)
-            if state.condition not in range(11) or state.stage not in {1, 2}
+            if state.condition not in range(12) or state.stage not in {1, 2}
         ]
 
         assert misfiled == [], f"these states name a condition or a stage the contract does not have: {misfiled}"
@@ -421,7 +423,7 @@ class TestTheDeclarationItself:
         rule is applied to the conditions that exist rather than to the literal
         nine -- the requirement is per condition, and a count is not what it
         says. So the states have to be distributed across all ten,
-        not merely to number fifteen. Deleting condition 3's state and adding a
+        not merely to number sixteen. Deleting condition 3's state and adding a
         second under condition 1 keeps every count in this class green while
         leaving condition 3 audited by nothing, which is exactly the trade FR-16's
         sentence forbids.
@@ -476,7 +478,7 @@ class TestEveryStateIsClaimed:
         )
 
     def test_the_settings_module_escape_route_is_claimed_separately(self, claims: Mapping[str, list[str]]) -> None:
-        """AC #2, asserted on its own so it cannot be traded against the fifteen.
+        """AC #2, asserted on its own so it cannot be traded against the sixteen.
 
         FR-12's escape route is the frame's own reason to exist: a deployed
         process pointed at `config.settings.local` is the failure a guard living

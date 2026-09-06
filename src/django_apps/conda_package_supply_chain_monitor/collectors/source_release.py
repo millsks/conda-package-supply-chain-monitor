@@ -121,6 +121,7 @@ from conda_package_supply_chain_monitor.core.transport import worst_case_call_se
 from conda_package_supply_chain_monitor.identity.models import Package
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from collections.abc import Mapping
     from collections.abc import Sequence
 
@@ -186,8 +187,13 @@ COLLECTOR_NAME: Final[str] = "source_release"
 #: than a day late. The cadence itself is **not** declared here: `CPM-AD-20` makes
 #: it data in `django_celery_beat`'s scheduler, and this constant is the number the
 #: arithmetic below assumes rather than the number that schedules anything. The
-#: two are reconciled by whoever writes the schedule entry, which is
-#: `CPM-CURRENCY-S05`'s full-inventory sweep and not this story.
+#: two are reconciled at start-up by `collectors/apps.py`'s `ready()`, which
+#: `CPM-CURRENCY-S05` added: the collector declares this number as `cadence`, the
+#: schedule entry declares its own, and a component whose two disagree refuses to
+#: start rather than reading a whole inventory as stale with every gate green.
+#: `config/startup/stage_two.py` evaluates the same rule as condition 11, but it
+#: runs before this application registers anything, so the application's own hook
+#: is where a deployed process meets the refusal.
 SOURCE_RELEASE_CADENCE: Final[timedelta] = timedelta(days=1)
 
 #: How many consecutive missed collections may pass before this product stops
@@ -1062,6 +1068,14 @@ class SourceReleaseCollector(Collector):
 
     response_cache_ttl: ClassVar[timedelta | None] = SOURCE_RELEASE_CACHE_TTL
 
+    #: How often the full-inventory sweep dispatches this collector
+    #: (`CPM-CURRENCY-S05`). Bound to the module constant the freshness target
+    #: and the observation window are already derived from, so the number moves
+    #: nowhere: what changes is that something now *reads* it.
+    #: `config/startup/stage_two.py` reconciles it against this collector's
+    #: `CELERY_BEAT_SCHEDULE` entry at boot, in both directions.
+    cadence: ClassVar[timedelta | None] = SOURCE_RELEASE_CADENCE
+
     #: The locator this run asked for, remembered when `source_for` answered.
     #:
     #: Held on the instance because `sentinel_evidence` has to record it and is
@@ -1077,6 +1091,38 @@ class SourceReleaseCollector(Collector):
     #: row records if a caller ever invokes the hook on its own -- blank means
     #: missing, and inventing a locator would be worse.
     _locator: str = ""
+
+    @classmethod
+    def selectable_packages(cls) -> Iterable[int]:
+        """Return the packages this collector can be asked about: the ones with a source repository.
+
+        The complement of `source_for`'s own refusals, as far as a query can
+        express it. `_repository_url` reads exactly one column -- and
+        `MAPPED_FIELDS[SOURCE_REPOSITORY]` makes that column the whole of what an
+        `established` source-repository mapping records -- so a non-blank
+        `source_repository_url` *is* "resolution established a source
+        repository", and a blank one is the refusal `CPM-CURRENCY-S01` recorded
+        as deferred: offered every package, this collector would fail every run
+        for every package nobody has resolved.
+
+        **What the selection does not filter, and why that is right.** A URL
+        this collector cannot read -- another host, an unparseable authority, a
+        path that is not `owner/repository` -- is still selected and still fails
+        its run. That is deliberate: those are refusals about the *value*
+        resolution stored, they are not expressible as a query, and a `failed`
+        ledger row naming the URL is how an operator learns that identity
+        recorded something this collector cannot use. Hiding them would make the
+        sweep quieter and the inventory no better observed.
+
+        Returns:
+            The primary keys, as a lazy queryset ordered by key -- streamed by
+            `collectors/sweep.py` rather than materialised, so `CPM-NFR-1`'s ten
+            thousand never exist as a list. Ordered so that two dispatches of one
+            inventory enqueue in the same sequence, which is what makes a
+            partially enqueued sweep's `detail` mean something.
+
+        """
+        return Package.objects.exclude(source_repository_url="").order_by("pk").values_list("pk", flat=True)
 
     def source_for(self, *, package_id: int) -> str:
         """Return the locator this collector reads for one package.
