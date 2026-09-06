@@ -762,8 +762,11 @@ charges `1 + retries` against the allowance before each call, because that is ho
 many requests the mounted retry policy may issue — so sixty an hour is fifteen
 packages an hour on the declared retry count. That is enough to observe a small
 inventory and is **not** enough to sweep the ten thousand packages `CPM-NFR-1`
-sizes for. Nothing is scheduled to try: no cadence entry exists for this
-collector, and the full-inventory sweep is a later story.
+sizes for. **The full-inventory sweep below now schedules it daily**, so the
+arithmetic is live rather than latent: a sweep of an inventory this allowance
+cannot drain records `skipped` dispatch rows and `error` collection rows rather
+than exceeding GitHub's budget. Raising it means authenticating, which is recorded
+as deferred work.
 
 **A repository that publishes no releases costs a second call.** `CPM-FR-7` asks
 for the latest release *or tag*, and many projects tag without ever publishing a
@@ -874,9 +877,10 @@ counted per minute rather than per hour. The collector base charges one allowanc
 before it knows which question a package will produce, so a single number has to
 cover both, and the tighter of the two is the only one that cannot be exceeded by
 accident. At `1 + retries` per collection that is two packages a minute, which is
-**not** a rate that sweeps `CPM-NFR-1`'s ten thousand packages. Nothing is
-scheduled to try: no cadence entry exists for this collector, and the
-full-inventory sweep is a later story.
+**not** a rate that sweeps `CPM-NFR-1`'s ten thousand packages. **The
+full-inventory sweep below now schedules it weekly**, so the arithmetic is live:
+expect `skipped` dispatch rows and `error` collection rows at that scale rather
+than a sweep that quietly exceeds GitHub's search budget.
 
 **Which question is asked is read from the package's identity, before any call is
 made.**
@@ -1106,8 +1110,10 @@ the base's too, and it covers that same one call: channels two onward carry no
 validator and remember nothing, so **they re-transfer their whole document on
 every run**, and a `304` from one of them is a source answering a question nobody
 asked, which the row records as `error`. Both are recorded as deferred work on
-`CPM-CURRENCY-S04`. Nothing is scheduled: no cadence entry exists for this
-collector, and the full-inventory sweep is a later story.
+`CPM-CURRENCY-S04`. **The full-inventory sweep below now schedules this collector
+daily** -- but its selection is empty until the two settings above are declared,
+so an undeclared component sweeps nothing rather than failing every package. See
+"Which packages a sweep offers".
 
 **A misconfiguration and a transient failure leave this task the same way.** An
 undeclared channel raises out of `cpm.collect.conda_package` like any other
@@ -1124,3 +1130,166 @@ while the per-package document answers the question about one in kilobytes.
 **Nothing here compares versions.** The published version is recorded exactly as
 the channel spelled it. Whether it is *behind* anything is `CPM-FR-16`'s policy
 with a versioned threshold, and no such policy exists yet.
+
+## The full-inventory sweep: what beat fires, and what it does not do
+
+Four collectors observe one package each per run. What runs them across the whole
+inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
+`django_celery_beat` once per collector at the cadence that collector declares
+(`CPM-NFR-1`, `CPM-FR-15`).
+
+**A dispatch never collects.** It resolves the collector by name, asks it which
+packages it can be asked about, and enqueues one ordinary per-package collection
+task for each — `cpm.collect.source_release`, `cpm.collect.pypi_release`,
+`cpm.collect.feedstock` or `cpm.collect.conda_package`, exactly the tasks a manual
+recollection uses. It makes no outbound call, writes no evidence and holds no
+transaction. Every guarantee described in the four sections above therefore holds
+unchanged under a sweep: one package per task, one package per ledger row, one
+package per transaction (`CPM-AD-23`).
+
+**One dispatch per collector, and that is what keeps a failing source local.** A
+rate-limited or misconfigured source fails its own collector's dispatch and no
+other, so it costs you that surface for that cadence rather than a day of
+monitoring everywhere else.
+
+### A dispatch row's state is about enqueueing and nothing else
+
+This is the sentence to read twice. A dispatch's ledger row says what the
+dispatch did, which is *offer packages to the broker*. It says nothing about what
+those collections then observed — they have not run when the row is finalized,
+and a dispatch that waited for them would hold a worker slot for the length of a
+rate-limited sweep.
+
+| State | Meaning |
+|---|---|
+| `succeeded` | every selected package was enqueued — or the selection matched no package at all, which is a collector that was asked and answered |
+| `partial` | some were enqueued and some were not; the ones that were **stay** enqueued, and `detail` names how many and why |
+| `failed` | none of a non-empty selection was enqueued, or the dispatch was refused before it began |
+| `skipped` | this collector's previous dispatch had not finished, so this tick offered nothing rather than queueing a second inventory |
+
+So a sweep in which every package was enqueued and every collection then failed
+leaves **one `succeeded` dispatch row above ten thousand `failed` collection
+rows**, and that is the honest shape rather than a contradiction: the dispatch did
+its whole job. Read the per-package rows for what was observed, and the dispatch
+row only for whether the work was offered.
+
+### The schedule is data, and it is reconciled against the collectors at start-up
+
+`config/settings/base.py` declares one `CELERY_BEAT_SCHEDULE` entry per
+per-package collector, and `django_celery_beat`'s `DatabaseScheduler` seeds its
+tables from it. **What that does not buy you is changing one of these four
+intervals without a deploy**: the scheduler rewrites every entry it finds in
+settings on each beat start, so a value edited in the admin lives only until beat
+restarts. Cadence-as-data is what lets a *later*, unrelated schedule live in the
+tables; these four are the declaration, and changing one is a pull request.
+
+Each collector separately declares the cadence its freshness target was derived
+from. **If the two disagree, the component refuses to start**, naming both
+numbers — because a weekly schedule against a daily-derived two-day target would
+make the whole inventory read stale five days out of seven with every gate green
+and every collection succeeding. The check runs in both directions: a schedule
+entry naming a collector this component has not registered is refused too, since
+it would fire into nothing on every tick; so is a collector that declares a
+cadence without a selection, or a selection without a cadence.
+
+The refusal fires from the collectors application's own `AppConfig.ready()`,
+which is the hook that registers the collectors — `config/startup/stage_two.py`
+evaluates the same rule as condition 11, but it runs earlier in `django.setup()`
+than the registration does, so the application's own hook is the one a deployed
+process meets. Either way the process does not start, and no worker picks up
+work.
+
+The shipped pairs are:
+
+| Collector | Cadence |
+|---|---|
+| `source_release` | daily |
+| `pypi_release` | daily |
+| `feedstock` | weekly |
+| `conda_package` | daily |
+
+The three daily entries fire together, from one instant, and that is accepted
+rather than overlooked: a dispatch enqueues and returns, so what lands at once is
+three cheap tasks rather than three inventories of I/O, and the collections they
+enqueue are paced by each collector's own rate limiter.
+
+Inventory ingestion is deliberately absent: it reads one document naming many
+packages and is not swept one package at a time, so a dispatch refuses it by name.
+
+### Which packages a sweep offers
+
+The precondition is the collector's own, and it is what stops a sweep failing
+every run. Each collector answers only about packages whose identity resolution
+has reached the mapping it reads, so a dispatch offers:
+
+| Collector | Packages offered |
+|---|---|
+| `source_release` | those with a source repository recorded |
+| `pypi_release` | those whose release-ecosystem mapping is `established` or `not_applicable` |
+| `feedstock` | those whose feedstock mapping is `established`, `not_found` or `not_applicable` |
+| `conda_package` | every package — **or none at all, until you declare channels and platforms** |
+
+A package a collector would refuse is never enqueued, so its ledger does not fill
+with `failed` runs for every package nobody has resolved. **Until a resolver
+populates those mappings, the two release sweeps and the feedstock sweep will
+select few packages or none, and record that honestly as a `succeeded` dispatch
+with nothing enqueued.**
+
+**The published-package sweep selects nothing until the two settings above are
+declared**, and that is deliberate rather than a gap. Its question applies to
+every package, so an undeclared component would otherwise enqueue the whole
+inventory and fail every one of those collections naming the setting — ten
+thousand `failed` rows a day, out of the box. Instead the selection is empty, the
+dispatch records one `succeeded` row saying so, and the component says it once a
+day. Declare `CPM_MONITORED_CHANNELS` and `CPM_MONITORED_PLATFORMS` and the sweep
+starts observing on the next tick.
+
+### What bounds a sweep
+
+**No manual batching, ever.** The selection is streamed from the database five
+hundred rows at a time, so ten thousand packages reach the queue without ten
+thousand keys existing anywhere in a worker's memory.
+
+**Every enqueued collection expires at one cadence.** A message that has not been
+consumed by the time the next tick fires is superseded — the next dispatch offers
+the same package again — so it is dropped rather than queued in front of the
+fresher one.
+
+**A dispatch whose previous run is still `running` records `skipped` and offers
+nothing.** Without that, a sweep that cannot be drained inside its cadence would
+enqueue a second whole inventory behind the first on every tick and the queue
+would grow without bound. If you see `skipped` dispatch rows accumulating, the
+collector is not keeping up with its cadence: lengthen the cadence, or raise the
+allowance (which means authenticating — see the deferred work on
+`CPM-CURRENCY-S01` and `CPM-CURRENCY-S03`).
+
+**The inherited sixty-second soft limit applies to the dispatch task.** Ten
+thousand packages is ten thousand broker round trips inside one task, so a slow
+broker can reach it. When it fires the packages already enqueued stay enqueued,
+the row is finalized `partial` saying the soft limit stopped it, and the next tick
+offers the whole selection again. Nothing raises the limit — `CPM-AD-9` chunks
+work rather than lengthening limits.
+
+**A dispatch does not wait, poll or chain.** It hands each task to the broker and
+finishes.
+
+**The worker must drain the `collect` queue.** `cpm.collect.sweep` routes there
+along with the collections it enqueues, so a worker started without
+`-Q celery,collect,policy,verify` accepts the schedule tick and runs nothing —
+silently, because an unconsumed queue is not an error.
+
+### Reading a partial sweep
+
+A `partial` dispatch row names how many packages the broker refused and the first
+reason. It cannot name ten thousand primary keys, so **each refusal is also a log
+line** under `sweep.package_refused`, carrying the collector, the task and the
+`package_id`. That is the recovery path: filter the logs for that event and that
+collector to get the packages the sweep did not offer.
+
+**Rate limits are per collector and are not yet a sweep rate.** Each of the four
+declares its own allowance, and at `1 + retries` per collection none of them
+sweeps ten thousand packages inside its declared cadence today. The dispatch does
+not change that arithmetic: it enqueues the work, and the per-collector limiter
+refuses the calls it cannot afford, which records `error` rows rather than
+exceeding the source's budget. Expect `skipped` dispatch rows and `error`
+collection rows at that scale until the allowances are raised.

@@ -118,6 +118,34 @@ class CollectorsConfig(AppConfig):
         refused, because "which file is this component's inventory" is exactly
         the question `CPM-AD-29` will not have answered by import order.
 
+        **The two refusals about what a collector *declares* are made here, and
+        here is the only place they can be made.** `CPM-AD-28`'s freshness
+        refusal and `CPM-AD-20`'s cadence reconciliation both sweep the registry,
+        and `config/startup/stage_two.py` evaluates both as conditions 10 and 11
+        -- but stage two runs from `django_service.users`' `ready()`, and
+        `tests/unit/startup/test_installed_apps_ordering.py` requires every
+        adopted application to be installed *after* that owner. So in a deployed
+        process stage two sweeps a registry this hook has not populated yet, and
+        both conditions pass over nothing. Calling the same two public rules
+        immediately after the registrations above is what makes the refusals real
+        in a deployed process; stage two keeps them as conditions because that is
+        where the contract enumerates them and where the suite drives them against
+        fixtures.
+
+        **One rule, three call sites, no restatement.**
+        `core/collection.py`'s `freshness_target_fault` and
+        `collectors/sweep.py`'s `cadence_reconciliation_fault` are the rules;
+        this hook and stage two each ask them and raise. They live in the domain
+        application rather than in `config/startup/` because inherited `AD-4`
+        forbids anything under `src/django_apps/` importing `config`, so a rule
+        owned by the startup package could not be called from here at all.
+
+        **Unconditional, where stage two's conditions are deployed-only.** A
+        collector whose declarations contradict its schedule is a misconfiguration
+        in any locality, and a developer meeting it at `manage.py` time is the
+        point: it is a mistake in a file they are editing, not a property of a
+        deployment.
+
         Raises:
             ImproperlyConfigured: When the settings module declares no
                 `INVENTORY_WATCHLIST_PATH`, or neither of the two settings the
@@ -125,7 +153,10 @@ class CollectorsConfig(AppConfig):
                 to an `AttributeError`: a settings module that dropped an
                 assignment is a misconfiguration like every other one here, and a
                 bare attribute error out of a boot hook says nothing about which
-                setting is missing or what declares it.
+                setting is missing or what declares it. Also when a registered
+                collector declares no usable freshness target (`CPM-AD-28`), or
+                when the registered collectors and `CELERY_BEAT_SCHEDULE`
+                disagree about a cadence (`CPM-AD-20`).
 
         """
         # Imported here rather than at module scope: `AppConfig` classes are
@@ -156,6 +187,9 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.collectors.source_release import (  # noqa: PLC0415 - see above
             SourceReleaseCollector,
         )
+        from conda_package_supply_chain_monitor.collectors.sweep import (  # noqa: PLC0415 - see above
+            cadence_reconciliation_fault,
+        )
         from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
             InventoryIngestionCollector,
         )
@@ -168,7 +202,11 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.collectors.watchlist import (  # noqa: PLC0415 - see above
             WatchlistAdapter,
         )
+        from conda_package_supply_chain_monitor.core.collection import (  # noqa: PLC0415 - see above
+            freshness_target_fault,
+        )
         from conda_package_supply_chain_monitor.core.registry import register  # noqa: PLC0415 - see above
+        from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
         from conda_package_supply_chain_monitor.core.registry import registrations  # noqa: PLC0415 - see above
 
         for collector in (
@@ -180,6 +218,14 @@ class CollectorsConfig(AppConfig):
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)
+
+        adopted = registered_collectors()
+        for declaration_fault_message in (
+            freshness_target_fault(adopted),
+            cadence_reconciliation_fault(adopted, getattr(settings, "CELERY_BEAT_SCHEDULE", {})),
+        ):
+            if declaration_fault_message:
+                raise ImproperlyConfigured(declaration_fault_message)
 
         for monitored_setting in (CHANNELS_SETTING, PLATFORMS_SETTING):
             # `is None` rather than a truth test, and the difference is the whole

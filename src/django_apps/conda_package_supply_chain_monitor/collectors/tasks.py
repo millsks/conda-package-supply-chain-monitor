@@ -87,6 +87,8 @@ from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCol
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
+from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
+from conda_package_supply_chain_monitor.collectors.sweep import dispatch
 from conda_package_supply_chain_monitor.core.clock import SystemClock
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
@@ -125,6 +127,7 @@ __all__ = [
     "PACKAGE_NAME",
     "REQUIRED_SIGNALS",
     "SOURCE_PACKAGE_KEY",
+    "SWEEP_TASK_NAME",
     "InventoryAdapterError",
     "InventoryIngestionCollector",
     "InventoryRecord",
@@ -133,6 +136,7 @@ __all__ = [
     "collect_feedstock",
     "collect_pypi_release",
     "collect_source_release",
+    "collect_sweep",
     "declare_inventory_adapter",
     "declared_inventory_adapter",
     "ingest_inventory",
@@ -184,6 +188,15 @@ COLLECT_FEEDSTOCK_TASK_NAME: Final[str] = "cpm.collect.feedstock"
 #: terms (`CPM-CURRENCY-S04`, `CPM-FR-10`): the `cpm.collect.` namespace routes
 #: it, and the name is the collector's.
 COLLECT_CONDA_PACKAGE_TASK_NAME: Final[str] = "cpm.collect.conda_package"
+
+#: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
+#: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
+#: one, and `config/startup/stage_two.py` reconciles the beat schedule against
+#: the same string -- so it is declared in `collectors/sweep.py` beside the
+#: dispatch it fires and imported above, and it is re-exported in `__all__` so a
+#: reader looking for this application's task names finds all five here. The
+#: task itself must still be *declared* in this module: Celery's autodiscovery
+#: imports each application's `tasks` module and no other.
 
 #: The locator handed to the adapter, and it is deliberately opaque.
 #:
@@ -1383,3 +1396,71 @@ def collect_conda_package(*, package_id: int, force: bool = False) -> str:
     """
     with CondaPackageCollector(clock=SystemClock()) as collector:
         return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
+@shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_sweep(*, collector: str) -> str:
+    """Enqueue one per-package collection for every package one collector can be asked about.
+
+    The task `django_celery_beat` fires (`CPM-AD-20`), one entry per per-package
+    collector, at the cadence that collector declares -- and the only task in this
+    module that takes a *collector* rather than a package. What it does is
+    `collectors/sweep.py`'s dispatch: select, enqueue in chunks, and finalize one
+    run-ledger row scoped to no package. It collects nothing itself and makes no
+    outbound call, so nothing about the four collectors' guarantees changes: every
+    observation is still written by the per-package task through the collector
+    base, in that package's own transaction and under that package's own ledger
+    row (`CPM-AD-23`).
+
+    **One dispatch per collector is what makes `CPM-FR-15` structural.** A
+    dispatch that raises finalizes its own row `failed` and no other collector's
+    dispatch is in its call stack, so one rate-limited or misconfigured source
+    cannot cost a day of monitoring everywhere else -- which is this story's whole
+    subject. A dispatch that enqueued some of its packages and not all records
+    `partial`, never `failed`.
+
+    It declares **no schedule and no time limit** for the reason the four
+    collection tasks do not: cadence is data in `django_celery_beat`
+    (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are settings'
+    (`CPM-AD-9`). The schedule that fires it lives in
+    `config/settings/base.py`'s `CELERY_BEAT_SCHEDULE`, and a component whose
+    schedule and whose collectors disagree about a cadence refuses to start --
+    from `collectors/apps.py`'s `ready()`, which is the hook that registers the
+    collectors and therefore the only one positioned to see them in a deployed
+    process; `config/startup/stage_two.py` evaluates the same rule as condition
+    11 for the contract and for the suite.
+
+    **The inherited soft limit applies to this task, and it is handled rather
+    than met.** A dispatch of `CPM-NFR-1`'s ten thousand packages is ten thousand
+    broker round trips inside one task; `SoftTimeLimitExceeded` is caught by name,
+    the packages already enqueued stay enqueued, and the row is finalized
+    `partial` saying so. Nothing raises the limit (`CPM-AD-9` forbids it) and the
+    next tick offers the whole selection again.
+
+    Args:
+        collector: The collector to dispatch, by the declared name
+            `core/registry.py` keys it under. Keyword only, as every argument in
+            this module is -- and here the keyword is also what a
+            `CELERY_BEAT_SCHEDULE` entry passes, which
+            `collectors/sweep.py`'s `COLLECTOR_KWARG` names and
+            `tests/unit/django_apps/test_sweep.py` reconciles against this
+            signature.
+
+    Returns:
+        How the dispatch ended, as the `RunState` value the ledger row carries. A
+        string rather than the `DispatchOutcome`, because a task's return value
+        is serialized into the result backend and the durable record of the run is
+        the ledger row.
+
+    Raises:
+        SweepDispatchError: When the name is blank, names no registered
+            collector, names one that is not swept per package, or names one
+            whose derived per-package task Celery does not hold. The ledger row is
+            finalized `failed` carrying the reason and nothing was enqueued -- and
+            like `CondaChannelError` next door, it is permanent by construction:
+            no retry will make an unregistered collector registered. Nothing here
+            declares `autoretry_for`, and the hazard is the `deferred` entry
+            `CPM-CURRENCY-S04` recorded against every collector task at once.
+
+    """
+    return str(dispatch(collector=collector, clock=SystemClock()).state.value)

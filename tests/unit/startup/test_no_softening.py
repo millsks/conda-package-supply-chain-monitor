@@ -63,11 +63,14 @@ from typing import Final
 
 import pytest
 import structlog
+from django.conf import settings
 from django.core.cache.backends.locmem import LocMemCache
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import path
 from rest_framework.authtoken.views import obtain_auth_token
 
+from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
+from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
 from conda_package_supply_chain_monitor.core import registry
 from config.authorization.claims import ClaimsContract
 from config.local_dev import views as local_dev_views
@@ -78,8 +81,10 @@ from config.startup import run_stage_one
 from config.startup import run_stage_two
 from config.startup import stage_one
 from config.startup.stage_one import LOCAL_SETTINGS_MODULE
+from tests.collectors import FIXTURE_CADENCE
 from tests.collectors import collector_class
 from tests.collectors import fixture_evidence_model
+from tests.collectors import selectable_collector_class
 from tests.conftest import deployed_url_patterns
 from tests.conftest import temporary_root_urlconf
 from tests.conftest import valid_deployed_settings_namespace
@@ -250,6 +255,45 @@ def _refuse_a_collector_without_a_freshness_target(monkeypatch: pytest.MonkeyPat
         run_stage_two()
 
 
+def _refuse_a_cadence_the_schedule_disagrees_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Condition 11: a collector swept on an interval its own declaration denies.
+
+    The registry and the schedule are both replaced wholesale, for the reason the
+    builder above replaces the registry: `monkeypatch` puts both back however the
+    condition exits, and a registration or a schedule entry that leaked out of a
+    case asserting a *refusal* would refuse every case that ran after it.
+
+    Replacing the registry is also what keeps this case about condition 11 alone.
+    The four real collectors are registered in this process and the shipped
+    schedule reconciles with them, so leaving either in place would leave this
+    builder constructing its state on top of a state that is already correct --
+    which is harmless here and would stop being so the moment the shipped pair
+    disagreed for a reason of its own.
+
+    A stand-in URL configuration goes on for the reason the two URLconf builders
+    above install theirs.
+    """
+    built = selectable_collector_class(
+        declared_model=fixture_evidence_model(),
+        declared_name="cpm-fixture-unreconciled",
+        declared_cadence=FIXTURE_CADENCE,
+    )
+    monkeypatch.setattr(registry, "_REGISTERED", {built.name: built})
+    monkeypatch.setattr(
+        settings,
+        "CELERY_BEAT_SCHEDULE",
+        {
+            "cpm-sweep-fixture": {
+                "task": SWEEP_TASK_NAME,
+                "schedule": FIXTURE_CADENCE * 7,
+                "kwargs": {COLLECTOR_KWARG: built.name},
+            },
+        },
+    )
+    with temporary_root_urlconf(*deployed_url_patterns()):
+        run_stage_two()
+
+
 def _refuse_the_local_settings_module(_monkeypatch: pytest.MonkeyPatch) -> None:
     """FR-12's escape route, driven through the roster rather than through an import.
 
@@ -332,6 +376,10 @@ REFUSALS: Final[dict[str, _Refusal]] = {
     "collector-without-freshness-target": _Refusal(
         _refuse_a_collector_without_a_freshness_target,
         "freshness_target=None",
+    ),
+    "collector-cadence-not-reconciled": _Refusal(
+        _refuse_a_cadence_the_schedule_disagrees_with,
+        "cadence disagreement",
     ),
     # feature:redis
     "in-process-cache-backend": _Refusal(_refuse_in_process_cache, "CACHES['default']"),

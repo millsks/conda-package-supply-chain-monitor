@@ -26,9 +26,36 @@ the inherited nine -- those are about credential surfaces, telemetry, the trust
 anchor, the claims contract, routed views and schema state -- so filing it under
 one of them would make FR-16's "each of the conditions has at least one test that
 configures the forbidden state" a sentence about a condition that now covers two
-unrelated rules. It is condition 10, unconditional and stage 2, and the settled
-count for *this repository* is therefore **ten conditions across fifteen
-states**: the inherited fourteen plus one.
+unrelated rules. It is condition 10, unconditional and stage 2.
+
+**And why `CPM-AD-20`'s reconciliation is an eleventh rather than a second state
+under the tenth.** `CPM-CURRENCY-S05` brings the schedule this product's
+collectors are actually swept on, and with it the disagreement that schedule makes
+possible: a collector declares the cadence its freshness target was derived from,
+`CELERY_BEAT_SCHEDULE` declares the interval that fires it, and unreconciled the
+two make a whole inventory read stale between runs with every gate green. That is
+a rule about `CPM-AD-20`'s schedule rather than about `CPM-AD-28`'s target -- a
+different decision, a different artefact and a different fix -- so filing it under
+condition 10 would be the same mistake in miniature that filing condition 10 under
+one of the inherited nine would have been. It is condition 11, unconditional and
+stage 2, and the settled count for *this repository* is therefore **eleven
+conditions across sixteen states**: the inherited fourteen plus two.
+
+**Both of this product's conditions have a second enforcement point, and it is
+the one a deployment meets.** Stage two is invoked from the platform owner's
+`AppConfig.ready()`, and `tests/unit/startup/test_installed_apps_ordering.py`
+requires every adopted application to be installed after that owner -- so in a
+real boot conditions 10 and 11 sweep a collector registry that
+`CollectorsConfig.ready()` has not populated yet. That application's own hook
+calls the identical two rules (`core/collection.py`'s `freshness_target_fault`
+and `collectors/sweep.py`'s `cadence_reconciliation_fault`) immediately after it
+registers, which is what makes both refusals real in a deployed process;
+`tests/integration/startup/test_collector_boot_refusal.py` boots a child and
+asserts it. The conditions remain conditions because they are still forbidden
+states of the component's configuration evaluated at stage 2, and because the
+refusal contract is where FR-16 enumerates them -- what the ordering costs is
+that stage two alone would not have stopped a deployment, which is recorded here
+rather than left for a reader to work out from `INSTALLED_APPS`.
 
 **Two of the fifteen are feature-scoped and leave with their features.** States
 8 and 9 are Redis's and Celery's, so their records sit inside AD-24 marker pairs
@@ -169,11 +196,23 @@ FORBIDDEN_STATES: Final[tuple[ForbiddenState, ...]] = (
         stage=2,
         description="a serving process would start against a schema with migrations pending",
     ),
+    # Conditions 10 and 11 are the two this product added, and both are also
+    # enforced from `CollectorsConfig.ready()` -- see the paragraph above for why
+    # that second call site is where a *deployment* meets them. They are recorded
+    # here as conditions because that is what they are: forbidden states of the
+    # component's own configuration, evaluated at stage 2, with a test that
+    # configures each and asserts the raise.
     ForbiddenState(
         state_id="collector-without-freshness-target",
         condition=10,
         stage=2,
         description="a registered collector declares no freshness target, so its evidence never goes stale",
+    ),
+    ForbiddenState(
+        state_id="collector-cadence-not-reconciled",
+        condition=11,
+        stage=2,
+        description="a collector's declared cadence and its CELERY_BEAT_SCHEDULE entry disagree",
     ),
     # feature:redis
     ForbiddenState(

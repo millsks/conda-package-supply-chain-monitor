@@ -127,6 +127,7 @@ from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
 from conda_package_supply_chain_monitor.identity.models import Package
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from collections.abc import Mapping
     from collections.abc import Sequence
     from datetime import datetime
@@ -199,7 +200,8 @@ PLATFORMS_SETTING: Final[str] = "CPM_MONITORED_PLATFORMS"
 #: engineer asks "is it out yet" about. A weekly read would make the answer up to
 #: six days old for the surface with the shortest useful half-life. The cadence
 #: itself is data in `django_celery_beat` (`CPM-AD-20`); this is the number the
-#: arithmetic below assumes, and `CPM-CURRENCY-S05` reconciles the two.
+#: arithmetic below assumes, and `CPM-CURRENCY-S05` reconciles the two at
+#: start-up, in both directions, from `collectors/apps.py`'s `ready()`.
 CONDA_PACKAGE_CADENCE: Final[timedelta] = timedelta(days=1)
 
 #: How many consecutive missed collections may pass before this product stops
@@ -1258,6 +1260,13 @@ class CondaPackageCollector(Collector):
 
     response_cache_ttl: ClassVar[timedelta | None] = CONDA_PACKAGE_CACHE_TTL
 
+    #: How often the full-inventory sweep dispatches this collector
+    #: (`CPM-CURRENCY-S05`). Bound to the module constant the target and the
+    #: window are already derived from, so no number moves; what changes is that
+    #: `config/startup/stage_two.py` now reconciles it against this collector's
+    #: `CELERY_BEAT_SCHEDULE` entry at boot.
+    cadence: ClassVar[timedelta | None] = CONDA_PACKAGE_CADENCE
+
     #: What this run is about, remembered on the instance between the hooks, on
     #: the terms `FeedstockCollector._identity` states: the base asks one hook
     #: after another about one package in one run and they must agree, and reading
@@ -1274,6 +1283,60 @@ class CondaPackageCollector(Collector):
     _monitored: Monitored = NOTHING_MONITORED
     _package_name: str = ""
     _locator: str = ""
+
+    @classmethod
+    def selectable_packages(cls) -> Iterable[int]:
+        """Return the packages this collector can be asked about: every one, or none at all.
+
+        The complement of `source_for`'s refusals, and that complement has two
+        shapes rather than one.
+
+        **When channels and platforms are declared it is the whole inventory.**
+        "Is it published on this channel" applies to every package -- "it is not
+        there" is the observation `CPM-FR-10` asks for rather than a reason not to
+        look, which is why `inapplicability` never answers a reason and
+        `sentinel_evidence` refuses `not_applicable` outright. Nothing this
+        collector reads from `identity` can make a package unaskable: it needs a
+        canonical name, and every package row has one
+        (`canonical_name_is_present`).
+
+        **When they are not, it is nothing, and that is the whole point.** Both
+        settings ship empty (PRD Open Question 4), and an empty or unusable
+        declaration refuses every package equally -- so a selection that offered
+        the inventory anyway would have a scheduled sweep write one `failed`
+        collection per package per day, for ever, out of the box. That is the
+        "ledger fills with failed runs" shape the other three selections exist to
+        prevent, reached by a different route, and it is reached from the shipped
+        settings rather than from any mistake an operator made. So an undeclared
+        component selects nothing, the dispatch records one `succeeded` row saying
+        the selection was empty, and the component says the same thing once a day
+        instead of ten thousand times. `docs/deployment.md` tells an operator that
+        this is what an undeclared component looks like.
+
+        The check is `declaration_fault` -- the collector's own rule, the one
+        `collectors/apps.py` refuses an unusable *shape* with -- so the selection
+        and the run-time read cannot come to disagree about what "declared" means.
+
+        Returns:
+            Every package's primary key, as a lazy queryset ordered by key --
+            streamed by `collectors/sweep.py` rather than materialised -- or an
+            empty queryset when no usable channel and platform pair is declared.
+            This is the collector `CPM-NFR-1`'s ten thousand is measured against,
+            because it is the one that selects all of them.
+
+        """
+        declared = (
+            getattr(settings, CHANNELS_SETTING, ()),
+            getattr(settings, PLATFORMS_SETTING, ()),
+        )
+        settings_names = (CHANNELS_SETTING, PLATFORMS_SETTING)
+        unusable = any(
+            declaration_fault(value, setting=name) or not value
+            for value, name in zip(declared, settings_names, strict=True)
+        )
+        if unusable:
+            return Package.objects.none().values_list("pk", flat=True)
+        return Package.objects.order_by("pk").values_list("pk", flat=True)
 
     def inapplicability(self, *, package_id: int) -> str:
         """Say why this question does not apply to a package, which here is never.

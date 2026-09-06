@@ -117,6 +117,7 @@ from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from collections.abc import Iterator
     from collections.abc import Mapping
     from collections.abc import Sequence
@@ -262,6 +263,14 @@ A_CACHED_BODY: Final[str] = '{"version": "2.3.0"}'
 #: row's `detail` and the ledger row's `detail`, and a case asserting the two
 #: agree should be asserting about words a reader would meet.
 A_NOT_APPLICABLE_REASON: Final[str] = "the fixture question is not about this package (CPM-FR-6)"
+
+#: The cadence the sweepable fixture collector declares (`CPM-CURRENCY-S05`).
+#:
+#: Half `FIXTURE_FRESHNESS_TARGET`, because the boot reconciliation refuses a
+#: target that is not *strictly greater* than the cadence and a fixture whose two
+#: numbers were equal would put every case that registers it one edit away from
+#: refusing the boot for a reason it was not written about.
+FIXTURE_CADENCE: Final[timedelta] = FIXTURE_FRESHNESS_TARGET / 2
 
 #: A naive instant, for the collector that ignores the one it was handed.
 #:
@@ -1751,6 +1760,84 @@ def foreign_model_sweep_collector_class(
             return SweepOutcome(observed_rows=written)
 
     return _ForeignModelSweepCollector
+
+
+def selectable_collector_class(
+    *,
+    declared_model: type[AppendOnlyModel],
+    declared_name: str = FIXTURE_COLLECTOR,
+    declared_cadence: timedelta | None = FIXTURE_CADENCE,
+    declared_freshness_target: timedelta | None = FIXTURE_FRESHNESS_TARGET,
+    selection: Iterable[int] | None = (),
+) -> type[Collector]:
+    """Build a fixture collector that a full-inventory dispatch can be pointed at.
+
+    The subject for `collectors/sweep.py` (`CPM-CURRENCY-S05`). A subclass of the
+    ordinary fixture overriding the two declarations a dispatch and the boot
+    reconciliation read -- `selectable_packages` and `cadence` -- and nothing
+    else, so a case about the dispatch is a case about those two: the same
+    `source_for`, `translate` and `sentinel_evidence` are still there, and a
+    dispatch must reach none of them.
+
+    `selection` defaults to an empty tuple rather than to `None`, because `None`
+    is the *other* answer -- "this collector is not swept per package" -- and a
+    default that meant that would make the ordinary use of this factory the one
+    the dispatch refuses. A case wanting that answer passes `None` explicitly.
+
+    **What the hook answers with is a fresh iterator over whatever the factory
+    was handed, not the sequence itself.** `collectors/sweep.py` refuses a
+    materialised selection by construction -- a `list` or a `tuple` has already
+    done the read `CPM-NFR-1` exists to avoid -- so a fixture handing one back
+    would be refused for a reason no case is about. `iter()` per call is what
+    keeps the answer lazy *and* re-callable, which matters because the boot
+    reconciliation asks the hook once to see whether it answers `None` and the
+    dispatch asks it again to read it.
+
+    Args:
+        declared_model: The evidence model, which a dispatch never writes to.
+        declared_name: The collector's name, which is what the dispatch derives
+            `cpm.collect.<name>` from and what the registry keys it under.
+        declared_cadence: The declared cadence, or `None` for a collector nothing
+            schedules.
+        declared_freshness_target: How long this collector's evidence may be read
+            as current, so a case can drive the boot refusal that compares it
+            against the cadence.
+        selection: What `selectable_packages` answers over -- a queryset, an
+            iterable of keys, or `None` for a collector that is not swept per
+            package. Anything but `None` and a queryset is handed back as a fresh
+            iterator over it.
+
+    Returns:
+        A concrete `Collector` subclass.
+
+    """
+    ordinary = collector_class(
+        declared_model=declared_model,
+        declared_name=declared_name,
+        declared_freshness_target=declared_freshness_target,
+    )
+
+    class _SelectableCollector(ordinary):  # type: ignore[valid-type, misc]
+        """A collector a dispatch can select packages for."""
+
+        cadence: ClassVar[timedelta | None] = declared_cadence
+
+        @classmethod
+        def selectable_packages(cls) -> Iterable[int] | None:
+            """Return the packages this fixture says it can be asked about.
+
+            Returns:
+                `None` when the factory was handed it, a queryset unchanged, and
+                otherwise a **fresh iterator** over whatever it was handed -- so
+                the answer is lazy, which the dispatch requires, and re-callable,
+                which the boot reconciliation requires.
+
+            """
+            if selection is None or isinstance(selection, models.QuerySet):
+                return selection
+            return iter(selection)
+
+    return _SelectableCollector
 
 
 @contextmanager

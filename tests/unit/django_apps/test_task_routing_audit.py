@@ -63,6 +63,7 @@ from typing import Final
 
 import pytest
 
+from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
 from conda_package_supply_chain_monitor.core.queues import QUEUE_BY_NAMESPACE
 from conda_package_supply_chain_monitor.core.queues import TASK_NAMESPACE_PREFIX
 from conda_package_supply_chain_monitor.core.queues import Queue
@@ -140,6 +141,7 @@ AUTODISCOVERED_TASK_MODULE: Final[str] = "conda_package_supply_chain_monitor.cor
 #: *both* kinds of name would notice either.
 ROUTER_AGREEMENT_NAMES: Final[tuple[str, ...]] = (
     A_COLLECTOR_TASK,
+    SWEEP_TASK_NAME,
     A_POLICY_TASK,
     A_VERIFICATION_TASK,
     "cpm.collect.",
@@ -264,6 +266,19 @@ def test_the_sweep_skips_the_suites_own_tasks_and_nothing_wider() -> None:
 
         assert a_suite_task not in in_scope
         assert A_PRODUCT_TASK_WITH_A_BARE_NAME in in_scope
+
+
+def test_the_full_inventory_dispatch_is_a_registered_task_that_routes_to_collect() -> None:
+    """`CPM-CURRENCY-S05`'s dispatch, named rather than left to the sweep to notice.
+
+    The sweep above covers it, and covering it is not the same as saying so: this
+    is the one product task that is fired by `django_celery_beat` rather than by
+    another task, so a name that stopped routing would leave every scheduled
+    sweep published to a queue no worker drains -- silently, on every tick, with a
+    ledger that records nothing because nothing ran.
+    """
+    assert SWEEP_TASK_NAME in product_task_names()
+    assert queue_for(SWEEP_TASK_NAME) is Queue.COLLECT
 
 
 def test_every_registered_task_resolves_to_a_queue_or_is_recorded() -> None:

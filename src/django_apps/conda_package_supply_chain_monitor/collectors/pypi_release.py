@@ -116,6 +116,7 @@ from conda_package_supply_chain_monitor.identity.models import MappingKind
 from conda_package_supply_chain_monitor.identity.models import PackageMapping
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from collections.abc import Mapping
     from collections.abc import Sequence
 
@@ -165,7 +166,10 @@ COLLECTOR_NAME: Final[str] = "pypi_release"
 #: below is derived from. `CPM-NFR-2`'s fast end for version currency, on the
 #: terms `collectors/source_release.py` gives at length: the cadence is data in
 #: `django_celery_beat` (`CPM-AD-20`), this is the number the arithmetic assumes,
-#: and `CPM-CURRENCY-S05` reconciles the two.
+#: and `CPM-CURRENCY-S05` reconciles the two at start-up, in both directions,
+#: from `collectors/apps.py`'s `ready()` -- the hook that registers the
+#: collectors, and therefore the only one a deployed process reaches with a
+#: populated registry.
 PYPI_RELEASE_CADENCE: Final[timedelta] = timedelta(days=1)
 
 #: How many consecutive missed collections may pass before this product stops
@@ -827,6 +831,13 @@ class PyPIReleaseCollector(Collector):
 
     response_cache_ttl: ClassVar[timedelta | None] = PYPI_RELEASE_CACHE_TTL
 
+    #: How often the full-inventory sweep dispatches this collector
+    #: (`CPM-CURRENCY-S05`). Bound to the module constant the target and the
+    #: window are already derived from, so no number moves; what changes is that
+    #: `config/startup/stage_two.py` now reconciles it against this collector's
+    #: `CELERY_BEAT_SCHEDULE` entry at boot.
+    cadence: ClassVar[timedelta | None] = PYPI_RELEASE_CADENCE
+
     #: The one identity read, remembered on the instance for the run in progress.
     #: The base asks `inapplicability` and then `source_for` about one package in
     #: one run, and both need the same answer; reading it twice would be a second
@@ -846,6 +857,50 @@ class PyPIReleaseCollector(Collector):
     #: because no locator was ever built -- and reset when a new question is
     #: asked, so a row on that path never carries the previous package's.
     _locator: str = ""
+
+    @classmethod
+    def selectable_packages(cls) -> Iterable[int]:
+        """Return the packages this collector can be asked about: the ones resolution decided.
+
+        The complement of `source_for`'s refusal, expressed as the query that
+        refusal is written against. `asks_about` needs a `release_ecosystem`
+        mapping recorded `established`, and `inapplicability_of` answers for one
+        recorded `not_applicable` -- so those two outcomes are the whole of what
+        this collector can say anything about, and every other one is the
+        refusal `CPM-CURRENCY-S02` recorded as deferred: offered every package,
+        this collector would fail every run for every mapping resolution has not
+        reached.
+
+        **`not_applicable` is selected on purpose, and it is the row that would
+        otherwise be unreachable.** A package whose release-ecosystem mapping is
+        `not_applicable` is not refused: it produces a `not_applicable`
+        observation with no call made, which is what keeps it from reading stale
+        against PyPI for not being published there (`CPM-FR-8` AC 3). Selecting
+        it costs one database read and writes the row that acceptance criterion
+        asks for; not selecting it would make the row unreachable in a real
+        deployment.
+
+        **One `established` mapping is still refused, and it is still selected.**
+        A mapping established with a *blank* primary type is an identity row that
+        contradicts itself, which `CPM-CURRENCY-S02`'s review made `source_for`
+        refuse rather than record. It stays in the selection so the contradiction
+        surfaces as a `failed` ledger row naming it; excluding it here would hide
+        an identity defect behind a sweep that quietly skipped the package.
+
+        Returns:
+            The primary keys, as a lazy queryset ordered by key -- streamed by
+            `collectors/sweep.py` rather than materialised. One row per
+            `(package, kind)` means one key per package, so no key repeats.
+
+        """
+        return (
+            PackageMapping.objects.filter(
+                kind=MappingKind.RELEASE_ECOSYSTEM.value,
+                outcome__in=(ESTABLISHED, OutcomeState.NOT_APPLICABLE.value),
+            )
+            .order_by("package_id")
+            .values_list("package_id", flat=True)
+        )
 
     def inapplicability(self, *, package_id: int) -> str:
         """Say whether PyPI is a question about this package, from what resolution recorded.

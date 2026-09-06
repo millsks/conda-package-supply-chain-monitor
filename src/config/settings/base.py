@@ -3,6 +3,7 @@
 
 import os
 import ssl
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -580,6 +581,80 @@ CELERY_TASK_ROUTES = queues.CELERY_TASK_ROUTES
 # (CPM-AD-20, CPM-NFR-2): a hard-coded schedule cannot be changed without a
 # deploy. `tests/unit/django_apps/test_task_declaration_audit.py` is the gate.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# https://docs.celeryq.dev/en/stable/userguide/configuration.html#beat-schedule
+# CPM-CURRENCY-S05's full-inventory sweep: one entry per *per-package* collector,
+# each firing the one dispatch task with that collector's registered name, at
+# that collector's declared cadence. The dispatch selects the packages its
+# collector can be asked about and enqueues one existing per-package collection
+# task each, in chunks -- so the atomic unit stays one package (CPM-AD-23), no
+# task holds ten thousand packages, and one collector's dispatch failing leaves
+# every other collector's untouched (CPM-FR-15).
+#
+# **The numbers are written here rather than imported, and that is the design
+# rather than a shortcut.** CPM-AD-20 makes cadence *data*: this dictionary is
+# what django_celery_beat's DatabaseScheduler seeds its tables from. What it does
+# **not** buy is an operator changing one of *these four* intervals without a
+# deploy -- the scheduler rewrites every entry it finds here on each beat start,
+# so a value edited in the admin is live only until beat restarts. Cadence as data
+# is what lets a *later* schedule be added or changed in the tables; these four
+# are the declaration, and changing one is a pull request. docs/deployment.md says
+# the same thing to an operator.
+#
+# So the schedule and the collector each state a cadence independently, and the
+# two are reconciled at start-up in both directions -- a collector whose declared
+# cadence does not match its entry, an entry naming a collector nothing
+# registered, a collector declaring a cadence without a selection or the reverse,
+# and a freshness target that is not strictly greater than its cadence are each an
+# ImproperlyConfigured. The refusal fires from the collectors application's own
+# AppConfig.ready(), which is the hook that registers the collectors and therefore
+# the only one in a deployed process positioned to see them;
+# config/startup/stage_two.py evaluates the same rule as condition 11. Without
+# that check a weekly schedule against a daily-derived two-day target would make
+# the whole inventory read stale five days out of seven with every gate green,
+# which is the failure CPM-CURRENCY-S01 recorded and this reconciliation exists
+# to prevent.
+#
+# **The three daily entries fire together, and that is accepted rather than
+# overlooked.** Beat starts them from one instant, so three dispatches land on the
+# `collect` queue at once. A dispatch enqueues and returns -- it makes no outbound
+# call and holds no transaction -- so what arrives simultaneously is three cheap
+# tasks rather than three inventories of I/O, and the collections they enqueue are
+# then bounded by each collector's own rate limiter, which is where the real
+# pacing lives (CPM-AD-20). Offsetting them would need crontab entries, which the
+# reconciliation below deliberately cannot read as intervals.
+#
+# A settings module cannot import a collector to read its cadence: these modules
+# are executed before the app registry exists and every collector module reaches
+# a Django model. The task name and the keyword are literals for the same reason,
+# and both are reconciled -- by the boot sweep, and by tests/unit/test_settings.py
+# against collectors/tasks.py's own declarations.
+#
+# Inventory ingestion is deliberately absent. It is run-scoped: it reads one
+# document naming many packages (CPM-AD-25) and refuses all three per-package
+# hooks, so it is not swept one package at a time and a dispatch refuses it by
+# name. Its own schedule is CPM-IDENTITY-S07's and is not written here.
+CELERY_BEAT_SCHEDULE = {
+    "cpm-sweep-source-release": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "source_release"},
+    },
+    "cpm-sweep-pypi-release": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "pypi_release"},
+    },
+    "cpm-sweep-feedstock": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=7),
+        "kwargs": {"collector": "feedstock"},
+    },
+    "cpm-sweep-conda-package": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "conda_package"},
+    },
+}
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
 CELERY_WORKER_SEND_TASK_EVENTS = True
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#std-setting-task_send_sent_event

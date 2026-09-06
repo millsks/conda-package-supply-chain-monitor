@@ -319,6 +319,15 @@ THE_FEEDSTOCK_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_mo
 #: monitored channel -- so it has a call site inside a loop and still reaches
 #: every one of them through the injected transport.
 THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py"
+
+#: `CPM-CURRENCY-S05`'s dispatch, and the first module in this subtree that is
+#: *not* a collector. Named for a reason none of the five above covers: it walks
+#: the registry, resolves a Celery task and enqueues one message per package, so
+#: it has every reason to reach for a transaction across those packages
+#: (`CPM-AD-23`), for a row of its own (`CPM-AD-7`) or for a call of its own
+#: (`CPM-AD-27`) -- and takes none. A scan that stopped reaching it would report a
+#: clean repository over the one module here that collects nothing.
+THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/sweep.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
@@ -328,6 +337,7 @@ THE_NEW_MODULES: Final[tuple[str, ...]] = (
     THE_PYPI_COLLECTOR,
     THE_RELEASE_COLLECTOR,
     THE_RESPONSE_CACHE,
+    THE_SWEEP_DISPATCH,
     THE_TRANSPORT,
 )
 

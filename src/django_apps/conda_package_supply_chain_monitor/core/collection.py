@@ -241,6 +241,7 @@ from conda_package_supply_chain_monitor.core.transport import RequestsTransport
 from conda_package_supply_chain_monitor.core.transport import TransportError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
     from types import TracebackType
 
@@ -261,6 +262,7 @@ __all__ = [
     "CONDITIONAL_HEADERS",
     "EVENT_KEYS",
     "NO_CACHE",
+    "NO_CADENCE",
     "NO_FRESHNESS",
     "NO_WINDOW",
     "STATE_FIELD",
@@ -270,8 +272,10 @@ __all__ = [
     "Collector",
     "CollectorConfigurationError",
     "SweepOutcome",
+    "freshness_target_fault",
     "has_recent_success",
     "request_headers",
+    "require_cadence",
     "require_freshness_target",
     "window_query",
 ]
@@ -357,6 +361,15 @@ NO_WINDOW: Final[timedelta] = timedelta(0)
 #: it is written", which nobody means. A reader meeting one of them here meets
 #: the other, which is what stops the symmetry being assumed.
 NO_FRESHNESS: Final[timedelta] = timedelta(0)
+
+#: The shortest cadence that means anything, and the third of these zero
+#: intervals. Named beside the two above for the reason `NO_FRESHNESS` is named
+#: beside `NO_WINDOW`: all three are `timedelta(0)` and only one of them is a
+#: value an operator ever means. A zero *window* says "observe on every run"; a
+#: zero *target* would say "stale the instant it is written"; a zero *cadence*
+#: would say "fire continuously", which is a worker that never stops enqueueing.
+#: `require_cadence` refuses it.
+NO_CADENCE: Final[timedelta] = timedelta(0)
 
 #: The run states that suppress a later observation inside the window.
 #:
@@ -649,7 +662,9 @@ class Collector(ABC):
     """The base every collector inherits, and the only code that makes a call.
 
     **Declared configuration, not implemented behaviour.** The nine class
-    attributes below are what a subclass states about itself; every one of them
+    attributes the constructor reads are what a subclass states about itself
+    (`cadence` is a tenth and the one exception -- see its own comment); every
+    one of the nine
     is checked -- for presence *and* for type -- when the collector is
     constructed, so a class that forgets one, or declares a string where an
     interval belongs, fails where it is built with a message naming the
@@ -672,17 +687,20 @@ class Collector(ABC):
     argument and wrote `ok` would defeat "never a clean result" entirely and
     would type-check perfectly.
 
-    **Two defaulted hooks sit beside the three abstract ones, and both were added
-    when an acceptance criterion could not be met without them.**
+    **Three defaulted hooks sit beside the three abstract ones, and each was
+    added when an acceptance criterion could not be met without it.**
     `inapplicability` (`CPM-CURRENCY-S02`) answers "applies" by default, so a
     collector whose question applies to every package declares nothing.
     `sentinel_evidence_rows` (`CPM-CURRENCY-S04`) answers with the one row
     `sentinel_evidence` shapes, so a collector that observes one surface per
     package declares nothing either -- and a collector that observes *several*
     surfaces in one collection can say what the whole run owes on a path where
-    the base, rather than the collector, decides what a row says. Both are
-    non-abstract and both have defaults that leave every collector written before
-    them byte-identical, which is the only shape in which this base grows.
+    the base, rather than the collector, decides what a row says.
+    `selectable_packages` (`CPM-CURRENCY-S05`) answers `None`, meaning "this
+    collector is not swept one package at a time", so a collector nothing
+    dispatches per package declares nothing either. All three are non-abstract
+    and all three have defaults that leave every collector written before them
+    byte-identical, which is the only shape in which this base grows.
 
     **The clock is a constructor parameter and there is no default**
     (`CPM-AD-26`): `observed_at`, the window comparison, the rate-limit window
@@ -752,6 +770,79 @@ class Collector(ABC):
     #: value says nothing at all. The *value* is a per-collector decision like
     #: the window's and is not chosen here.
     response_cache_ttl: ClassVar[timedelta | None] = None
+
+    #: How often this collector is meant to run (`CPM-CURRENCY-S05`), and the
+    #: tenth declaration -- the first one this base does **not** check at
+    #: construction.
+    #:
+    #: `None` means "nothing schedules this collector", which is the honest
+    #: default: a collector reached only by `CPM-UJ-1`'s manual recollection has
+    #: no cadence, and demanding one would make the absence of a schedule a
+    #: construction failure rather than a fact. What it is *for* is
+    #: `CPM-AD-20`'s reconciliation: the schedule itself lives in
+    #: `CELERY_BEAT_SCHEDULE` as data, and a component whose declared cadence and
+    #: schedule entry disagree refuses to start -- which is the failure
+    #: `CPM-CURRENCY-S01` recorded, a weekly schedule against a daily-derived
+    #: two-day target making the whole inventory read stale five days out of
+    #: seven with every gate green.
+    #:
+    #: **Where that refusal fires is `collectors/apps.py`'s `ready()`**, because
+    #: that is the hook which *populates* the registry: `config/startup/
+    #: stage_two.py` evaluates the same rule as condition 11, but it runs from
+    #: the platform owner's `ready()`, which every adopted application is
+    #: installed after -- so in a deployed process it sweeps a registry that is
+    #: still empty. Both call one function
+    #: (`collectors/sweep.py`'s `cadence_reconciliation_fault`); only the
+    #: application's own hook is positioned to see anything.
+    #:
+    #: It is not checked here because a `None` is legitimate and a declared one
+    #: is only meaningful against a schedule this object cannot see. The
+    #: enforcement point is `require_cadence`, called by the boot sweep -- the
+    #: same shape `require_freshness_target` has, minus the constructor half.
+    cadence: ClassVar[timedelta | None] = None
+
+    @classmethod
+    def selectable_packages(cls) -> Iterable[int] | None:
+        """Return the packages this collector can be asked about, or say it is not swept per package.
+
+        The hook `CPM-CURRENCY-S05` added, and the third defaulted one. Every
+        per-package collector already refuses, from `source_for`, the packages it
+        cannot answer about -- an unresolved release-ecosystem mapping, a package
+        with no source repository -- and each of those refusals was recorded as a
+        deferred item saying that a sweep offering *every* package would fail
+        every run. The set a collector can answer about is the complement of its
+        own refusals, so it is declared here, beside them: a dispatch module
+        holding a table of four preconditions would be a second place to edit
+        whenever a collector's refusals change, and the two would diverge
+        silently.
+
+        **`None` is not an empty selection.** It means "this collector is not
+        swept one package at a time" -- inventory ingestion reads one document
+        naming many packages (`CPM-AD-25`) and its run-scoped `sweep()` is the
+        whole of its schedule -- and `collectors/sweep.py` refuses to dispatch
+        such a collector *by name* rather than skipping it silently. An empty
+        iterable is a different answer and a successful one: the selection ran
+        and matched nothing.
+
+        **A classmethod, where `inapplicability` and `sentinel_evidence_rows`
+        are instance methods.** Both of the callers read it off a class:
+        `collectors/sweep.py` selects and enqueues without ever collecting, and
+        constructing a collector to ask would build a `RequestsTransport` and its
+        connection pool for a dispatch that makes no call; `config/startup/
+        stage_two.py` sweeps registered *classes* for exactly the same reason,
+        which its own docstring records. Nothing here reads instance state,
+        because there is none to read before a run begins.
+
+        Returns:
+            An iterable of package primary keys, or `None`. The iterable is
+            **streamed, never materialised**: `CPM-NFR-1`'s ten thousand packages
+            must reach the queue without a list of ten thousand ids existing
+            anywhere, so an implementation returns a lazy queryset or an iterator
+            and `collectors/sweep.py` chunks it. The default answers `None`, so
+            every collector written before this hook declares nothing new.
+
+        """
+        return None
 
     def __init__(
         self,
@@ -2398,6 +2489,103 @@ def require_freshness_target(target: timedelta | None, *, label: str) -> timedel
         )
         raise CollectorConfigurationError(message)
     return target
+
+
+def freshness_target_fault(collectors: Sequence[type[Collector]]) -> str:
+    """Return why registered collectors cannot be started, or nothing when they can.
+
+    `CPM-AD-28`'s sweep as a pure function over the registered classes, so that
+    the two places which enforce it call one rule rather than restating it:
+    `collectors/apps.py` from the `ready()` that registers them -- the only hook
+    in a deployed process that runs *after* the registry is populated -- and
+    `config/startup/stage_two.py` as condition 10. `require_cadence` has the same
+    shape next door and `collectors/sweep.py`'s `cadence_reconciliation_fault` is
+    `CPM-AD-20`'s equivalent.
+
+    **Every offender is reported together.** Raising on the first costs an
+    operator a restart per collector: they fix the target the message named,
+    redeploy, and meet the next refusal -- which with eight collectors coming is
+    eight boots to learn what one could have said.
+
+    **Classes, never instances.** Constructing a collector to ask what it
+    declares would build a `RequestsTransport` and its connection pool inside
+    `django.setup()`, which `gunicorn --preload` then forks into every worker.
+    The declaration is a class attribute, so reading it costs nothing.
+
+    Args:
+        collectors: The registered collector classes. An empty roster is not a
+            failure: a component that has adopted none has forgotten nothing.
+
+    Returns:
+        One message naming every collector whose declared target is absent,
+        mistyped, zero or negative, or the empty string when every one of them
+        declares a usable target. The message names the class and what the
+        declaration actually says, because "a collector has no freshness target"
+        tells an operator nothing they can act on while naming the class tells
+        them which file to open.
+
+    """
+    undeclared: list[str] = []
+    for collector in collectors:
+        try:
+            require_freshness_target(collector.freshness_target, label=collector.__name__)
+        except CollectorConfigurationError as refusal:
+            undeclared.append(f"{collector.__name__} (name={collector.name!r}): {refusal}")
+
+    if not undeclared:
+        return ""
+    offenders = "; ".join(undeclared)
+    return (
+        f"{len(undeclared)} registered collector(s) cannot be started -- {offenders} An unset freshness "
+        "target behaves as 'fresh forever', so evidence collected months ago reads as current on every "
+        "surface -- which is the failure CPM-AD-28 exists to prevent, and it is invisible at run time. "
+        "Declare freshness_target on each class named above."
+    )
+
+
+def require_cadence(cadence: timedelta | None, *, label: str) -> timedelta:
+    """Refuse a declared cadence that is absent, mistyped, zero or negative.
+
+    **Public where most of the declaration checks are private, and for the
+    reason `require_freshness_target` is.** The rule has one enforcement point
+    and that point is not this module's constructor: a cadence is only
+    meaningful against the schedule that fires it, and the schedule is data an
+    operator edits (`CPM-AD-20`). So it is `config/startup/stage_two.py` that
+    calls this, over the registered classes, in the same sweep that refuses a
+    missing freshness target -- and a copy of the rule restated there would be
+    the two-enforcement-points problem this module's docstring is about.
+
+    **It is never called for a collector that declares none.** `cadence = None`
+    means "nothing schedules this", which is a legitimate state and the base's
+    default; the boot sweep asks this only about a collector that declared a
+    value, so `None` reaching here is a caller mistake rather than an absent
+    declaration -- and it is refused with the same message, because a cadence
+    somebody meant to declare and spelled `None` is exactly as unschedulable.
+
+    Args:
+        cadence: The declared cadence.
+        label: The class's own name, for the message.
+
+    Returns:
+        The cadence, unchanged.
+
+    Raises:
+        CollectorConfigurationError: When it is not a `timedelta`, or is not
+            strictly positive. Zero is refused for the reason a zero freshness
+            target is: "run continuously" is not something an operator means,
+            and a beat entry firing on a zero interval is a worker that never
+            stops enqueueing.
+
+    """
+    if not isinstance(cadence, timedelta) or cadence <= NO_CADENCE:
+        message = (
+            f"{label} declares cadence={cadence!r}, which is not an interval anything can be scheduled on. A "
+            f"collector that is swept package by package declares how often (CPM-AD-20), and the schedule "
+            f"entry that fires it is reconciled against that number at boot; a zero or negative one would "
+            f"fire continuously."
+        )
+        raise CollectorConfigurationError(message)
+    return cadence
 
 
 def _require_timeout(timeout: float | None, *, label: str) -> float:
