@@ -26,14 +26,14 @@ file. `tests/collectors.py`'s `registered_collector` withdraws in a `finally`,
 which is the only ordering that survives a case whose whole body raises.
 
 **The registry this component really boots with is the other half.**
-`CPM-IDENTITY-S06` adopted the first collector, so a deployed boot now sweeps a
-roster of one rather than of nothing, and the case that asserts it is what proves
-the condition passes over a *real* declaration and not only over fixtures. The
-empty case it replaces made the opposite claim and was worth making while it was
-true; what it cannot do any more is be true. A condition that refused the roster
-below would stop every process in this repository, and it would do so while every
-refusal case above still passed -- which is why the roster is asserted rather than
-assumed.
+`CPM-IDENTITY-S06` adopted the first collector and `CPM-CURRENCY-S01` the second,
+so a deployed boot now sweeps a real roster rather than nothing, and the case that
+asserts it is what proves the condition passes over *real* declarations and not
+only over fixtures. The empty case it replaces made the opposite claim and was
+worth making while it was true; what it cannot do any more is be true. A condition
+that refused the roster below would stop every process in this repository, and it
+would do so while every refusal case above still passed -- which is why the roster
+is asserted rather than assumed.
 
 `tests/integration/conftest.py` marks everything under `tests/integration/` as an
 integration test; the marker is not re-applied by hand.
@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
 from conda_package_supply_chain_monitor.core.registry import registrations
 from config.locality import PROCESS_ENV_VAR
@@ -203,12 +204,19 @@ def test_a_registered_collector_that_declares_a_target_starts() -> None:
 def test_the_registry_this_component_actually_boots_with_does_not_refuse() -> None:
     """The state every component in this repository is actually in today.
 
-    `CPM-IDENTITY-S06` adopted the first real collector, so the registry a
-    deployed boot sweeps is no longer empty: `CollectorsConfig.ready()` registers
-    inventory ingestion during `django.setup()`, and the sweep meets it on every
-    boot in this tree. That is asserted rather than assumed, and both halves
-    matter -- the roster is what it is meant to be, and stage two passes over it
-    without a fixture in sight.
+    `CPM-IDENTITY-S06` adopted the first real collector and `CPM-CURRENCY-S01` the
+    second, so the registry a deployed boot sweeps is no longer empty:
+    `CollectorsConfig.ready()` registers inventory ingestion and upstream release
+    collection during `django.setup()`, and the sweep meets both on every boot in
+    this tree. That is asserted rather than assumed, and both halves matter -- the
+    roster is what it is meant to be, and stage two passes over it without a
+    fixture in sight.
+
+    The roster is asserted as a whole rather than as "contains", which is the
+    difference between a test that notices an adoption disappearing and one that
+    does not: a `ready()` that stopped registering a collector would leave that
+    collector unscheduled, unswept by `CPM-AD-28`'s refusal, and invisible in
+    every report, with nothing else in the suite the poorer for it.
 
     Asserted by *name* rather than by identity, and the reason is what the
     registry is *for* rather than an import rule -- this module imports the
@@ -218,8 +226,11 @@ def test_the_registry_this_component_actually_boots_with_does_not_refuse() -> No
     component running" is a question about names. A roster compared by identity
     would still pass if two classes had come to share one.
     """
-    assert sorted(registrations()) == [INVENTORY_COLLECTOR_NAME]
-    assert registrations()[INVENTORY_COLLECTOR_NAME].freshness_target is not None
+    adopted = sorted([INVENTORY_COLLECTOR_NAME, SOURCE_RELEASE_NAME])
+
+    assert sorted(registrations()) == adopted
+    for name in adopted:
+        assert registrations()[name].freshness_target is not None
 
     with temporary_root_urlconf(*deployed_url_patterns()):
         run_stage_two()

@@ -290,10 +290,20 @@ THE_LIMITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/r
 THE_RESPONSE_CACHE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/response_cache.py"
 THE_TRANSPORT: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/transport.py"
 THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/tasks.py"
+
+#: `CPM-CURRENCY-S01`'s collector, and the first module in this tree that reads a
+#: *remote* source through the base. Named for a reason the ingestion collector's
+#: entry does not cover: that one reads a local file through a substituted
+#: transport, so it could satisfy every rule below by having no reason to break
+#: one. This module has every reason -- a URL, a host, a page size and an API
+#: version -- and reaches all of it through the injected transport, which is the
+#: claim `CPM-AD-27` actually makes and the one an anchor here keeps in view.
+THE_RELEASE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/source_release.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_INGESTION_COLLECTOR,
     THE_LIMITER,
+    THE_RELEASE_COLLECTOR,
     THE_RESPONSE_CACHE,
     THE_TRANSPORT,
 )

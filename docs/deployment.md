@@ -746,3 +746,62 @@ Both files ship inside the wheel, under
 `tests/integration/test_import_resolution.py` asserts that against the built
 artifact, because a build that dropped them fails nowhere else until the first
 deployed sweep.
+
+## The upstream-release collector reads GitHub unauthenticated
+
+`cpm.collect.source_release` observes a package's own source repository
+(`CPM-FR-7`) by asking GitHub's API for one page of its releases. It sends **no
+credential**, and its declared allowance says so: sixty requests an hour, which
+is GitHub's documented limit for unauthenticated requests, counted per source IP
+rather than per component.
+
+Two consequences to plan for.
+
+**The allowance is spent in requests, not collections.** The collector base
+charges `1 + retries` against the allowance before each call, because that is how
+many requests the mounted retry policy may issue — so sixty an hour is fifteen
+packages an hour on the declared retry count. That is enough to observe a small
+inventory and is **not** enough to sweep the ten thousand packages `CPM-NFR-1`
+sizes for. Nothing is scheduled to try: no cadence entry exists for this
+collector, and the full-inventory sweep is a later story.
+
+**A repository that publishes no releases costs a second call.** `CPM-FR-7` asks
+for the latest release *or tag*, and many projects tag without ever publishing a
+GitHub Release — so an empty release list falls back to the repository's tags. The
+fallback fires only then, and it is **not** charged against the local allowance:
+the base charges `1 + retries` once, before the first call, so a repository on the
+tag path spends more of the *remote* budget than the local counter believes. That
+matters only at sweep volume, which nothing reaches yet.
+
+**A spent allowance is recorded, never queued.** The call is refused rather than
+waited on — a worker blocked on a limiter holds a slot doing nothing against the
+inherited Celery limits — and the refusal writes an evidence row carrying `error`
+and finalizes the run `failed`. It is visible in the ledger and in the log line
+`collection.refused_by_rate_limit`, which carries the collector, the package and
+the locator.
+
+**Telling "we never got to look" from "the source is failing" is `detail`'s job,
+not the state's.** Both are `error` rows, deliberately: `OutcomeState` says what
+may be claimed about a package, not why a run went the way it did. The row's
+`detail` — the same string the ledger row carries — is what separates them. A
+refusal names the allowance and the window it was spent in; a transport failure
+carries the exception's type and message; a document that could not be read names
+the locator and what was wrong with it.
+
+One thing the local counter cannot currently see: GitHub signals an exhausted
+anonymous quota with a `403`, which this product's transport reads as an ordinary
+failure. So a remote refusal produces an `error` row that looks like any other,
+and the local allowance keeps granting until its own window turns over.
+
+**A `not_found` row means "absent **or** unreadable" while no credential is
+configured.** GitHub answers `404` identically for a repository that is absent,
+one that is private, one that has moved and one that is blocked — by design, so an
+unauthenticated reader cannot enumerate private repositories. This collector
+cannot tell them apart, so it records `not_found` (which is what the source said)
+and writes the caveat into the row's `detail`. Do not read these rows as proof a
+repository is gone; a private mirror or a moved upstream produces the same row.
+
+Raising the real allowance, and resolving that ambiguity, both mean authenticating
+— which needs a credential, a setting to carry it and a declared header to send it
+in. None of the three exists yet; when they do, the allowance declaration moves
+with them, because the number and the credential are one decision.

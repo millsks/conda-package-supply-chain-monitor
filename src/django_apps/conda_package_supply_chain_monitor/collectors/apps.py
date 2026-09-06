@@ -40,12 +40,12 @@ class CollectorsConfig(AppConfig):
     that is ordering rather than a ban on the hook --
     `tests/unit/startup/test_installed_apps_ordering.py` asserts that every
     adopted application is installed *after* the owner, so stage two has already
-    run by the time anything of this application's does. The hook here adopts one
-    collector into `core`'s registry, which is where `CPM-AD-28`'s boot sweep and
-    `CPM-AD-20`'s scheduling both look for it -- and `core/registry.py` requires
-    exactly this: "a collector arrives here because somebody wrote
-    `register(TheCollector)` in an `AppConfig.ready()`, where a reader can see
-    it."
+    run by the time anything of this application's does. The hook here adopts this
+    application's collectors into `core`'s registry, which is where `CPM-AD-28`'s
+    boot sweep and `CPM-AD-20`'s scheduling both look for them -- and
+    `core/registry.py` requires exactly this: "a collector arrives here because
+    somebody wrote `register(TheCollector)` in an `AppConfig.ready()`, where a
+    reader can see it."
     """
 
     name = "conda_package_supply_chain_monitor.collectors"
@@ -68,6 +68,15 @@ class CollectorsConfig(AppConfig):
         `INVENTORY_WATCHLIST_PATH`, in the shape `ROLE_CONTRACT` already
         establishes. What is here is the settings *access*, which is a read of a
         value the platform composed and not a second selection rule.
+
+        **The roster is a loop over a tuple rather than a line per collector.**
+        Eight are coming (`CPM-EP-CURRENCY`, `CPM-EP-SECURITY`, `CPM-EP-PY314`),
+        and the guard below is the part that must not be written eight times: a
+        copy of it that compared the wrong name, or that was left off a new
+        adoption, would either abort boot on a second `django.setup()` or register
+        nothing at all. Adoption stays explicit -- every class is named in the
+        tuple, where a reader can see it, and nothing is discovered (inherited
+        `AD-8`).
 
         **Adopting the same class twice is a no-op, and that is not a softening
         of `core/registry.py`'s duplicate-name refusal.** That refusal is about
@@ -108,6 +117,9 @@ class CollectorsConfig(AppConfig):
         from django.conf import settings  # noqa: PLC0415 - see above
         from django.core.exceptions import ImproperlyConfigured  # noqa: PLC0415 - see above
 
+        from conda_package_supply_chain_monitor.collectors.source_release import (  # noqa: PLC0415 - see above
+            SourceReleaseCollector,
+        )
         from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
             InventoryIngestionCollector,
         )
@@ -123,8 +135,9 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.core.registry import register  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.core.registry import registrations  # noqa: PLC0415 - see above
 
-        if registrations().get(InventoryIngestionCollector.name) is not InventoryIngestionCollector:
-            register(InventoryIngestionCollector)
+        for collector in (InventoryIngestionCollector, SourceReleaseCollector):
+            if registrations().get(collector.name) is not collector:
+                register(collector)
 
         selected = getattr(settings, WATCHLIST_PATH_SETTING, None)
         if selected is None:

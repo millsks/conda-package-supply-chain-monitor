@@ -1,10 +1,20 @@
-"""What the inventory observed, as evidence, and the cut-off-bound way to read it.
+"""What this application's collectors observed, as evidence, and how it is read.
 
 `CPM-AD-25`: "the internal inventory is observed by a collector like any other
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
-the run's correlation identifiers." This module is that table and the one read
-against it.
+the run's correlation identifiers." This module is that table, the one read
+against it, and -- since `CPM-CURRENCY-S01` -- the upstream release table beside
+it.
+
+**One module, two tables, and no shared columns beyond the ones every evidence
+row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
+rule about tables rather than about files: `inventory_snapshots` and
+`source_release_snapshots` are written by two collectors that share nothing but
+the log, and neither reads the other's. They live together because Django
+auto-imports `<app>.models` and no other module, so a model declared elsewhere in
+this application is registered only by whatever happens to import it -- which is
+a table that exists on a developer's machine and not in a migration.
 
 **The first evidence model in this repository.** `core/models.py` has carried
 `AppendOnlyModel` since `CPM-EVIDENCE-S02` with nothing inheriting it, and three
@@ -81,10 +91,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COUNTS_PRESENT_CONSTRAINT",
+    "RELEASE_FACTS_CONSTRAINT",
+    "RELEASE_READ_INDEX",
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
     "InventoryReadError",
     "InventorySnapshot",
+    "SourceReleaseSnapshot",
     "snapshot_as_of",
 ]
 
@@ -134,6 +147,33 @@ COUNTS_PRESENT_CONSTRAINT: Final[str] = "inventory_counts_present_exactly_when_o
 #: `inventory_snapshot`.
 SNAPSHOT_READ_INDEX: Final[str] = "inv_snapshot_pkg_observed"
 SNAPSHOT_KEY_INDEX: Final[str] = "inv_snapshot_source_key"
+
+#: How wide the upstream version column is. A release tag is a string a project
+#: chose rather than a name a person picked -- `v1.2.3`, `2024.11.0rc1`,
+#: `release/2025-06-11`, and occasionally a whole sentence -- so it is sized like
+#: an identifier rather than like the 128 `identity/models.py` gives a name. It is
+#: its own constant rather than `_KEY_LENGTH` reused: the two answer to different
+#: sources, an inventory's key format and an upstream project's tagging habits,
+#: and one of them changing is not a reason to move the other.
+_VERSION_LENGTH: Final[int] = 512
+
+#: How wide the locator column is. A locator is a URL this collector built from
+#: an owner and a repository, so it is bounded by the same reasoning `_KEY_LENGTH`
+#: carries -- a machine-generated string, not a name a person picked -- and by the
+#: same number, because both are sized as identifiers rather than ordered against
+#: each other.
+_LOCATOR_LENGTH: Final[int] = 512
+
+#: The name of the constraint that makes the release facts present exactly where
+#: they are true, and the read index the freshness query needs. Named here for the
+#: reason the two above are: the model declares them and the cases that assert the
+#: database refuses a violation name them too, and a string spelled twice is a
+#: constraint that can be renamed on one side only.
+#:
+#: Django caps an index name at 30 characters, which is why the index does not
+#: spell out `source_release_snapshot`.
+RELEASE_FACTS_CONSTRAINT: Final[str] = "release_facts_present_exactly_when_observed"
+RELEASE_READ_INDEX: Final[str] = "src_release_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -352,3 +392,219 @@ def snapshot_as_of(*, package_id: int, cutoff: datetime) -> InventorySnapshot | 
         .order_by("-observed_at", "-pk")
         .first()
     )
+
+
+class SourceReleaseSnapshot(AppendOnlyModel):
+    """One observation of a package's upstream releases. Table `source_release_snapshots`.
+
+    PRD Appendix A.2 gives this table four facts -- "upstream latest version,
+    release date, repository activity, lookup status" -- and `CPM-FR-7` is where
+    they come from: "latest release or tag, its date, and a repository activity
+    signal from the package's source repository", with the lookup status recorded
+    explicitly.
+
+    **The lookup status is `state`, over `OutcomeState`, and never a boolean**
+    (`CPM-AD-5`). `ok` is a version this run read; `not_found` is the source
+    answering that there is none -- because the repository could not be read, or
+    because it publishes no releases *and* lists no tags; `error` is a look that
+    failed. Which of the two `not_found` means is in `detail`, and the reason it
+    is there rather than in a second status column is that `OutcomeState` says
+    what may be claimed about the package rather than why the run went the way it
+    did. The
+    column is called `state` rather than `*_status` for the reason
+    `InventorySnapshot.state` is: `tests/unit/django_apps/test_outcome_field_audit.py`
+    sweeps the derived-status *names*, and a collector's observation of what a
+    source said is not a status a policy derived (`CPM-AD-8`).
+
+    **A `not_found` row is the point of the table rather than an edge of it.**
+    `CPM-FR-7` says a repository that publishes no releases "records that fact
+    rather than reporting stale", and this is where that fact lives: a row, with
+    this run's `observed_at`, carrying `not_found` and no version. Recording it as
+    a missing observation instead would make the package read as unobserved --
+    which `core/freshness.py` reports as `unknown` and which ages into stale --
+    and the difference between "we have not looked" and "we looked and there is
+    nothing to find" is exactly what `CPM-FR-6` exists to keep.
+
+    **`releases_seen` is nullable because zero is an answer.** A row written from
+    a document the collector actually read carries the number of releases that
+    document listed, and `0` is a real observation. A sentinel row -- the base's
+    `error` or `not_found` for a call that produced no document -- carries NULL,
+    because nothing was counted. That is PRD Appendix A.1's "blank means missing;
+    values are never invented" applied to the one column where missing and zero
+    are both reachable.
+
+    **`released_at` and `last_activity_at` are two facts, not one written twice.**
+    The first is when the latest *release* -- the newest entry that is neither a
+    draft nor a prerelease -- was published, which is what a currency comparison
+    (`CPM-FR-16`) is made against. The second is the most recent instant the
+    source showed any release activity at all, prereleases included, which is the
+    repository activity signal `CPM-FR-7` asks for and is what distinguishes a
+    project that stopped from one that is mid-cycle. They differ exactly when a
+    project is actively cutting prereleases, which is the case the distinction was
+    made for.
+
+    **A determinate row may carry no date, and `source` is what says why.**
+    `CPM-FR-7` asks for the latest release **or tag**, and a tag carries no
+    publication date -- the endpoint that lists them supplies none. So a row whose
+    version came from a tag is `ok`, names the version, and leaves `released_at`
+    NULL; the constraint below permits exactly that and nothing looser. What tells
+    a reader which happened is the `source` column, which names the locator the
+    observation came from -- a releases endpoint or a tags one -- and which is
+    also what keeps two observations of *different* repositories apart in an
+    append-only history: `Package.source_repository_url` is mutable, so a package
+    can be resolved to one repository and later corrected to another, and without
+    this column nothing on the rows would say which was read.
+
+    **A `not_found` row is weaker than it looks while no credential is
+    configured.** `core/transport.py` reads `404` and `410` as "the source says
+    this does not exist", and GitHub answers `404` identically for an absent
+    repository, a private one, one that has moved and one that is blocked -- by
+    design, so an unauthenticated reader cannot enumerate private repositories.
+    The collector sends no credential, so it records the caveat in `detail` rather
+    than claiming a fact it cannot support, and a reader comparing these rows must
+    treat `not_found` as "absent **or** unreadable" until authentication lands.
+
+    **`PROTECT`, and it is required rather than preferred**
+    (`EVIDENCE.02-AUDIT-001`), on the terms `InventorySnapshot.package` states:
+    Django's deletion collector issues its `DELETE` through `sql.DeleteQuery` and
+    would go past every append-only refusal in `core/models.py` on the way.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package,
+    #: and this collector is only ever asked about one that already has a row.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="source_release_snapshots",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from -- a releases endpoint or a tags
+    #: one, naming the owner and repository that answered.
+    #:
+    #: Recorded on the row rather than left to the run ledger, because the ledger
+    #: is not what a read surface queries: a policy comparing a package's
+    #: observation history reads this table, and `Package.source_repository_url`
+    #: is mutable, so the history can legitimately hold rows read from two
+    #: different repositories with nothing else on them to tell which. Blank only
+    #: on a row written by a caller that reached `sentinel_evidence` without
+    #: asking for a locator first, which the base never does -- blank means
+    #: missing, as it does everywhere else here.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the lookup concluded, over `OutcomeState` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=OutcomeState.choices)
+
+    #: The tag the latest upstream release carries, exactly as the source spelled
+    #: it. Stored raw rather than normalised: `CPM-FR-16`'s comparison is a policy
+    #: pass's (`CPM-AD-8`), and a collector that normalised a version would be
+    #: deriving a value into an append-only row nothing may correct. Blank on every
+    #: row that is not a determinate observation -- see `Meta.constraints`.
+    latest_version = models.CharField(_("latest version"), max_length=_VERSION_LENGTH, blank=True, default="")
+
+    #: When that release was published. NULL on every row that is not a
+    #: determinate observation -- and NULL on a determinate one whose version came
+    #: from a *tag*, because a tag carries no publication date. The constraint
+    #: below says exactly that: a determinate row names a version, and a date is
+    #: something only a release can supply.
+    released_at = models.DateTimeField(_("released at"), null=True, blank=True, default=None)
+
+    #: The repository activity signal: the most recent release activity the source
+    #: showed, prereleases included. NULL when the source showed none, and
+    #: permitted on a `not_found` row -- a repository that has cut only prereleases
+    #: has no latest release and is plainly active, and a column that could not say
+    #: both would lose the more interesting half.
+    last_activity_at = models.DateTimeField(_("last activity at"), null=True, blank=True, default=None)
+
+    #: How many releases the document this run read listed. `0` is an observation
+    #: and NULL is the absence of one; see the class docstring. It stays `0` on a
+    #: row whose version came from a tag, because the fallback is reached only
+    #: when the release list was empty and that is the fact this column records.
+    releases_seen = models.PositiveIntegerField(_("releases seen"), null=True, blank=True, default=None)
+
+    #: What the collector or the base had to say about this observation -- the
+    #: sentinel path's reason, or the words that go with a repository publishing
+    #: nothing. Empty on an ordinary determinate observation, which needs no
+    #: explanation.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: exactly as `config/observability/logging.py` formats it for every log line
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_sourcereleasesnapshot` Django derives.
+
+        Rejected for the reason `InventorySnapshot.Meta` rejects its own: the
+        tables in this product are named by the architecture and the PRD, and a
+        derived name would make the schema depend on which application happened to
+        declare the model.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one package's releases are two rows, and idempotency is
+        the run ledger's property rather than this table's.
+        """
+
+        db_table = "source_release_snapshots"
+        verbose_name = _("source release snapshot")
+        verbose_name_plural = _("source release snapshots")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this: one
+            # package, newest observation first. Django's automatic foreign-key
+            # index covers the filter alone and leaves the sort to a scan of that
+            # package's whole observation history, which grows daily and is never
+            # pruned.
+            models.Index(fields=["package", "-observed_at"], name=RELEASE_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and all three conjuncts are load bearing.
+            #
+            # A determinate observation with no version is a row saying "there is
+            # a latest version" while declining to say which -- the guess
+            # `CPM-FR-1`'s sibling rule forbids in identity, and worse here
+            # because nothing may correct it. A row that is *not* determinate and
+            # carries a version is claiming to have observed something the run
+            # never saw; one that carries a *date* without a version is claiming
+            # a release date for a release it cannot name.
+            #
+            # A date is deliberately not required of a determinate row.
+            # `CPM-FR-7` asks for the latest release **or tag**, and the endpoint
+            # that lists tags supplies no date, so a tagged observation is `ok`,
+            # names its version, and dates nothing. Requiring the date here would
+            # make the honest answer unwritable and would push the collector into
+            # inventing one.
+            #
+            # `state` is NOT NULL and an `IS NULL` test is never itself NULL, so
+            # this expression is always true or false and never the third thing a
+            # SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=OutcomeState.OK) & ~models.Q(latest_version=""))
+                    | (~models.Q(state=OutcomeState.OK) & models.Q(latest_version="", released_at__isnull=True))
+                ),
+                name=RELEASE_FACTS_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the version, the state and when it was observed.
+
+        Returns:
+            A one-line summary. Read off `package_id` rather than off `package`,
+            because the related object of an unsaved instance raises
+            `RelatedObjectDoesNotExist` -- and a `__str__` that raises breaks the
+            two places a half-built object is most likely to be rendered, a
+            debugger and a traceback.
+
+        """
+        version = self.latest_version or "(no release)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{version} for {scope}: {self.state} at {when}"
