@@ -196,23 +196,37 @@ def _migrate_to(target: tuple[str, str]) -> None:
     MigrationExecutor(connection).migrate([target])
 
 
-def _historical_apps(target: tuple[str, str]) -> Apps:
-    """Return the model registry as it stood at one migration state.
+def _the_applied_state() -> Apps:
+    """Return the model registry as the database actually stands, right now.
 
     The rows have to be written through models that match the schema of the day
     -- at `BEFORE` the package reference is a plain integer attribute named
     `package_id`, and the real `CollectionRun` has been a relation since. Reading
-    the historical registry is how a data migration does it, and it is how this
+    a historical registry is how a data migration does it, and it is how this
     module arranges the same thing.
 
-    Args:
-        target: The `(app_label, migration_name)` whose state to render.
+    **Built from what is applied, not from `BEFORE`'s ancestors, and the
+    difference is a defect this once had.** `project_state(BEFORE)` renders every
+    app at whatever state `core.0003` *depends on* -- `identity` at `0001`, in
+    particular -- while `_migrate_to(BEFORE)` unapplies only what comes after
+    `core.0003` and leaves every other application at its leaf. The two agreed
+    for as long as `identity` had not changed since, and stopped agreeing the
+    moment `CPM-CURRENCY-S06` added a NOT NULL `version_authority_order` to
+    `packages`: an insert through the rendered `Package` omitted a column the
+    real table requires, and a delete through it walked a `package_health` that
+    was missing a column the real one has. Asking for the *applied* set makes the
+    registry describe the database rather than a state the database was never in.
+
+    Must be called after every `_migrate_to`, for the reason `_migrate_to` builds
+    a fresh executor each time: the applied set changes with every move, and a
+    loader built before one is describing a schema the database has left.
 
     Returns:
-        A registry whose models declare the columns that exist at that state.
+        A registry whose models declare the columns that exist right now.
 
     """
-    return MigrationExecutor(connection).loader.project_state(target).apps
+    loader = MigrationExecutor(connection).loader
+    return loader.project_state(list(loader.applied_migrations)).apps
 
 
 def _write_the_rows_the_old_contract_permitted(historical: Apps) -> None:
@@ -224,7 +238,7 @@ def _write_the_rows_the_old_contract_permitted(historical: Apps) -> None:
     foreign key does not.
 
     Args:
-        historical: The registry at `BEFORE`, whose `CollectionRun` still carries
+        historical: The registry as applied, whose `CollectionRun` still carries
             the plain integer.
 
     """
@@ -256,7 +270,7 @@ def _remove_the_rows(historical: Apps) -> None:
     it.
 
     Args:
-        historical: The registry at `BEFORE`.
+        historical: The registry as applied.
 
     """
     historical.get_model("core", "CollectionRun").objects.filter(collector=A_COLLECTOR).delete()
@@ -287,7 +301,7 @@ def a_populated_ledger_before_the_conversion(
     with django_db_blocker.unblock():
         _refuse_a_database_the_test_runner_did_not_prepare()
         _migrate_to(BEFORE)
-        historical = _historical_apps(BEFORE)
+        historical = _the_applied_state()
         _remove_the_rows(historical)
         try:
             _write_the_rows_the_old_contract_permitted(historical)

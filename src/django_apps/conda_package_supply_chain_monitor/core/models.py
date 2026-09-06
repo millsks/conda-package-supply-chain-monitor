@@ -104,6 +104,9 @@ from django.utils.translation import gettext_lazy as _
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
+from conda_package_supply_chain_monitor.policies.outcomes import CURRENCY_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import UNKNOWN as CURRENCY_UNKNOWN
+from conda_package_supply_chain_monitor.policies.outcomes import CurrencyOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -948,23 +951,27 @@ class PackageHealth(models.Model):
     table every read surface reads. `SET_NULL` is worse: the row would survive
     claiming a health nothing can say where it came from.
 
-    **No domain status columns yet, and that is the honest state.** `epics.md`
-    says the rollup "composes whatever derived tables exist, so it grows as
-    passes are added", and today none exist. Inventing `currency_status` here
-    would be guessing at an epic that has not run, and `CPM-AD-5` forbids the
-    alternative of a JSON map keyed by domain -- a map would evade every audit
-    that reads column names. What ships is the identity, the stamps and the
-    confidence, plus the *mechanism* by which a pass contributes a column
-    (`core/policy.py` validates a declared contribution against this model's real
-    fields, and `core/rollup.py` is the one writer that applies it).
+    **One domain status column, and the table grows a column per pass.**
+    `epics.md` says the rollup "composes whatever derived tables exist, so it
+    grows as passes are added". `CPM-CURRENCY-S06` added the first,
+    `currency_status`, in the same story as the pass that produces it -- which is
+    the rule this table follows and not a coincidence: a column added ahead of
+    its pass is one nothing writes and one every read surface reports `unknown`
+    for forever. `CPM-AD-5` forbids the alternative of a JSON map keyed by
+    domain, because a map would evade every audit that reads column names.
 
-    **The first column a pass contributes must be `editable=False`.**
+    The *mechanism* is unchanged and is what the remaining seven passes use:
+    `core/policy.py` validates a declared contribution against this model's real
+    fields, and `core/rollup.py` is the one writer that applies it after
+    `CPM-AD-4`'s gate.
+
+    **Every column a pass contributes is `editable=False`.**
     `tests/unit/django_apps/test_derived_status_writability_audit.py` recognises
     this model as derived state by `computed_at` and fails any field named
     `status`/`outcome`, or ending `_status`/`_outcome`, that is still editable.
     That audit was written before this table existed, deliberately, so the rule
     would be shaped by `CPM-AD-11` rather than by whatever this writer happened
-    to do.
+    to do -- and `currency_status` is the first column it actually inspects.
 
     **It declares no `not_evidence`, and must not.** It carries none of the three
     marks `tests/model_registry.py` reads -- it does not inherit
@@ -1052,9 +1059,44 @@ class PackageHealth(models.Model):
     #: force every domain to be re-run whenever any one of them changed version,
     #: or would lie about the ones that were not.
     #:
-    #: Empty for a run in which no pass was registered, which is every run this
-    #: story can produce.
+    #: Empty for a run in which no pass was registered.
     policy_versions = models.JSONField(_("policy versions"), default=dict, blank=True)
+
+    #: What `CPM-FR-16`'s currency pass concluded about this package, gated by
+    #: `CPM-AD-4` on the way in. The first domain status column on this table,
+    #: added by `CPM-CURRENCY-S06` with the pass that produces it, and the one
+    #: `contributable_columns()` now offers.
+    #:
+    #: **`editable=False`, which is `CPM-FR-37` as a declaration rather than a
+    #: convention.** `tests/unit/django_apps/test_derived_status_writability_audit.py`
+    #: recognises this model as derived state by `computed_at` and fails any
+    #: field named `status`/`outcome`, or ending `_status`/`_outcome`, that is
+    #: still editable. The declaration takes the field out of every `ModelForm`,
+    #: out of the admin and out of `full_clean()`'s validation of user-supplied
+    #: data -- the half of "only the rollup writer writes it" that no source scan
+    #: can reach.
+    #:
+    #: **The vocabulary is `policies`', not `core`'s, and it is read from there
+    #: rather than restated.** `CPM-AD-5` requires `choices` on every derived
+    #: status and `core/rollup.py`'s `permitted_values` checks a contribution
+    #: against exactly this declaration, so a copy of the six values here could
+    #: drift from what the pass returns and would refuse a verdict the pass is
+    #: entitled to produce. `policies/outcomes.py` is a leaf module holding only
+    #: the composed type, which is what keeps this import from being a cycle --
+    #: `identity/confidence.py` exists for the same reason and says so.
+    #:
+    #: **The default is `unknown`, and it goes through the gate like any
+    #: contribution.** A rollup row is written for every package on every run,
+    #: including one no pass evaluated, and `core/rollup.py` writes the field's
+    #: own default there. `ok` would make every un-evaluated package read clean,
+    #: which is the claim `CPM-FR-5` forbids; `unknown` says what is true.
+    currency_status = models.CharField(
+        _("currency"),
+        max_length=CURRENCY_STATE_LENGTH,
+        choices=CurrencyOutcome.choices,
+        default=CURRENCY_UNKNOWN,
+        editable=False,
+    )
 
     class Meta:
         """The table the architecture names, not the `core_packagehealth` Django derives.

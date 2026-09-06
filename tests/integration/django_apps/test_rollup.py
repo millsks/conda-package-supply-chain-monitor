@@ -9,15 +9,15 @@ domains surviving one compose, which is the property the single-writer rule
 exists for: a writer that reset another domain's table would satisfy every
 single-domain assertion there is.
 
-**What this story cannot prove end to end, stated rather than left to be
-discovered.** The rollup declares no domain status column yet -- `epics.md` says
-it "grows as passes are added" and no policy epic has run -- so no contributed
-column is composed here and the confidence gate has nothing to gate. The gate
-itself is proved directly in `tests/unit/django_apps/test_confidence.py`, and
-what these cases assert about an `unmapped` package is what `CPM-AD-4` actually
-requires of the rollup today: the row *exists* and records the confidence it was
-computed at. Expressing the gate as writing a value rather than as suppressing a
-row is what makes that assertion possible at all.
+**The contributed column is real here, and so is the gate.** `epics.md` says
+the rollup "grows as passes are added"; `CPM-CURRENCY-S06` added the first,
+`currency_status`, and adopted the pass that produces it -- so every run in this
+module executes two domains and every row composed here carries a gated verdict.
+What the `unmapped` cases assert is both halves of what `CPM-AD-4` requires: the
+row *exists* and records the confidence it was computed at, and the verdict in
+its contributable column has been replaced. Expressing the gate as writing a
+value rather than as suppressing a row is what makes the first half assertable at
+all.
 
 Every case here rolls back. `@pytest.mark.django_db` wraps each in a transaction;
 the fixture derived tables are built once for the session by `conftest.py`.
@@ -34,11 +34,15 @@ from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import ProtectedError
 
+from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
+from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
 from conda_package_supply_chain_monitor.core import rollup as rollup_module
 from conda_package_supply_chain_monitor.core.clock import FixedClock
+from conda_package_supply_chain_monitor.core.confidence import GATED_VALUE
 from conda_package_supply_chain_monitor.core.models import CollectionRun
 from conda_package_supply_chain_monitor.core.models import PackageHealth
 from conda_package_supply_chain_monitor.core.models import PolicyRun
+from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.policy_run import execute_policy_run
 from conda_package_supply_chain_monitor.core.rollup import ROLLUP_WRITE_FAILED_EVENT
 from conda_package_supply_chain_monitor.core.rollup import ROLLUP_WRITTEN_EVENT
@@ -47,6 +51,9 @@ from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
+from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
@@ -66,6 +73,15 @@ if TYPE_CHECKING:
 #: is about the *newer* run's stamps replacing the older run's.
 A_POLICY_VERSION: Final[str] = "cpm-fixture-policy-1"
 A_NEWER_POLICY_VERSION: Final[str] = "cpm-fixture-policy-2"
+
+#: The two versions the fixture observations state, and the feedstock they are
+#: about. Different on purpose: the gate case needs the currency pass to reach a
+#: verdict that is not `unknown`, and a discrepancy between two observed surfaces
+#: is the cheapest one to arrange. Which versions they are does not matter, only
+#: that they differ.
+A_RELEASED_VERSION: Final[str] = "2.4.0"
+AN_EARLIER_VERSION: Final[str] = "2.3.1"
+A_FEEDSTOCK_NAME: Final[str] = "numpy-feedstock"
 
 #: The collector name the fixture collection runs carry.
 A_COLLECTOR: Final[str] = "cpm-fixture-collector"
@@ -151,6 +167,11 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
     the clause `CPM-AD-11` spells out: a scalar would force every domain to be
     re-run whenever any one of them changed version, or would lie about the ones
     that were not.
+
+    It carries `CurrencyPass`'s domain as well as the fixture's, and that is
+    asserted rather than filtered out: `policies/apps.py` adopts a real pass at
+    `django.setup()`, so every run in this suite executes two domains, and a map
+    naming only the fixture would mean the adopted pass had not run.
     """
     an_ended_collection_run()
     packages = [a_package("numpy"), a_package("scipy")]
@@ -166,7 +187,10 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
         assert row.evidence_cutoff == FIXED_INSTANT
         assert row.computed_at == LATER_INSTANT
         assert row.confidence == IdentityConfidence.VERIFIED
-        assert row.policy_versions == {FIRST_DOMAIN: A_POLICY_VERSION}
+        assert row.policy_versions == {
+            CURRENCY_POLICY_NAME: A_POLICY_VERSION,
+            FIRST_DOMAIN: A_POLICY_VERSION,
+        }
 
 
 @pytest.mark.django_db
@@ -194,6 +218,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
     assert first_model.objects.filter(package_id=package.pk).count() == 1
     assert second_model.objects.filter(package_id=package.pk).count() == 1
     assert PackageHealth.objects.get(package=package).policy_versions == {
+        CURRENCY_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }
@@ -251,23 +276,56 @@ def test_an_unmapped_package_still_gets_a_row_recording_that_it_is_unmapped() ->
     compute -- which no read surface can tell apart. So the row exists and says
     what it is.
 
-    The gated *statuses* are not asserted here, and that is the honest state
-    rather than an omission: the rollup declares no domain status column yet, so
-    there is nothing to gate. The gate itself is proved directly in
-    `tests/unit/django_apps/test_confidence.py`, and `contributable_columns()`
-    being empty is asserted below so this case fails the day that changes.
+    **The gated status is asserted, and against a package the pass reached a
+    determinate verdict about.** `CPM-CURRENCY-S06` gave the rollup
+    `currency_status`, so there is a real column to gate -- but a package with no
+    evidence makes the currency pass answer `unknown`, which is the same string
+    `GATED_VALUE` is, and two columns agreeing by coincidence would prove nothing.
+    So both packages get a source observation and a feedstock observation stating
+    *different* versions, which the adopted pass reads as `behind`. The `unmapped`
+    package's column then reads `unknown` because the gate replaced that verdict,
+    and the `verified` package's reads `behind` because it did not. The difference
+    between the two columns is the gate, and it is the only thing that differs
+    between the two packages.
+
+    `behind` rather than `current` because only two of the four surfaces are
+    observed here: `policies/currency.py` lets a proven discrepancy outrank an
+    unobserved surface, while `current` would be reduced to `unknown` by the two
+    surfaces nothing has looked at. The whole of that reduction is
+    `tests/unit/django_apps/test_currency_policy.py`'s; what this case needs is a
+    verdict that is not `unknown`.
+
+    The observations are written directly rather than through a collector: what
+    is under test is the writer's gate, and driving a collection here would make
+    the case depend on a transport nothing in it is about.
     """
     an_ended_collection_run()
     unmapped = a_package("unresolved", confidence=IdentityConfidence.UNMAPPED)
     verified = a_package("numpy", confidence=IdentityConfidence.VERIFIED)
+    for package in (unmapped, verified):
+        SourceReleaseSnapshot.objects.create(
+            package=package,
+            observed_at=FIXED_INSTANT,
+            state=OutcomeState.OK,
+            latest_version=A_RELEASED_VERSION,
+        )
+        FeedstockSnapshot.objects.create(
+            package=package,
+            observed_at=FIXED_INSTANT,
+            state=OutcomeState.OK,
+            feedstock_name=A_FEEDSTOCK_NAME,
+            recipe_version=AN_EARLIER_VERSION,
+        )
 
     execute_policy_run(policy_version=A_POLICY_VERSION, clock=FixedClock(instant=LATER_INSTANT))
 
     assert PackageHealth.objects.get(package=unmapped).confidence == IdentityConfidence.UNMAPPED
     assert PackageHealth.objects.get(package=verified).confidence == IdentityConfidence.VERIFIED
-    assert contributable_columns() == frozenset(), (
-        "the rollup now declares a contributable column, so this case must assert the gated value on it "
-        "rather than only the recorded confidence"
+    assert PackageHealth.objects.get(package=unmapped).currency_status == GATED_VALUE
+    assert PackageHealth.objects.get(package=verified).currency_status == BEHIND
+    assert GATED_VALUE != BEHIND, "the gate must change the value, or this case asserts nothing"
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN}), (
+        "the rollup declares a contributable column this case does not assert the gated value on"
     )
 
 

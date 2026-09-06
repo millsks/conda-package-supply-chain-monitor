@@ -34,14 +34,16 @@ refuse a pass claiming a column the rollup does not declare -- and a cycle
 between the registry and the writer would make either of them unimportable
 alone, which is precisely what the ownership audit needs to be able to do.
 
-**No column is contributable today, and that is the honest state.** The rollup
-declares its identity, its stamps and the confidence, and no domain status
-column: `epics.md` says the table "grows as passes are added" and none exists.
-So `contributable_columns()` is empty, the contribution loop below writes
-nothing, and the mechanism is proved by the fixture passes in `tests/passes.py`
-and by the registry's refusals rather than by a shipped column. The first real
-pass exercises it end to end, and the write it introduces is the one that lands
-in the writability audit's exemption table.
+**One column is contributable, and the table grows a column per pass.**
+`epics.md` says the rollup "grows as passes are added"; `CPM-CURRENCY-S06` added
+the first, `currency_status`, in the same story as the `CurrencyPass` that
+produces it. So `contributable_columns()` returns exactly that one, the
+contribution loop below writes it on every row, and the mechanism is now proved
+end to end by `tests/integration/django_apps/test_currency_policy.py` as well as
+by the fixture passes in `tests/passes.py` and the registry's refusals. The
+fixtures still exist and still contribute nothing: the one real column has a real
+owner, so a fixture claiming it would be measuring that collision rather than the
+mechanism.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
@@ -128,12 +130,12 @@ def contributable_columns() -> frozenset[str]:
 
     Returns:
         The rollup's concrete field names, less the primary key and less
-        `STAMP_COLUMNS`. Empty today: the rollup declares no domain status column
-        yet, so every field it has is a stamp or the key. It is computed from the
-        model's real fields rather than listed, so the day a pass's epic adds
-        `currency_status` the column is contributable without an edit here -- and
-        a column *removed* stops being contributable at the same moment, which a
-        hand-written list would not manage.
+        `STAMP_COLUMNS`. Exactly `{"currency_status"}` today, which
+        `CPM-CURRENCY-S06` added with the pass that owns it. It is computed from
+        the model's real fields rather than listed, which is why that column
+        became contributable without an edit here -- and why a column *removed*
+        stops being contributable at the same moment, which a hand-written list
+        would not manage.
 
     """
     meta = ROLLUP_MODEL._meta  # noqa: SLF001 - `_meta` is Django's own public-by-convention API
@@ -319,11 +321,12 @@ def _replacement(  # noqa: PLR0913 - one keyword per stamp the row carries; a bu
 
     **The default goes through the gate too, and that is the bug this sentence
     exists to keep fixed.** A field default is a *claim about the package* just as
-    much as a pass's verdict is: the first `currency_status` declared
-    `default=OutcomeState.OK` would otherwise make every `unmapped` package's row
-    read `ok` -- the exact claim `CPM-FR-5` forbids about a package whose identity
-    was never established -- through the one path no pass touches and no
-    contribution case would notice.
+    much as a pass's verdict is: `currency_status` declared `default=CURRENT`
+    would make every package no pass evaluated read as up to date -- the exact
+    claim `CPM-FR-5` forbids about a package whose identity was never established
+    -- through the one path no pass touches and no contribution case would
+    notice. It declares `default=unknown` instead, and that default reaches this
+    line on every run for every package a registered pass did not contribute for.
 
     Args:
         package: The package the row is about. Its `confidence` is recorded on the
@@ -341,11 +344,11 @@ def _replacement(  # noqa: PLR0913 - one keyword per stamp the row carries; a bu
         on, not part of what is replaced.
 
     """
-    # Checked even though nothing here is gated while the rollup declares no
-    # contributable column: `confidence` is a `CharField(choices=...)` and Django
-    # validates neither on `save()`, so a value from outside the vocabulary would
-    # be written straight into the column a read surface reads the row's identity
-    # provenance from.
+    # Checked before anything is gated with it: `confidence` is a
+    # `CharField(choices=...)` and Django validates neither on `save()`, so a
+    # value from outside the vocabulary would be written straight into the column
+    # a read surface reads the row's identity provenance from -- and would then
+    # decide, wrongly, whether `currency_status` was gated.
     confidence = require_known_confidence(package.confidence)
     row: dict[str, object] = {
         "policy_run": policy_run,

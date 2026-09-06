@@ -285,7 +285,8 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     different inputs and are asserted separately. What this asserts is the repository's
     own state: `conda_package_supply_chain_monitor.core` and
     `conda_package_supply_chain_monitor.identity` and
-    `conda_package_supply_chain_monitor.collectors` are adopted, which is the
+    `conda_package_supply_chain_monitor.collectors` and
+    `conda_package_supply_chain_monitor.policies` are adopted, which is the
     declaration half of the adoption whose installing half is `LOCAL_APPS` in
     `src/config/settings/base.py`.
 
@@ -299,6 +300,7 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
         "conda_package_supply_chain_monitor.core",
         "conda_package_supply_chain_monitor.identity",
         "conda_package_supply_chain_monitor.collectors",
+        "conda_package_supply_chain_monitor.policies",
     ]
 
 
@@ -523,6 +525,7 @@ def test_the_loader_reads_the_repositorys_own_declaration(declaration: Component
         "conda_package_supply_chain_monitor.core",
         "conda_package_supply_chain_monitor.identity",
         "conda_package_supply_chain_monitor.collectors",
+        "conda_package_supply_chain_monitor.policies",
     )
     assert declaration.selected_features == REFERENCE_FEATURES
     assert tuple(process.name for process in declaration.processes) == EXPECTED_PROCESSES

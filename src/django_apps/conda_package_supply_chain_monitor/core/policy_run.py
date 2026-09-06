@@ -248,8 +248,34 @@ def choose_evidence_cutoff() -> datetime:
     return cast("datetime", cutoff)
 
 
-def execute_policy_run(*, policy_version: str, clock: Clock) -> PolicyRunSummary:
+def execute_policy_run(
+    *,
+    policy_version: str,
+    clock: Clock,
+    evidence_cutoff: datetime | None = None,
+) -> PolicyRunSummary:
     """Run every registered pass at one cut-off, then compose the rollup.
+
+    **`evidence_cutoff` is what makes `CPM-FR-22`'s replay an operation rather
+    than a property.** The guarantee is "re-run *this version* against *this
+    cut-off* and get identical output", and it has two halves: the passes must be
+    deterministic, and a caller must be able to name the cut-off. Choosing one
+    afresh on every call delivers only the first -- any collection run finishing
+    between the original and the replay moves the boundary, so the two runs read
+    different evidence and the comparison a replay exists for is not available.
+
+    Additive and defaulted, so every existing caller keeps the behaviour it had:
+    a scheduled run passes nothing and gets `choose_evidence_cutoff()`'s answer,
+    which is the newest ending no in-flight collection can write behind. A replay
+    passes the `evidence_cutoff` off the run it is replaying, which every
+    `PolicyRun` row and every `PackageHealth` row carries.
+
+    A supplied cut-off is used as given and is **not** validated against the
+    ledger. That is deliberate: the ledger's own rule is about choosing an
+    instant nothing can still write behind, and a replay is asking about an
+    instant that has already been chosen and recorded -- re-deriving it would
+    refuse the exact operation this parameter exists for, because the run being
+    replayed may sit behind a collection that has since started.
 
     Args:
         policy_version: The version of the rule data this run applies
@@ -259,18 +285,21 @@ def execute_policy_run(*, policy_version: str, clock: Clock) -> PolicyRunSummary
             `computed_at` are read from (`CPM-AD-26`). Separate from the evidence
             cut-off, which is a property of the evidence rather than of when this
             run happens to execute.
+        evidence_cutoff: The instant to read evidence as of. `None` -- the
+            default -- chooses one from the run ledger, which is what a scheduled
+            run does. Pass the `evidence_cutoff` of an earlier run to replay it.
 
     Returns:
         What the run did.
 
     Raises:
-        PolicyRunError: When the ledger holds no completed collection run, so
-            there is no cut-off. Raised *before* the ledger row is opened: a run
-            that cannot read evidence correctly should leave no row claiming it
-            tried.
+        PolicyRunError: When no cut-off was supplied and the ledger holds none to
+            choose. Raised *before* the ledger row is opened: a run that cannot
+            read evidence correctly should leave no row claiming it tried.
 
     """
-    evidence_cutoff = choose_evidence_cutoff()
+    if evidence_cutoff is None:
+        evidence_cutoff = choose_evidence_cutoff()
     passes = registered_passes()
     versions = {policy_pass.name: policy_version for policy_pass in passes}
 

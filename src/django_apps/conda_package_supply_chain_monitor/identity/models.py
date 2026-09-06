@@ -117,8 +117,10 @@ as `CPM-EVIDENCE-S09`, in the epic that owns the run ledger.
 from __future__ import annotations
 
 from typing import Final
+from typing import cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -128,11 +130,13 @@ from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODE
 from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 
 __all__ = [
+    "DEFAULT_AUTHORITY_ORDER",
     "ESTABLISHED",
     "ESTABLISHED_MEMBER",
     "MAPPED_FIELDS",
     "OVERRIDE_READ_INDEX",
     "UNKNOWN",
+    "AuthorityOrderError",
     "Feedstock",
     "IdentityConfidence",
     "IdentityOverride",
@@ -140,6 +144,10 @@ __all__ = [
     "MappingOutcome",
     "Package",
     "PackageMapping",
+    "VersionSurface",
+    "applied_authority_order",
+    "authority_order_fault",
+    "validate_authority_order",
 ]
 
 #: How wide the short name columns are. A canonical package name, a display name,
@@ -331,6 +339,219 @@ MAPPED_FIELDS: Final[dict[str, tuple[str, ...]]] = {
 }
 
 
+class VersionSurface(models.TextChoices):
+    """The surfaces a package's version can be observed on, one member each.
+
+    A **closed** vocabulary, and closed is what makes `version_authority_order`
+    checkable: an order naming something outside this set is refused rather than
+    silently ranking a surface nothing observes. Each member names one of the
+    four evidence tables `CPM-EP-CURRENCY`'s collectors write --
+    `source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`
+    and `conda_package_snapshots` -- and the mapping from member to table is
+    `policies/currency.py`'s, because which column holds a version is the
+    reading pass's business and not this row's.
+
+    **`CPM-AD-6`'s fifth entry is deliberately absent.** The decision's stated
+    default ends "→ internal deployed version", and this product observes no
+    such surface: no collector reads a deployed inventory, no evidence table
+    holds one, and `CPM-FR-7`-`CPM-FR-10` name four collectors rather than five.
+    A member for it would be a rank over evidence that does not exist -- an
+    authority that can never be chosen and can never be shown to have been
+    skipped -- so the vocabulary stops where the evidence does and the gap is
+    recorded here rather than implied by an omission. The day a deployed-version
+    collector exists, the member and the default order both grow by one entry.
+
+    Values are fixed lowercase tokens, matching every stored vocabulary in this
+    product. They are not an `OutcomeState` and carry no sentinel: a *surface*
+    names where a version was observed, and what was concluded about it is the
+    currency verdict `policies` stores beside it.
+    """
+
+    SOURCE = "source"
+    PYPI = "pypi"
+    FEEDSTOCK = "feedstock"
+    CONDA_PACKAGE = "conda_package"
+
+
+#: `CPM-AD-6`'s documented default authority order, applied to a package that
+#: records none of its own.
+#:
+#: "Verified upstream releases → the verified primary release ecosystem (PyPI
+#: where it applies) → feedstock recipe → published conda package", in that
+#: order, less the fifth entry `VersionSurface` records as unobservable. The
+#: reasoning behind the ranking is the decision's rather than this module's: what
+#: upstream released is the fact the other three are downstream of, and the
+#: published conda package is last because it is the surface furthest from the
+#: source of truth.
+#:
+#: Declared as a tuple of `VersionSurface` members rather than as bare strings so
+#: a renamed member fails here at import instead of producing an order naming a
+#: surface nothing can read. It is *not* a precedence order over
+#: `core.outcomes.OutcomeState` -- it ranks where to look, never how bad an
+#: answer is -- and `core/outcomes.py` remains the only module that ranks states.
+DEFAULT_AUTHORITY_ORDER: Final[tuple[str, ...]] = (
+    VersionSurface.SOURCE.value,
+    VersionSurface.PYPI.value,
+    VersionSurface.FEEDSTOCK.value,
+    VersionSurface.CONDA_PACKAGE.value,
+)
+
+
+class AuthorityOrderError(ValueError):
+    """A package's recorded version-authority order is not one anything can apply.
+
+    A `ValueError` subclass, on the same terms as `core/policy.py`'s
+    `PolicyPassError` and `core/outcomes.py`'s `OutcomeVocabularyError`: every
+    "this declaration is unusable" in this product is a `ValueError`, so a caller
+    catching one catches them all.
+
+    Raised where the order is *read*, which today is the currency pass, because
+    nothing writes the column yet -- see `validate_authority_order` for the other
+    half and for why neither call site is the whole rule.
+    """
+
+
+def authority_order_fault(order: object) -> str | None:
+    """Return why a recorded authority order cannot be applied, or `None` if it can.
+
+    The rule itself, as a pure function, so the two callers that refuse -- the
+    field validator below and the currency pass that reads the column -- ask one
+    question rather than each spelling out an answer that could drift from the
+    other. `collectors/sweep.py`'s `cadence_reconciliation_fault` is the shape
+    this follows and `CPM-CURRENCY-S05`'s review is why: a rule stated twice is a
+    rule that holds in one of the two places.
+
+    Four faults, and each is a different way an order stops being an order:
+
+    * *Not a list.* `JSONField` will store a string, a number or a mapping
+      perfectly happily, and a bare string is iterated one character at a time --
+      so `"source"` would read as six surfaces, none of them real.
+    * *An entry that is not a string.* Nothing can be matched against
+      `VersionSurface` values, and the failure would otherwise land as a silent
+      non-match that ranks the surface last.
+    * *An entry naming no surface.* The refusal this column exists to make
+      possible: an order naming `deployed` or a misspelled `pypy` would rank a
+      surface nothing observes, and the package would be judged against the
+      surfaces that happened to survive the typo.
+    * *A repeated entry.* Two claims about one surface's rank, of which only the
+      first can be honoured -- so the second is either redundant or a mistake,
+      and there is no way to tell which.
+
+    An **empty** list is not a fault. It is what "no authority is explicitly set"
+    looks like on a column that is never NULL, and it is the value every package
+    carries today; `applied_authority_order` is where the default is applied.
+
+    Args:
+        order: Whatever the column holds. Typed as `object` because that is what
+            a `JSONField` can hand back, and a signature promising `list[str]`
+            would be a claim this function exists to check.
+
+    Returns:
+        A message naming what is wrong and what the permitted surfaces are, or
+        `None` when the order can be applied.
+
+    """
+    if not isinstance(order, list):
+        return (
+            f"a package's version authority order must be a list of surfaces, and this one is "
+            f"{type(order).__name__} ({order!r}). CPM-AD-6 makes the order data on the package; the "
+            f"surfaces it may name are {sorted(VersionSurface.values)}."
+        )
+    unusable = [entry for entry in order if not isinstance(entry, str)]
+    if unusable:
+        return (
+            f"a package's version authority order names entries that are not surfaces: {unusable!r}. "
+            f"Every entry is one of {sorted(VersionSurface.values)}."
+        )
+    unknown = [entry for entry in order if entry not in VersionSurface.values]
+    if unknown:
+        return (
+            f"a package's version authority order names {unknown}, which this product observes no evidence "
+            f"for. The surfaces it may name are {sorted(VersionSurface.values)}; an order naming another "
+            f"would rank a surface nothing writes, and the package would silently be judged against "
+            f"whichever of the real ones was left."
+        )
+    repeated = sorted({entry for entry in order if order.count(entry) > 1})
+    if repeated:
+        return (
+            f"a package's version authority order names {repeated} more than once. An order is a ranking, "
+            f"so a repeated surface is two claims about one rank of which only the first can be honoured."
+        )
+    return None
+
+
+def validate_authority_order(value: object) -> None:
+    """Refuse an unusable authority order wherever Django validates a field.
+
+    A Django field validator, so it runs from `full_clean()` -- which is a
+    `ModelForm`, the admin, and a serializer that calls it -- and from nowhere
+    else. **`Model.save()` does not call it**, and that limit is stated here
+    rather than left to be discovered: this is not the refusal a policy run
+    meets. Nothing in this product writes `version_authority_order` today, so the
+    call site that actually fires is `policies/currency.py`'s read, which asks
+    `authority_order_fault` directly and raises `AuthorityOrderError`. Both ask
+    the same function; neither is the whole rule on its own.
+
+    Args:
+        value: The column's value, as Django hands it to a validator.
+
+    Raises:
+        ValidationError: When `authority_order_fault` reports one, carrying its
+            message verbatim so a form and a policy run say the same thing about
+            the same data.
+
+    """
+    fault = authority_order_fault(value)
+    if fault is not None:
+        raise ValidationError(fault)
+
+
+def applied_authority_order(package: Package) -> tuple[tuple[str, ...], bool]:
+    """Return the authority order to apply to one package, and whether it is the default.
+
+    `CPM-AD-6`'s "the authority order is data on the package, defaulting to ..."
+    expressed as one function, so that "which order was applied" has a single
+    answer and the row that records it cannot disagree with the row that used it.
+
+    Args:
+        package: The package whose order is wanted. Read off the in-memory
+            instance, never re-queried: the currency pass is handed the package
+            the run is evaluating, and a second read could return a row a
+            concurrent resolution had changed mid-run.
+
+    Returns:
+        The order, as a tuple of `VersionSurface` values, and whether it came
+        from `DEFAULT_AUTHORITY_ORDER` rather than from the column. The default
+        is applied for an empty column, which is what "no authority is explicitly
+        set" is on a column that is never NULL.
+
+        A *recorded* order may legitimately be shorter than the default. Only the
+        surfaces it names can be chosen as the authority, which is the whole point
+        of recording one -- and the consequence, that a surface left out is
+        observed and compared but never authoritative, is
+        `policies/currency.py`'s to carry and to document.
+
+    Raises:
+        AuthorityOrderError: When the column holds an order nothing can apply.
+            Refused rather than quietly replaced by the default: falling back
+            would make the row's record of *which* order was applied a lie, and a
+            package whose data is broken would read as an ordinary package that
+            happened to have no preference.
+
+    """
+    recorded = package.version_authority_order
+    fault = authority_order_fault(recorded)
+    if fault is not None:
+        message = f"package {package.pk} ({package.canonical_name!r}): {fault}"
+        raise AuthorityOrderError(message)
+    # `recorded` is a list of known surface values by the check above; the cast
+    # is what tells the type checker so without a second runtime pass over it.
+    order = cast("list[str]", recorded)
+    if not order:
+        return DEFAULT_AUTHORITY_ORDER, True
+    return tuple(order), False
+
+
 class Package(models.Model):
     """One unit of the monitored inventory, and its package identity. Table `packages`.
 
@@ -391,6 +612,65 @@ class Package(models.Model):
     #: (`CPM-FR-1`). Multi-valued for the same reason and on the same terms as
     #: `alternative_purls`.
     cpes = models.JSONField(_("CPEs"), default=list, blank=True)
+
+    #: Which ecosystem is authoritative for this package's version, best first
+    #: (`CPM-AD-6`). A list column on the same terms as `alternative_purls` and
+    #: `cpes`: `blank=True` makes the empty list a valid form value, and the
+    #: column stays NOT NULL with a `list` default so "no preference recorded" is
+    #: `[]` and never `NULL`.
+    #:
+    #: **Empty is the ordinary state and the honest one.** `CPM-AD-6` says the
+    #: order is data on the package *with a documented default*, so a package
+    #: that has never had a preference expressed about it holds `[]` and is
+    #: judged against `DEFAULT_AUTHORITY_ORDER`. A column pre-filled with the
+    #: default would make "no authority is explicitly set" unfalsifiable -- there
+    #: would be no stored value to differ from -- and would turn the day the
+    #: default changes into a data migration over the whole inventory.
+    #:
+    #: **A data column rather than a constant, because the alternative fails
+    #: twice.** A module constant makes the per-package half of `CPM-AD-6`
+    #: unimplementable, and it makes the later non-Python phase (`CPM-AD-3`'s
+    #: "data change, not a schema migration") a code change instead.
+    #:
+    #: It is identity rather than derived state, which is what keeps it on this
+    #: table: it says which ecosystem this package *belongs to* most, not what
+    #: any policy concluded, and `CPM-AD-1` allows the row cross-ecosystem
+    #: mappings and nothing derived.
+    #:
+    #: `validators` is the half a form and the admin meet; it does not run on
+    #: `save()`, and the refusal a policy run actually meets is
+    #: `policies/currency.py`'s read. Both ask `authority_order_fault`.
+    #:
+    #: **No database check, and the asymmetry with `package_currency` is
+    #: deliberate.** That table's `chosen_authority` gets a `CheckConstraint`
+    #: precisely because Django enforces neither `choices` nor `full_clean()` on
+    #: `save()`, and the same is true here -- so the obvious question is why this
+    #: column does not get one too. The answer is that it cannot get an
+    #: equivalent one: `chosen_authority` holds a single token, which
+    #: `Q(field__in=[...])` expresses on every backend, while this holds a JSON
+    #: *array* whose every element must be a member of a set. Checking that needs
+    #: a JSON operator, and the two backends this product runs on spell it
+    #: differently and to different depths -- `json_each` on SQLite,
+    #: `jsonb_array_elements_text` on PostgreSQL -- so a constraint written here
+    #: would either be PostgreSQL-only, which makes the local suite prove
+    #: something the gate does not, or a `RawSQL` pair that
+    #: `tests/unit/django_apps/test_mutation_path_audit.py` reads as a raw write
+    #: path.
+    #:
+    #: What is guarded instead is the *read*: the pass refuses the whole package
+    #: rather than falling back to the default (`CPM-AD-23` contains it to that
+    #: package), so a bad value costs one row and one `partial` run rather than a
+    #: wrong verdict. The residue -- that nothing in this product writes the
+    #: column, so the only route to a bad value is a hand-written `UPDATE`, and
+    #: such an `UPDATE` leaves no audit row the way `CPM-IDENTITY-S05`'s override
+    #: does -- is recorded as a deferred entry on this story rather than left
+    #: implied.
+    version_authority_order = models.JSONField(
+        _("version authority order"),
+        default=list,
+        blank=True,
+        validators=[validate_authority_order],
+    )
 
     #: Where this identity came from -- which resolver, catalogue or human path
     #: established it (`CPM-FR-2`). A name rather than a relation: resolvers are

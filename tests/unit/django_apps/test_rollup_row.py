@@ -4,14 +4,16 @@ The unit half of `tests/integration/django_apps/test_rollup.py`. That module
 asserts what reaches the database; this one asserts the *composition* -- which is
 where the two rules with no real subject today live.
 
-**`CPM-AD-4`'s gate applied to a contributed column has nowhere to happen against
-the real rollup.** `PackageHealth` declares its identity, its stamps and the
-confidence and no domain status column, because `epics.md` says the table "grows
-as passes are added" and no policy epic has run. So the acceptance criterion --
-an `unmapped` package's gated statuses read `unknown` -- cannot be shown end to
-end without inventing a column, which the story forbids. What it *can* be shown
-against is a synthetic rollup declaring one, substituted where `core/rollup.py`
-names the model. That is the same device
+**`CPM-AD-4`'s gate is measured here against a column nobody owns.**
+`PackageHealth` declares exactly one domain status since `CPM-CURRENCY-S06` --
+`currency_status`, owned by `CurrencyPass` -- and the gate is now shown end to
+end against it in `tests/integration/django_apps/test_currency_policy.py`. What
+these cases are about is the *composition* itself: the gate applied to any
+contributable column, the full-row replace's defaulting, and the shape of the row
+the writer builds. Measuring those on the one real column would tangle them with
+a live pass's declaration, so they run against a synthetic rollup declaring an
+unowned column, substituted where `core/rollup.py` names the model. That is the
+same device
 `tests/unit/django_apps/test_derived_status_writability_audit.py` uses for the
 rule it was written before there was a table for: measure the detector against a
 declaration built here, so an empty repository cannot make it pass vacuously.
@@ -48,6 +50,7 @@ from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
+from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.passes import A_DOMAIN_STATUS
@@ -223,15 +226,22 @@ def test_the_composed_row_covers_every_column_the_rollup_declares() -> None:
     assert set(row) == (STAMP_COLUMNS | contributable_columns()) - {"package"}
 
 
-def test_the_real_rollup_offers_nothing_yet_which_is_why_the_synthetic_one_exists() -> None:
-    """The honest statement of what this module stands in for.
+def test_the_real_rollups_one_column_already_has_an_owner() -> None:
+    """The honest statement of what this module stands in for, now that a column is real.
 
-    If `PackageHealth` ever declares a contributable column, the cases above stop
-    being the only place the gate is exercised -- and
-    `tests/integration/django_apps/test_rollup.py` should assert it end to end
-    instead. This is what says so.
+    `PackageHealth` declares exactly one contributable column since
+    `CPM-CURRENCY-S06` -- `currency_status` -- owned by `CurrencyPass`. The cases
+    above still use a synthetic rollup because they need a column *nobody owns*:
+    the gate, the defaulting and the full-row replace are properties of any
+    contributable column, and measuring them on the one real column would tangle
+    them with a live pass's declaration.
+
+    The cases above are also no longer the only place the gate is exercised.
+    `tests/integration/django_apps/test_currency_policy.py` drives a real verdict
+    through the orchestration and asserts the `unmapped` package's rollup column
+    reads `unknown` whatever the pass computed.
     """
-    assert contributable_columns() == frozenset()
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN})
     assert rollup_module.ROLLUP_MODEL is PackageHealth
 
 
