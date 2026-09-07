@@ -103,6 +103,7 @@ development_status:
   cpm-rename-s01-import-root-becomes-conda-sentinel: ready-for-dev
   cpm-rename-s02-conda-sentinel-on-operator-surfaces: ready-for-dev
   cpm-rename-s03-planning-artifacts-name-new-module: ready-for-dev
+  cpm-rename-s04-repository-is-called-conda-sentinel: ready-for-dev
   epic-rename-retrospective: optional
 
   # CPM-EP-PY314: Inferred and verified compatibility, kept apart
