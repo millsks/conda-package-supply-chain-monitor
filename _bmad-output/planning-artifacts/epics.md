@@ -1352,8 +1352,7 @@ What remains is a Python import path, the `name` field of four `AppConfig` class
 **What is deliberately not in scope.** The `CPM-` requirement prefix does not change. Those
 identifiers are opaque keys cross-referenced by the PRD, this file, the architecture spine and
 the Dev Notes of every merged story. Renaming them would break traceability on shipped work and
-buy nothing; `CPM-` becomes a historical prefix. Renaming the GitHub repository is an operator
-action outside any story here.
+buy nothing; `CPM-` becomes a historical prefix.
 
 ### CPM-RENAME-S01: The import root becomes `conda_sentinel`
 
@@ -1426,6 +1425,40 @@ So that a Code Map does not send me to a directory that is gone.
 Code Maps would make them describe paths that did not exist at the time, and would edit the
 review history of shipped work. The stubs of stories not yet started are a different case:
 they are instructions to a future reader, and they must be correct.
+
+### CPM-RENAME-S04: The repository is called conda-sentinel
+
+As the person who clones and works in this repository,
+I want the repository itself to carry the product's name,
+So that the last place still calling it the old thing is not the first place anybody looks.
+
+**Acceptance Criteria:**
+
+**Given** the GitHub repository after this story
+**When** it is fetched, browsed or linked to
+**Then** it answers as `conda-sentinel`, and links to the former name still resolve
+
+**Given** the local working copy after this story
+**When** `pixi run ci` is run in the renamed directory
+**Then** it exits 0, with no path from the former directory name anywhere in the environment
+
+**Given** the git remote after this story
+**When** `git remote -v` is read
+**Then** it names the new repository rather than relying on the redirect
+
+**Satisfies:** no functional requirement
+**Governed by:** none
+**Depends on:** `CPM-RENAME-S01`, `CPM-RENAME-S02`, `CPM-RENAME-S03` — sequenced last, because
+renaming the working directory while the others are in flight would move every branch and
+worktree out from under them.
+**Constrained:** this story is operator-run and changes no tracked file, so no test can prove
+it. Renaming the directory breaks the pixi environment, which writes absolute paths into the
+executables it installs — 97 of them at the time of writing. The environment is therefore
+removed with `pixi clean` *before* the rename and rebuilt from `pixi.lock` afterwards, rather
+than repaired. `pixi clean cache` is deliberately **not** part of that: the cache is
+machine-wide, shared with every other project, content-addressed, and carries no path from
+this directory. Anything outside the repository keyed to the absolute path — Claude Code's
+project memory among it — needs re-pointing by hand.
 
 ## CPM-EP-PY314: Inferred and verified compatibility, kept apart
 

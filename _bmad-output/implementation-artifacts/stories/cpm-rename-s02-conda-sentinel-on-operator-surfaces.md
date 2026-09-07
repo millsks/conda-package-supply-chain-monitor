@@ -50,10 +50,10 @@ skimmed as text.
 
 ### Not in scope
 
-Renaming the GitHub repository, the clone URL, or any CI badge that points at it. Those are
-operator actions on infrastructure this repository does not own. If the repository is renamed,
-the redirect GitHub leaves behind keeps existing links working, so nothing here depends on the
-order.
+Renaming the GitHub repository, the clone URL, the local working directory, or any CI badge
+pointing at them. Those are `CPM-RENAME-S04`, which is sequenced last and is operator-run.
+Nothing in this story depends on that one having happened: GitHub's redirect keeps existing
+links and remotes working either way.
 
 ### Testing Standards
 
