@@ -89,6 +89,7 @@ from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as 
 from conda_package_supply_chain_monitor.collectors.kev import KevCollector
 from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
 from conda_package_supply_chain_monitor.collectors.kev import kev_source
+from conda_package_supply_chain_monitor.collectors.license import LicenseCollector
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
@@ -126,6 +127,7 @@ __all__ = [
     "COLLECT_CONDA_PACKAGE_TASK_NAME",
     "COLLECT_FEEDSTOCK_TASK_NAME",
     "COLLECT_KEV_TASK_NAME",
+    "COLLECT_LICENSE_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "COLLECT_VULNERABILITY_TASK_NAME",
@@ -144,6 +146,7 @@ __all__ = [
     "collect_conda_package",
     "collect_feedstock",
     "collect_kev",
+    "collect_license",
     "collect_pypi_release",
     "collect_source_release",
     "collect_sweep",
@@ -210,12 +213,17 @@ COLLECT_VULNERABILITY_TASK_NAME: Final[str] = "cpm.collect.vulnerability"
 #: the `collect` queue, and the name is the collector's.
 COLLECT_KEV_TASK_NAME: Final[str] = "cpm.collect.kev"
 
+#: The licence-collection task's declared name, on the same terms
+#: (`CPM-SECURITY-S03`, `CPM-FR-13`): the `cpm.collect.` namespace routes it to
+#: the `collect` queue, and the name is the collector's.
+COLLECT_LICENSE_TASK_NAME: Final[str] = "cpm.collect.license"
+
 #: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
 #: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
 #: one, and `config/startup/stage_two.py` reconciles the beat schedule against
 #: the same string -- so it is declared in `collectors/sweep.py` beside the
 #: dispatch it fires and imported above, and it is re-exported in `__all__` so a
-#: reader looking for this application's task names finds all eight here -- one
+#: reader looking for this application's task names finds all nine here -- one
 #: per registered collector, plus the dispatch. The
 #: task itself must still be *declared* in this module: Celery's autodiscovery
 #: imports each application's `tasks` module and no other.
@@ -1584,6 +1592,71 @@ def collect_kev(*, package_id: int, force: bool = False) -> str:
         return str(collector.collect(package_id=package_id, force=force).state.value)
 
 
+@shared_task(name=COLLECT_LICENSE_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_license(*, package_id: int, force: bool = False) -> str:
+    """Record what each monitored channel says one package is licensed under (`CPM-FR-13`).
+
+    Package-scoped on the same terms as the six collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`).
+
+    **The transport is the base's own**, which is the one place this task's shape
+    differs from the two security tasks above it. Which advisory and KEV sources
+    this component reads is PRD Open Question 1, so those two are declared adapters
+    (`CPM-AD-29`); a licence is stated by the *channels an operator already
+    declared* (`CPM-CURRENCY-S04`), so there is nothing here to substitute and this
+    task is shaped like `collect_conda_package` rather than like its epic siblings.
+
+    **This component ships monitoring no channel**, so `LicenseCollector`'s
+    selection offers the sweep nothing at all until an operator declares
+    `CPM_MONITORED_CHANNELS`, and a direct enqueue raises `LicenseChannelError`
+    naming the setting. That is the same shipped state `collect_conda_package`
+    documents and the same one PRD Open Question 4 leaves an operator to change.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`).
+
+    **A misconfiguration leaves this task the same way a transient failure does,
+    and Celery cannot tell the two apart** -- the hazard `collect_conda_package`
+    records, reached here by a fourth route: `LicenseChannelError` is permanent by
+    construction, and with nothing declared *every* enqueue raises it. Nothing here
+    declares `autoretry_for`. It is the same `deferred` entry `CPM-CURRENCY-S04`
+    recorded against every collector task at once.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so this
+            leaves nothing behind at all.
+        LicenseChannelError: When no channel is declared -- which is what ships --
+            when a declared entry is not one this collector could ask about, or when
+            the package's row went between the ledger's key check and the name read.
+            The ledger row is finalized `failed` carrying the reason and no evidence
+            row is written; see that class for why.
+        LicenseDocumentError: When the *first* monitored channel served something
+            that is not a package document. An `error` evidence row is written first
+            and the ledger row is `failed`, so the run is on the record either way.
+            A later channel's unreadable answer never reaches here.
+
+    """
+    with LicenseCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
 @shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]
 def collect_sweep(*, collector: str) -> str:
     """Enqueue one per-package collection for every package one collector can be asked about.
@@ -1593,7 +1666,7 @@ def collect_sweep(*, collector: str) -> str:
     module that takes a *collector* rather than a package. What it does is
     `collectors/sweep.py`'s dispatch: select, enqueue in chunks, and finalize one
     run-ledger row scoped to no package. It collects nothing itself and makes no
-    outbound call, so nothing about the six collectors' guarantees changes: every
+    outbound call, so nothing about the seven collectors' guarantees changes: every
     observation is still written by the per-package task through the collector
     base, in that package's own transaction and under that package's own ledger
     row (`CPM-AD-23`).
@@ -1605,7 +1678,7 @@ def collect_sweep(*, collector: str) -> str:
     subject. A dispatch that enqueued some of its packages and not all records
     `partial`, never `failed`.
 
-    It declares **no schedule and no time limit** for the reason the four
+    It declares **no schedule and no time limit** for the reason the seven
     collection tasks do not: cadence is data in `django_celery_beat`
     (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are settings'
     (`CPM-AD-9`). The schedule that fires it lives in

@@ -4,12 +4,12 @@ Everything about `collectors/sweep.py` that is decidable with no database, no
 broker and no clock. The dispatch itself opens a run-ledger row, so every case
 that *runs* one is in `tests/integration/django_apps/test_sweep.py`; what is here
 is the arithmetic and the shapes -- the derived task name, the chunking, the
-declared constants, the six swept collectors' cadences, and the three places one
-name is spelled in two modules and has to agree. "Swept" is the six that declare
-a cadence and a selection; the seventh registered collector, inventory ingestion, is
+declared constants, the seven swept collectors' cadences, and the three places one
+name is spelled in two modules and has to agree. "Swept" is the seven that declare
+a cadence and a selection; the eighth registered collector, inventory ingestion, is
 run-scoped and a dispatch refuses it by name.
 
-**The six swept collectors' selections are asserted here as queries rather than
+**The seven swept collectors' selections are asserted here as queries rather than
 as results.** `selectable_packages` answers with a lazy queryset, and a queryset's
 `model` and its `query` are readable without a database -- which is what lets the
 unit tier pin *which table each collector selects from and on what condition*,
@@ -48,6 +48,9 @@ from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCol
 from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_NAME
 from conda_package_supply_chain_monitor.collectors.kev import KEV_CADENCE
 from conda_package_supply_chain_monitor.collectors.kev import KevCollector
+from conda_package_supply_chain_monitor.collectors.license import COLLECTOR_NAME as LICENSE_NAME
+from conda_package_supply_chain_monitor.collectors.license import LICENSE_CADENCE
+from conda_package_supply_chain_monitor.collectors.license import LicenseCollector
 from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_CADENCE
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
@@ -71,6 +74,7 @@ from conda_package_supply_chain_monitor.collectors.sweep import collection_task_
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_CONDA_PACKAGE_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_FEEDSTOCK_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_KEV_TASK_NAME
+from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_LICENSE_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_SOURCE_RELEASE_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_VULNERABILITY_TASK_NAME
@@ -112,10 +116,10 @@ SWEEP_MODULE: Final[Path] = (
     / "sweep.py"
 )
 
-#: The six per-package collectors and the cadence each declares, as one table
-#: the cases below parametrize over. A tuple of triples rather than six cases,
+#: The seven per-package collectors and the cadence each declares, as one table
+#: the cases below parametrize over. A tuple of triples rather than seven cases,
 #: because every one of the assertions is the same sentence about a different
-#: collector and writing it out six times is how five of them stop being
+#: collector and writing it out seven times is how six of them stop being
 #: updated.
 PER_PACKAGE_COLLECTORS: Final[tuple[tuple[type[Collector], str, timedelta], ...]] = (
     (SourceReleaseCollector, SOURCE_RELEASE_NAME, SOURCE_RELEASE_CADENCE),
@@ -124,6 +128,7 @@ PER_PACKAGE_COLLECTORS: Final[tuple[tuple[type[Collector], str, timedelta], ...]
     (CondaPackageCollector, CONDA_PACKAGE_NAME, CONDA_PACKAGE_CADENCE),
     (VulnerabilityCollector, VULNERABILITY_NAME, VULNERABILITY_CADENCE),
     (KevCollector, KEV_NAME, KEV_CADENCE),
+    (LicenseCollector, LICENSE_NAME, LICENSE_CADENCE),
 )
 
 #: The calls a dispatch may not make, and each is a different rule.
@@ -196,6 +201,7 @@ def test_the_dispatch_task_takes_its_collector_under_the_keyword_the_module_name
         (CondaPackageCollector, COLLECT_CONDA_PACKAGE_TASK_NAME),
         (VulnerabilityCollector, COLLECT_VULNERABILITY_TASK_NAME),
         (KevCollector, COLLECT_KEV_TASK_NAME),
+        (LicenseCollector, COLLECT_LICENSE_TASK_NAME),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )
@@ -487,6 +493,46 @@ def test_the_conda_package_selection_is_every_package_when_the_surfaces_are_decl
         assert selection.query.order_by == ("pk",)
 
 
+def test_the_license_selection_is_every_package_when_a_channel_is_declared() -> None:
+    """`CPM-FR-13` applies to every package, and this selection had no unit-tier case at all.
+
+    Every sibling's selection is read here as a *query* -- the model it is against,
+    that it filters nothing, and the ordering the chunked `.iterator()` in
+    `collectors/sweep.py` depends on. The licence collector's was asserted only
+    through an integration case that ran it, which cannot see an ordering: dropping
+    `.order_by("pk")` left that case green and left a full-inventory sweep streaming
+    an unordered queryset in chunks, which is a selection that may repeat a key and
+    skip another.
+    """
+    with override_settings(**{CHANNELS_SETTING: ("conda-forge",)}):
+        selection = LicenseCollector.selectable_packages()
+
+        assert selection.model is Package
+        assert "WHERE" not in str(selection.query).upper()
+        assert selection.query.order_by == ("pk",)
+
+
+@pytest.mark.parametrize(
+    "channels",
+    [(), "conda-forge", 7],
+    ids=["nothing-declared", "mistyped-channel", "a-number"],
+)
+def test_the_license_selection_is_empty_until_a_channel_is_declared(channels: object) -> None:
+    """The shipped state, on the terms the published-package selection answers it.
+
+    `CPM_MONITORED_CHANNELS` ships empty (PRD Open Question 4) and an undeclared
+    component refuses every package equally, so a selection that offered the inventory
+    anyway would have the scheduled sweep write one `failed` collection per package
+    per day out of the box. A *mistyped* declaration is here for the same reason it is
+    on the sibling: a bare string is eleven one-character channels to Python.
+    """
+    with override_settings(**{CHANNELS_SETTING: channels}):
+        selection = LicenseCollector.selectable_packages()
+
+        assert list(selection) == []
+        assert selection.model is Package
+
+
 @pytest.mark.parametrize(
     ("channels", "platforms"),
     [
@@ -539,11 +585,14 @@ def test_every_per_package_selection_is_lazy_rather_than_a_list(
     yet is the property, and it is asserted for both shapes a lazy selection
     takes.
 
-    **Four of the six answer with a queryset and two may answer with a
-    generator.** Each security collector returns an empty *generator* when its own
-    source is not declared, so that the warning naming the missing source
-    is emitted where a dispatch draws the selection rather than where a start-up
-    reconciliation merely asks whether there is one. A generator is at least as
+    **Five of the seven answer with a queryset and two may answer with a
+    generator.** The two collectors that read a *declared adapter* return an empty
+    *generator* when their own source is not declared, so that the warning naming
+    the missing source is emitted where a dispatch draws the selection rather than
+    where a start-up reconciliation merely asks whether there is one. The licence
+    collector is not one of them: it declares no adapter, so an undeclared
+    component is an empty *queryset* on the terms `CondaPackageCollector` answers
+    with one. A generator is at least as
     lazy as a queryset -- it has read nothing and holds nothing -- so what is
     asserted is the shared property first, and the queryset's own empty result
     cache where there is a queryset to ask.

@@ -601,10 +601,10 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # **The numbers are written here rather than imported, and that is the design
 # rather than a shortcut.** CPM-AD-20 makes cadence *data*: this dictionary is
 # what django_celery_beat's DatabaseScheduler seeds its tables from. What it does
-# **not** buy is an operator changing one of *these six* intervals without a
+# **not** buy is an operator changing one of *these seven* intervals without a
 # deploy -- the scheduler rewrites every entry it finds here on each beat start,
 # so a value edited in the admin is live only until beat restarts. Cadence as data
-# is what lets a *later* schedule be added or changed in the tables; these six
+# is what lets a *later* schedule be added or changed in the tables; these seven
 # are the declaration, and changing one is a pull request. docs/deployment.md says
 # the same thing to an operator.
 #
@@ -622,17 +622,18 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # which is the failure CPM-CURRENCY-S01 recorded and this reconciliation exists
 # to prevent.
 #
-# **The five daily entries fire together, and that is accepted rather than
-# overlooked.** Beat starts them from one instant, so five dispatches land on the
-# `collect` queue at once. A dispatch enqueues and returns -- it makes no outbound
-# call and holds no transaction -- so what arrives simultaneously is five cheap
-# tasks rather than five inventories of I/O, and the collections they enqueue are
-# then bounded by each collector's own rate limiter, which is where the real
-# pacing lives (CPM-AD-20). The two security entries are the pair worth naming:
-# they fire together, each asks its own declared source, and each spends its own
-# allowance -- docs/deployment.md states what that costs against CPM-NFR-1's
-# inventory. Offsetting them would need crontab entries, which the
-# reconciliation below deliberately cannot read as intervals.
+# **The daily entries that carry no phase fire together, and that is accepted
+# rather than overlooked.** Beat starts them from one instant, so several
+# dispatches land on the `collect` queue at once. A dispatch enqueues and returns
+# -- it makes no outbound call and holds no transaction -- so what arrives
+# simultaneously is a handful of cheap tasks rather than several inventories of
+# I/O, and the collections they enqueue are then bounded by each collector's own
+# rate limiter, which is where the real pacing lives (CPM-AD-20). The three
+# security entries are the group worth naming: each asks its own source and each
+# spends its own allowance -- docs/deployment.md states what that costs against
+# CPM-NFR-1's inventory. Two of them carry a countdown for reasons their own
+# comments give; offsetting an entry any other way would need a crontab, which the
+# reconciliation below deliberately cannot read as an interval.
 #
 # A settings module cannot import a collector to read its cadence: these modules
 # are executed before the app registry exists and every collector module reaches
@@ -688,6 +689,24 @@ CELERY_BEAT_SCHEDULE = {
         # says so, `tests/unit/test_settings.py` reconciles the two, and
         # `docs/deployment.md` states the residual to an operator.
         "options": {"countdown": 60 * 60},
+    },
+    "cpm-sweep-license": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "license"},
+        # The second entry carrying options, and its phase is not the KEV entry's.
+        # Nothing in the licence collector reads another collector's evidence --
+        # the reason KEV carries a countdown at all -- so what this one buys is
+        # different: the licence collector and CPM-CURRENCY-S04's published-package
+        # collector read the *same host*, api.anaconda.org, on the same daily tick
+        # and spend separate allowances against it (CPM-AD-20), and the three
+        # security dispatches otherwise arrive in a worker log as one instant.
+        # Deliberately a different number from the KEV entry's: two entries sharing
+        # a phase would fire together again and the offset would buy nothing.
+        # `collectors/license.py`'s LICENSE_DISPATCH_OFFSET is the declaration,
+        # `tests/unit/test_settings.py` reconciles the two, and docs/deployment.md
+        # states what the two sweeps cost that host to an operator.
+        "options": {"countdown": 2 * 60 * 60},
     },
 }
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events

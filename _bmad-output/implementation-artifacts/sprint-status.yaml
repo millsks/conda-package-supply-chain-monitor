@@ -92,7 +92,7 @@ development_status:
   epic-security: in-progress
   cpm-security-s01-vulnerability-evidence-ranges-match-confidence: done
   cpm-security-s02-kev-cross-reference: done
-  cpm-security-s03-licence-evidence-raw-normalized: ready-for-dev
+  cpm-security-s03-licence-evidence-raw-normalized: done
   cpm-security-s04-vulnerability-kev-rollup: ready-for-dev
   cpm-security-s05-licence-policy-as-versioned-data: ready-for-dev
   cpm-security-s06-whether-finding-can-actually-be: ready-for-dev

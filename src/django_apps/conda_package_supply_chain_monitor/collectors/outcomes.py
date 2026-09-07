@@ -1,13 +1,13 @@
-"""The two security evidence vocabularies, in a leaf module that imports one thing.
+"""The three security evidence vocabularies, in a leaf module that imports one thing.
 
 `CPM-AD-5` composes every per-status vocabulary in this product from
-`core.outcomes.outcome_type`, and these are `CPM-SECURITY-S01`'s and
-`CPM-SECURITY-S02`'s. `VulnerabilityOutcome` is the vocabulary
-`vulnerability_findings.state` is drawn from and `KevOutcome` is
-`kev_findings.state`'s, and the whole of why either exists rather than the bare
-`OutcomeState` is one sentence: **on a security table a determinate row means the
-alarming thing happened**, and `core`'s single precedence order ranks `ok` best of
-five.
+`core.outcomes.outcome_type`, and these are `CPM-SECURITY-S01`'s,
+`CPM-SECURITY-S02`'s and `CPM-SECURITY-S03`'s. `VulnerabilityOutcome` is the
+vocabulary `vulnerability_findings.state` is drawn from, `KevOutcome` is
+`kev_findings.state`'s and `LicenseOutcome` is `license_findings.state`'s, and the
+whole of why any of them exists rather than the bare `OutcomeState` is one
+sentence: **on a security table a determinate row is never merely "fine"**, and
+`core`'s single precedence order ranks `ok` best of five.
 
 **What using `ok` here would have done.** `CPM-AD-24` makes every derived status
 carry its value verbatim onto every read surface, so the first view over this
@@ -35,12 +35,12 @@ same solution: the vocabulary is the half of the pair that depends on nothing, s
 the vocabulary is the half that moves. This module imports `core.outcomes` and
 nothing else, in either direction.
 
-**Both vocabularies live here rather than one per collector**, which is the one
-place this module departs from "a leaf per story". They are the same kind of thing
-declared for the same reason, they are read by the same models module, and a
+**All three vocabularies live here rather than one per collector**, which is the
+one place this module departs from "a leaf per story". They are the same kind of
+thing declared for the same reason, they are read by the same models module, and a
 second file would be a second copy of every argument below — while a reader
-comparing the two determinate values, which is the comparison `CPM-SECURITY-S01`'s
-review turned on, would have to open two files to make it.
+comparing the determinate values, which is the comparison `CPM-SECURITY-S01`'s
+review turned on, would have to open three files to make it.
 
 **Bound once, at module scope, and that is load-bearing.** `outcome_type` mints a
 distinct class on every call, so two calls would produce two types whose members
@@ -49,18 +49,19 @@ compare unequal as enum members and equal only as strings —
 `tests/unit/django_apps/test_outcomes.py` pins it. Everything that needs the type
 imports it from here.
 
-**Neither declares a precedence order, and that is a decision rather than an
+**None of them declares a precedence order, and that is a decision rather than an
 omission.** `CURRENCY_PRECEDENCE` exists because the currency pass reduces four
 surfaces' verdicts to one column, and a reduction needs a ranking. Nothing
-reduces vulnerability or KEV findings yet: `CPM-SECURITY-S04`'s rollup pass is the
-first consumer of either table and does not exist. An order declared here would be
-data no function reads — which `tests/unit/django_apps/test_single_ordering_audit.py`
-would have to license by name, and which the next reader would take for a ranking
-this product applies somewhere. Until then `core.outcomes.aggregate` **refuses**
-`matched`, `listed` and `not_listed` outright, which is the safe failure and
-exactly what that module says it is for: a caller that reduced these rows without
-deciding the order is told, loudly, rather than having `matched` silently ranked
-beside `ok`.
+reduces vulnerability, KEV or licence findings yet: `CPM-SECURITY-S04`'s rollup
+pass is the first consumer of the first two and does not exist, and
+`CPM-SECURITY-S05`'s licence policy is the first consumer of the third and does
+not exist either. An order declared here would be data no function reads — which
+`tests/unit/django_apps/test_single_ordering_audit.py` would have to license by
+name, and which the next reader would take for a ranking this product applies
+somewhere. Until then `core.outcomes.aggregate` **refuses** `matched`, `listed`,
+`not_listed` and `normalized` outright, which is the safe failure and exactly what
+that module says it is for: a caller that reduced these rows without deciding the
+order is told, loudly, rather than having `matched` silently ranked beside `ok`.
 
 **Why this module names no `OutcomeState` member.** The four sentinels are read
 back off the composed type rather than written out, so nothing here is a literal
@@ -88,10 +89,16 @@ __all__ = [
     "KEV_NOT_APPLICABLE",
     "KEV_NOT_FOUND",
     "KEV_UNKNOWN",
+    "LICENSE_ERROR",
+    "LICENSE_NOT_APPLICABLE",
+    "LICENSE_NOT_FOUND",
+    "LICENSE_UNKNOWN",
     "LISTED",
     "LISTED_MEMBER",
     "MATCHED",
     "MATCHED_MEMBER",
+    "NORMALIZED",
+    "NORMALIZED_MEMBER",
     "NOT_LISTED",
     "NOT_LISTED_MEMBER",
     "VULNERABILITY_ERROR",
@@ -99,6 +106,7 @@ __all__ = [
     "VULNERABILITY_NOT_FOUND",
     "VULNERABILITY_UNKNOWN",
     "KevOutcome",
+    "LicenseOutcome",
     "VulnerabilityOutcome",
 ]
 
@@ -243,3 +251,72 @@ KEV_NOT_FOUND: Final[str] = _KEV_MEMBER_VALUES["NOT_FOUND"]
 #: `VULNERABILITY_NOT_APPLICABLE` states: a KEV question applies to every package
 #: that could have an advisory against it, which is every package.
 KEV_NOT_APPLICABLE: Final[str] = _KEV_MEMBER_VALUES["NOT_APPLICABLE"]
+
+
+#: The determinate verdict for a row recording a licence this collector
+#: recognised and normalized, declared once as the `(member name, value)` pair
+#: `outcome_type` takes.
+#:
+#: **`normalized`, and emphatically not `ok`.** On a licence table `ok` reads as
+#: "this licence is fine", which is a compliance verdict `CPM-SECURITY-S03`'s AC 2
+#: forbids this collector from making in as many words and which `CPM-FR-18` gives
+#: to a policy that does not exist yet (`CPM-SECURITY-S05`). `CPM-AD-24` carries a
+#: state's value verbatim onto every read surface and `core`'s single precedence
+#: order ranks `ok` best of five, so a licence table using it would render every
+#: recognised licence — a copyleft one, a commercial one, one an organisation has
+#: never approved — as the clean ones, and rank them above the rows a reviewer
+#: actually has to look at. The two sibling vocabularies above were corrected on
+#: exactly this point; here it is made by construction.
+#:
+#: `normalized` rather than `recognised`, `permitted` or `compliant`, and the
+#: difference is what the row can honestly claim. What happened is that the raw
+#: string a channel stated was recognised and rewritten as an SPDX expression, with
+#: the method that did it recorded beside both. Whether that licence is *allowed*
+#: is somebody else's judgement over a rule set that is versioned data
+#: (`CPM-AD-8`, `CPM-FR-18`), and a state that said so would be a verdict a
+#: collector is not allowed to reach.
+NORMALIZED_MEMBER: Final[tuple[str, str]] = ("NORMALIZED", "normalized")
+
+#: The licence vocabulary: `core`'s four sentinels plus `normalized`.
+#:
+#: **One determinate member rather than several.** A determinate row here says one
+#: thing -- the stated licence was recognised and normalized -- and every other
+#: fact about it is a column of its own: the raw string, the SPDX expression and
+#: the method. Folding "which licence" or "how permissive" into the state would be
+#: the compliance verdict this vocabulary exists to keep out of the one column a
+#: policy pass reads first.
+LicenseOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "LicenseOutcome",
+    [NORMALIZED_MEMBER],
+)
+
+#: `LicenseOutcome`'s own members, by name, read off the composed type itself for
+#: the reason `_MEMBER_VALUES` above is read off its own.
+_LICENSE_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in LicenseOutcome}
+
+#: The channel stated a licence this collector recognised, and the row carries the
+#: SPDX expression and the detection method beside the raw string. The only
+#: determinate value, and never a statement that the licence is acceptable.
+NORMALIZED: Final[str] = _LICENSE_MEMBER_VALUES["NORMALIZED"]
+
+#: The run established no normalized licence -- the channel stated nothing, or it
+#: stated something this collector will not normalize without guessing. Never
+#: permissive and never clean (`CPM-FR-6`, `CPM-SM-2`, and `CPM-SECURITY-S03`'s
+#: AC 2 in as many words): the raw string is preserved on the row so a reviewer has
+#: something to act on, and `detail` says which of the two it is.
+LICENSE_UNKNOWN: Final[str] = _LICENSE_MEMBER_VALUES["UNKNOWN"]
+
+#: Looking failed -- the channel raised, the allowance was refused, or the
+#: document could not be read.
+LICENSE_ERROR: Final[str] = _LICENSE_MEMBER_VALUES["ERROR"]
+
+#: The channel reports that it does not serve this package at all, which is an
+#: absence from that channel rather than a package with no licence.
+LICENSE_NOT_FOUND: Final[str] = _LICENSE_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", kept in the vocabulary by
+#: construction and produced by nothing, on the terms the two above state: every
+#: package a monitored channel could serve is licensed under something, so
+#: `LicenseCollector.inapplicability` never answers a reason and `license_findings`
+#: refuses a row carrying this value outright.
+LICENSE_NOT_APPLICABLE: Final[str] = _LICENSE_MEMBER_VALUES["NOT_APPLICABLE"]
