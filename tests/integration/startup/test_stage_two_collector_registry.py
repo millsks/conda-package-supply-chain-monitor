@@ -12,8 +12,8 @@ about separate artefacts, which is the argument
 into one of the inherited nine.
 
 **Condition 11's cases add to the shipped schedule rather than replacing it.**
-The five swept collectors are registered in this process, so a case that swapped
-`CELERY_BEAT_SCHEDULE` for a fixture-only one would refuse for five reasons it was
+The six swept collectors are registered in this process, so a case that swapped
+`CELERY_BEAT_SCHEDULE` for a fixture-only one would refuse for six reasons it was
 not written about. What each case configures is one *additional* disagreement, and
 the last case asserts the shipped pair reconciles with no fixture in sight.
 
@@ -45,7 +45,8 @@ which is the only ordering that survives a case whose whole body raises.
 **The registry this component really boots with is the other half.**
 `CPM-IDENTITY-S06` adopted the first collector, `CPM-CURRENCY-S01` the second,
 `CPM-CURRENCY-S02` the third, `CPM-CURRENCY-S03` the fourth and
-`CPM-CURRENCY-S04` the fifth,
+`CPM-CURRENCY-S04` the fifth, `CPM-SECURITY-S01` the sixth and `CPM-SECURITY-S02`
+the seventh,
 so a deployed boot now sweeps a real roster rather than nothing, and the case that
 asserts it is what proves the condition passes over *real* declarations and not
 only over fixtures. The empty case it replaces made the opposite claim and was
@@ -71,6 +72,7 @@ from django.test import override_settings
 
 from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
 from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
+from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_NAME
 from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
@@ -247,12 +249,13 @@ def test_the_registry_this_repository_ships_passes_condition_ten() -> None:
 
     `CPM-IDENTITY-S06` adopted the first real collector, `CPM-CURRENCY-S01` the
     second, `CPM-CURRENCY-S02` the third, `CPM-CURRENCY-S03` the fourth,
-    `CPM-CURRENCY-S04` the fifth and `CPM-SECURITY-S01` the sixth, so the
+    `CPM-CURRENCY-S04` the fifth, `CPM-SECURITY-S01` the sixth and
+    `CPM-SECURITY-S02` the seventh, so the
     registry a deployed boot sweeps is no longer empty: `CollectorsConfig.ready()`
     registers inventory ingestion, upstream release collection, PyPI release
-    collection, feedstock collection, published-conda-package collection and
-    vulnerability collection during `django.setup()`, and the sweep meets all six
-    on every boot in this tree.
+    collection, feedstock collection, published-conda-package collection,
+    vulnerability collection and KEV cross-referencing during `django.setup()`, and
+    the sweep meets all seven on every boot in this tree.
     That is asserted rather than assumed, and both halves matter -- the roster is
     what it is meant to be, and stage two passes over it without a fixture in
     sight.
@@ -279,6 +282,7 @@ def test_the_registry_this_repository_ships_passes_condition_ten() -> None:
             FEEDSTOCK_NAME,
             CONDA_PACKAGE_NAME,
             VULNERABILITY_NAME,
+            KEV_NAME,
         ],
     )
 
@@ -331,9 +335,9 @@ def _schedule_with(*entries: tuple[str, timedelta | None]) -> dict[str, dict[str
     """Return the shipped `CELERY_BEAT_SCHEDULE` plus one dispatch entry per pair.
 
     **Built on top of the shipped schedule rather than replacing it**, and that is
-    forced rather than tidy: all six real collectors are registered in this
-    process and five of them declare a cadence, so a schedule that dropped their
-    entries would make every case here refuse for five reasons it was not written
+    forced rather than tidy: all seven real collectors are registered in this
+    process and six of them declare a cadence, so a schedule that dropped their
+    entries would make every case here refuse for six reasons it was not written
     about. What each case configures is
     one *additional* disagreement.
 
@@ -468,8 +472,8 @@ def test_a_component_that_has_adopted_no_collector_is_not_refused_over_the_sched
     `tests/unit/startup/test_installed_apps_ordering.py` requires every adopted
     application to be installed *after* the stage-two owner, so in a deployed
     process this condition runs before `CollectorsConfig.ready()` has registered
-    anything -- and the backward direction would then find five schedule entries
-    naming five collectors the registry does not yet hold. An empty registry is a
+    anything -- and the backward direction would then find six schedule entries
+    naming six collectors the registry does not yet hold. An empty registry is a
     component that has adopted nothing, which has forgotten nothing.
 
     The schedule is asserted to be non-empty first, because without that this case
@@ -487,7 +491,7 @@ def test_a_component_that_has_adopted_no_collector_is_not_refused_over_the_sched
 def test_a_collector_with_a_cadence_and_no_schedule_entry_refuses_the_boot() -> None:
     """A collector nothing sweeps, whose freshness target is derived from a number nothing fires.
 
-    This is the state every one of the five swept collectors was in before
+    This is the state every one of the six swept collectors was in before
     `CPM-CURRENCY-S05`: a cadence constant the target was computed from, and no
     schedule. It was not a refusal then because nothing declared the cadence; it
     is one now, and the reconciliation runs forward as well as backward.
@@ -573,7 +577,7 @@ def test_a_collector_declaring_one_of_the_pair_without_the_other_refuses_the_boo
 
 
 def test_the_shipped_schedule_and_the_shipped_collectors_reconcile() -> None:
-    """The five swept collectors, the five entries, and the two reconciling.
+    """The six swept collectors, the six entries, and the two reconciling.
 
     **Named for what it asserts rather than for a deployment.** A real boot meets
     this reconciliation in `CollectorsConfig.ready()`, not here; what this case

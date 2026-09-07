@@ -79,19 +79,18 @@ subprocess.
 from __future__ import annotations
 
 import ast
+import sys
 from collections import Counter
-from typing import TYPE_CHECKING
+from pathlib import Path
 from typing import Final
 
 import pytest
 
+from conda_package_supply_chain_monitor.core.registry import registrations
 from tests.source_scan import SRC_ROOT
 from tests.source_scan import dotted_name
 from tests.source_scan import parse
 from tests.source_scan import project_files
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 #: Every way this product could open, pool or issue an outbound connection,
 #: spelled canonically -- module path plus attribute, as an import resolves it.
@@ -321,7 +320,7 @@ THE_FEEDSTOCK_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_mo
 THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py"
 
 #: `CPM-CURRENCY-S05`'s dispatch, and the first module in this subtree that is
-#: *not* a collector. Named for a reason none of the five above covers: it walks
+#: *not* a collector. Named for a reason none of the collectors above covers: it walks
 #: the registry, resolves a Celery task and enqueues one message per package, so
 #: it has every reason to reach for a transaction across those packages
 #: (`CPM-AD-23`), for a row of its own (`CPM-AD-7`) or for a call of its own
@@ -336,11 +335,20 @@ THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_package_supply_chain_monitor
 #: the module where a reader most needs to see that the seam is the transport's
 #: and not a second one this collector opened for itself.
 THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/vulnerability.py"
+
+#: `CPM-SECURITY-S02`'s collector, and the sixth remote reader. Named for the
+#: reasons the first five are, and for one more: it is the only collector that
+#: reads another collector's evidence table -- an exception `CPM-AD-7` does not
+#: grant and `CPM-SECURITY-S02`'s Spec Change Log records -- so it is the module
+#: where a reader most needs to see that the *write* path is still the base's
+#: alone and that no transaction, no socket and no second writer came with it.
+THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/kev.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
     THE_FEEDSTOCK_COLLECTOR,
     THE_INGESTION_COLLECTOR,
+    THE_KEV_COLLECTOR,
     THE_LIMITER,
     THE_PYPI_COLLECTOR,
     THE_RELEASE_COLLECTOR,
@@ -349,6 +357,52 @@ THE_NEW_MODULES: Final[tuple[str, ...]] = (
     THE_TRANSPORT,
     THE_VULNERABILITY_COLLECTOR,
 )
+
+#: The modules this repository permits to read **another** collector's evidence
+#: table, and it holds exactly one.
+#:
+#: `CPM-AD-7` forbids the read outright; `CPM-SECURITY-S02` takes one exception and
+#: records it. A named, licensable set rather than a bare ban, in the shape the
+#: source-declaration sweeps already use: the rule has to be satisfiable by the
+#: module the exception was taken for, or it would be deleted rather than amended,
+#: and the amendment is the record of who took it.
+MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE: Final[frozenset[str]] = frozenset({THE_KEV_COLLECTOR})
+
+
+def module_of(collector: type) -> str:
+    """Return a collector class's own source file, relative to `src/`.
+
+    Args:
+        collector: The registered collector.
+
+    Returns:
+        Its module's path under `src/`, in the spelling the constants above use.
+
+    """
+    source = sys.modules[collector.__module__].__file__
+    assert source is not None
+    return Path(source).resolve().relative_to(SRC_ROOT).as_posix()
+
+
+def _foreign_evidence_named(module: str, *, own: str, every: set[str]) -> set[str]:
+    """Return the evidence models a collector module names that are not its own.
+
+    Args:
+        module: The module's path under `src/`.
+        own: The name of the evidence model that collector writes.
+        every: Every registered collector's evidence model name.
+
+    Returns:
+        The foreign ones it names, which is empty for every collector but the one
+        licensed above.
+
+    """
+    tree = parse(SRC_ROOT / module)
+    named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    named |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    named |= {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    return (named & every) - {own}
+
 
 # Synthetic modules the detectors are measured against. Source text parsed here
 # rather than files on disk: a fixture module under `src/` would be found by the
@@ -1219,3 +1273,65 @@ def test_the_evidence_write_detector_tells_an_enclosed_write_from_a_bare_one() -
     """
     assert evidence_writes_outside_atomic(ast.parse(AN_UNENCLOSED_EVIDENCE_WRITE)) != []
     assert evidence_writes_outside_atomic(ast.parse(AN_ENCLOSED_EVIDENCE_WRITE)) == []
+
+
+# ---------------------------------------------------------------------------
+# `CPM-AD-7`: no collector reads another collector's evidence table, except the
+# one this repository licenses by name.
+# ---------------------------------------------------------------------------
+
+
+def test_only_the_licensed_module_reads_another_collectors_evidence_table() -> None:
+    """The clause `collectors/models.py` used to carry in prose, as an object a second reader trips over.
+
+    `CPM-AD-7` says a collector "never reads another collector's evidence table",
+    and `CPM-SECURITY-S02` takes one exception: `collectors/kev.py` reads
+    `vulnerability_findings`, because `CPM-FR-12` is *defined* as a cross-reference
+    of what `CPM-FR-11` recorded and a KEV row that carried no link would fail its
+    acceptance criterion outright. That story's Spec Change Log argues it and hands
+    the judgement to review.
+
+    **A prose clause cannot be tripped over.** The models module said "none reads
+    another's" while one did, so the sentence had to go; what replaces it is this
+    sweep, in the shape this repository already uses for the source declarations --
+    a named, licensable set that ships holding exactly the module the exception was
+    taken for. A second collector reaching for the same read fails here until
+    somebody adds it and says why, which is the point: the cost of the exception is
+    that it stays one exception.
+
+    The evidence models are read off the registry rather than listed, so a seventh
+    collector's table joins the sweep by being registered.
+    """
+    registered = registrations()
+    own = {module_of(collector): collector.evidence_model.__name__ for collector in registered.values()}
+    every = set(own.values())
+
+    reading = {
+        module: sorted(named)
+        for module, mine in own.items()
+        if (named := _foreign_evidence_named(module, own=mine, every=every))
+    }
+
+    assert set(reading) <= MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE, (
+        f"these collector modules read another collector's evidence table without a licence: {reading}"
+    )
+
+
+def test_every_licensed_module_still_takes_the_read_it_is_licensed_for() -> None:
+    """The other direction, and the half that keeps the licence honest.
+
+    A licence nothing uses is a hole somebody can walk through later without
+    anybody noticing it was opened. If `collectors/kev.py` stops reading
+    `vulnerability_findings` -- because the rollup story took the join, or because
+    the exception was ruled against -- the entry has to come out in the same
+    change, and the Spec Change Log entry with it.
+    """
+    registered = registrations()
+    own = {module_of(collector): collector.evidence_model.__name__ for collector in registered.values()}
+    every = set(own.values())
+
+    for module in MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE:
+        assert module in own, f"{module} is licensed to read another collector's evidence and is not a collector"
+        assert _foreign_evidence_named(module, own=own[module], every=every), (
+            f"{module} is licensed to read another collector's evidence table and reads none"
+        )

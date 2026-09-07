@@ -601,10 +601,10 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # **The numbers are written here rather than imported, and that is the design
 # rather than a shortcut.** CPM-AD-20 makes cadence *data*: this dictionary is
 # what django_celery_beat's DatabaseScheduler seeds its tables from. What it does
-# **not** buy is an operator changing one of *these four* intervals without a
+# **not** buy is an operator changing one of *these six* intervals without a
 # deploy -- the scheduler rewrites every entry it finds here on each beat start,
 # so a value edited in the admin is live only until beat restarts. Cadence as data
-# is what lets a *later* schedule be added or changed in the tables; these five
+# is what lets a *later* schedule be added or changed in the tables; these six
 # are the declaration, and changing one is a pull request. docs/deployment.md says
 # the same thing to an operator.
 #
@@ -622,13 +622,16 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # which is the failure CPM-CURRENCY-S01 recorded and this reconciliation exists
 # to prevent.
 #
-# **The four daily entries fire together, and that is accepted rather than
-# overlooked.** Beat starts them from one instant, so four dispatches land on the
+# **The five daily entries fire together, and that is accepted rather than
+# overlooked.** Beat starts them from one instant, so five dispatches land on the
 # `collect` queue at once. A dispatch enqueues and returns -- it makes no outbound
-# call and holds no transaction -- so what arrives simultaneously is four cheap
-# tasks rather than four inventories of I/O, and the collections they enqueue are
+# call and holds no transaction -- so what arrives simultaneously is five cheap
+# tasks rather than five inventories of I/O, and the collections they enqueue are
 # then bounded by each collector's own rate limiter, which is where the real
-# pacing lives (CPM-AD-20). Offsetting them would need crontab entries, which the
+# pacing lives (CPM-AD-20). The two security entries are the pair worth naming:
+# they fire together, each asks its own declared source, and each spends its own
+# allowance -- docs/deployment.md states what that costs against CPM-NFR-1's
+# inventory. Offsetting them would need crontab entries, which the
 # reconciliation below deliberately cannot read as intervals.
 #
 # A settings module cannot import a collector to read its cadence: these modules
@@ -666,6 +669,25 @@ CELERY_BEAT_SCHEDULE = {
         "task": "cpm.collect.sweep",
         "schedule": timedelta(days=1),
         "kwargs": {"collector": "vulnerability"},
+    },
+    "cpm-sweep-kev": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "kev"},
+        # The one entry carrying options, and the only phase this schedule can
+        # express. The KEV collector cross-references what the vulnerability
+        # collector wrote, so the two firing from one instant means a KEV run
+        # routinely reads the previous day's advisories -- an answer one cadence
+        # behind, with nothing saying so. The reconciliation above compares an
+        # entry's `schedule` with its collector's declared cadence, so the interval
+        # cannot carry a phase and a crontab cannot be read as an interval; beat
+        # passes an entry's `options` to `apply_async`, so a countdown on the
+        # dispatch is what is left. It reduces the window and does not close it --
+        # at ten thousand packages the vulnerability sweep spends most of a day
+        # inside its own allowance -- and `collectors/kev.py`'s KEV_DISPATCH_OFFSET
+        # says so, `tests/unit/test_settings.py` reconciles the two, and
+        # `docs/deployment.md` states the residual to an operator.
+        "options": {"countdown": 60 * 60},
     },
 }
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events

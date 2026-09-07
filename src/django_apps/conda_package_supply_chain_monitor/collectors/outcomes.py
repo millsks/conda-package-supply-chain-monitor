@@ -1,11 +1,13 @@
-"""The vulnerability evidence vocabulary, in a leaf module that imports one thing.
+"""The two security evidence vocabularies, in a leaf module that imports one thing.
 
 `CPM-AD-5` composes every per-status vocabulary in this product from
-`core.outcomes.outcome_type`, and this is `CPM-SECURITY-S01`'s.
-`VulnerabilityOutcome` is the vocabulary `vulnerability_findings.state` is drawn
-from, and the whole of why it exists rather than the bare `OutcomeState` is one
-sentence: **on this table a determinate row means an advisory matched**, and
-`core`'s single precedence order ranks `ok` best of five.
+`core.outcomes.outcome_type`, and these are `CPM-SECURITY-S01`'s and
+`CPM-SECURITY-S02`'s. `VulnerabilityOutcome` is the vocabulary
+`vulnerability_findings.state` is drawn from and `KevOutcome` is
+`kev_findings.state`'s, and the whole of why either exists rather than the bare
+`OutcomeState` is one sentence: **on a security table a determinate row means the
+alarming thing happened**, and `core`'s single precedence order ranks `ok` best of
+five.
 
 **What using `ok` here would have done.** `CPM-AD-24` makes every derived status
 carry its value verbatim onto every read surface, so the first view over this
@@ -25,13 +27,20 @@ exists are separate columns the source states and this product ranks nowhere
 reads first.
 
 **A leaf module, for the reason `policies/outcomes.py` is one.**
-`collectors/models.py` declares this vocabulary as a column's `choices` and
-`collectors/vulnerability.py` reads `VulnerabilityFinding` from
-`collectors/models.py`, so a type bound in either would close an import cycle and
-fail at start-up. `identity/confidence.py` records the same problem and the same
-solution: the vocabulary is the half of the pair that depends on nothing, so the
-vocabulary is the half that moves. This module imports `core.outcomes` and
+`collectors/models.py` declares these vocabularies as columns' `choices` and
+`collectors/vulnerability.py` and `collectors/kev.py` read their models from
+`collectors/models.py`, so a type bound in any of them would close an import cycle
+and fail at start-up. `identity/confidence.py` records the same problem and the
+same solution: the vocabulary is the half of the pair that depends on nothing, so
+the vocabulary is the half that moves. This module imports `core.outcomes` and
 nothing else, in either direction.
+
+**Both vocabularies live here rather than one per collector**, which is the one
+place this module departs from "a leaf per story". They are the same kind of thing
+declared for the same reason, they are read by the same models module, and a
+second file would be a second copy of every argument below — while a reader
+comparing the two determinate values, which is the comparison `CPM-SECURITY-S01`'s
+review turned on, would have to open two files to make it.
 
 **Bound once, at module scope, and that is load-bearing.** `outcome_type` mints a
 distinct class on every call, so two calls would produce two types whose members
@@ -40,17 +49,18 @@ compare unequal as enum members and equal only as strings —
 `tests/unit/django_apps/test_outcomes.py` pins it. Everything that needs the type
 imports it from here.
 
-**It declares no precedence order, and that is a decision rather than an
+**Neither declares a precedence order, and that is a decision rather than an
 omission.** `CURRENCY_PRECEDENCE` exists because the currency pass reduces four
 surfaces' verdicts to one column, and a reduction needs a ranking. Nothing
-reduces vulnerability findings yet: `CPM-SECURITY-S04`'s rollup pass is the first
-consumer of this table and does not exist. An order declared here would be data
-no function reads — which `tests/unit/django_apps/test_single_ordering_audit.py`
+reduces vulnerability or KEV findings yet: `CPM-SECURITY-S04`'s rollup pass is the
+first consumer of either table and does not exist. An order declared here would be
+data no function reads — which `tests/unit/django_apps/test_single_ordering_audit.py`
 would have to license by name, and which the next reader would take for a ranking
 this product applies somewhere. Until then `core.outcomes.aggregate` **refuses**
-`matched` outright, which is the safe failure and exactly what that module says it
-is for: a caller that reduced these rows without deciding the order is told,
-loudly, rather than having `matched` silently ranked beside `ok`.
+`matched`, `listed` and `not_listed` outright, which is the safe failure and
+exactly what that module says it is for: a caller that reduced these rows without
+deciding the order is told, loudly, rather than having `matched` silently ranked
+beside `ok`.
 
 **Why this module names no `OutcomeState` member.** The four sentinels are read
 back off the composed type rather than written out, so nothing here is a literal
@@ -74,12 +84,21 @@ if TYPE_CHECKING:
     from django.db import models
 
 __all__ = [
+    "KEV_ERROR",
+    "KEV_NOT_APPLICABLE",
+    "KEV_NOT_FOUND",
+    "KEV_UNKNOWN",
+    "LISTED",
+    "LISTED_MEMBER",
     "MATCHED",
     "MATCHED_MEMBER",
+    "NOT_LISTED",
+    "NOT_LISTED_MEMBER",
     "VULNERABILITY_ERROR",
     "VULNERABILITY_NOT_APPLICABLE",
     "VULNERABILITY_NOT_FOUND",
     "VULNERABILITY_UNKNOWN",
+    "KevOutcome",
     "VulnerabilityOutcome",
 ]
 
@@ -144,3 +163,83 @@ VULNERABILITY_NOT_FOUND: Final[str] = _MEMBER_VALUES["NOT_FOUND"]
 #: `vulnerability_findings` refuses a row carrying this value outright. Named so
 #: the constraint and the collector's refusal can both spell it once.
 VULNERABILITY_NOT_APPLICABLE: Final[str] = _MEMBER_VALUES["NOT_APPLICABLE"]
+
+
+#: The determinate verdict for a row recording that the KEV catalog lists the
+#: advisory a vulnerability finding named, declared once as the
+#: `(member name, value)` pair `outcome_type` takes.
+#:
+#: **This is the alarming half of this table and it is deliberately not `ok`.** It
+#: is the same correction `CPM-SECURITY-S01` was patched for, made here by
+#: construction rather than by review: `CPM-AD-24` carries a state's value verbatim
+#: onto every read surface and `core`'s single precedence order ranks `ok` best of
+#: five, so a KEV table using `ok` would render exactly the packages with a
+#: known-exploited advisory against them as the clean ones — and would rank them
+#: above a package nothing was established about. `CPM-UJ-1` opens with a queue led
+#: by KEV findings; a value that sorted them last would empty that queue.
+#:
+#: `listed` rather than `exploited`, `vulnerable` or `kev`, and the difference is
+#: what the row can honestly claim. What happened is that a catalog listed an
+#: advisory this product had already recorded against this package. Whether the
+#: package is *actually* being exploited is a claim about the world that no
+#: cross-reference establishes, and a state that said so would be a verdict a
+#: collector is not allowed to reach (`CPM-AD-8`); what a KEV hit *means* for a
+#: package is `CPM-FR-17`'s rollup, which is `CPM-SECURITY-S04`.
+LISTED_MEMBER: Final[tuple[str, str]] = ("LISTED", "listed")
+
+#: The determinate verdict for a row recording that the catalog does **not** list
+#: the advisory a vulnerability finding named.
+#:
+#: **A second determinate member rather than a sentinel, and that is the decision
+#: this vocabulary makes that its sibling did not have to.** "We read the catalog
+#: and this advisory is not in it" is a negative that was *established* about a
+#: specific advisory — which is different from `unknown` (nothing was established)
+#: and different again from `not_found`, which on this table means the KEV source
+#: reported that the **locator** does not exist. Folding the established negative
+#: into either would be `CPM-FR-6`'s fold: three facts, one column, and a reader
+#: unable to tell "not in the catalog" from "the catalog is gone".
+#:
+#: It is emphatically **not** a clean verdict about the package. The advisory is
+#: still an advisory; all this row says is that this particular catalog does not
+#: list it. The row's `detail` says so in as many words, because the value alone
+#: is the one on this table a surface could most plausibly paint green.
+NOT_LISTED_MEMBER: Final[tuple[str, str]] = ("NOT_LISTED", "not_listed")
+
+#: The KEV vocabulary: `core`'s four sentinels plus the two determinate verdicts.
+KevOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "KevOutcome",
+    [LISTED_MEMBER, NOT_LISTED_MEMBER],
+)
+
+#: `KevOutcome`'s own members, by name, read off the composed type itself for the
+#: reason `_MEMBER_VALUES` above is read off its own.
+_KEV_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in KevOutcome}
+
+#: The KEV catalog lists the advisory this row's vulnerability finding named. The
+#: alarming value, and the one a rollup will care about first.
+LISTED: Final[str] = _KEV_MEMBER_VALUES["LISTED"]
+
+#: The KEV catalog was read and does not list that advisory. An established
+#: negative about one advisory, and never a statement that the package is clean.
+NOT_LISTED: Final[str] = _KEV_MEMBER_VALUES["NOT_LISTED"]
+
+#: The run established nothing about this package's KEV exposure -- which here
+#: means it had no current vulnerability finding to cross-reference at all. Never
+#: clean (`CPM-FR-6`, `CPM-SM-2`): a package this product has no advisory for has
+#: not been shown to be free of known-exploited vulnerabilities.
+KEV_UNKNOWN: Final[str] = _KEV_MEMBER_VALUES["UNKNOWN"]
+
+#: Looking failed -- the adapter raised, the allowance was refused, or the catalog
+#: document could not be read.
+KEV_ERROR: Final[str] = _KEV_MEMBER_VALUES["ERROR"]
+
+#: The KEV source reports that the locator itself does not exist, which is a
+#: withdrawn or misconfigured source rather than a package with nothing exploited
+#: against it.
+KEV_NOT_FOUND: Final[str] = _KEV_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", kept in the vocabulary by
+#: construction and produced by nothing, on the terms
+#: `VULNERABILITY_NOT_APPLICABLE` states: a KEV question applies to every package
+#: that could have an advisory against it, which is every package.
+KEV_NOT_APPLICABLE: Final[str] = _KEV_MEMBER_VALUES["NOT_APPLICABLE"]
