@@ -171,7 +171,14 @@ TEMPLATES[0]["OPTIONS"]["debug"] = True  # type: ignore[index]
 # MEDIA
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#media-url
-MEDIA_URL = "http://media.testserver/"
+# Absolute rather than a path, which is the point: `django.conf.urls.static.static`
+# returns an empty list for any prefix that names a host, so the media route in
+# `config/urls.py` mounts nothing under the suite -- the property
+# `tests/unit/test_payload_properties.py` asserts against the resolver. `https`
+# rather than the `http` cookiecutter ships, because `media.testserver` is a host
+# nothing ever connects to and the scheme is therefore free; spelling it `http`
+# bought nothing and read as an insecure transport (`python:S5332`).
+MEDIA_URL = "https://media.testserver/"
 # Your stuff...
 # ------------------------------------------------------------------------------
 

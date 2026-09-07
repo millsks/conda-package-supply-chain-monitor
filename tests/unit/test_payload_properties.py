@@ -92,6 +92,7 @@ import shlex
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
+from urllib.parse import urlsplit
 
 import pytest
 from django.apps import apps
@@ -1200,6 +1201,17 @@ def test_no_resolved_route_serves_anything_out_of_media_root(monkeypatch: pytest
     assert active_settings.DEBUG is False, (
         "the suite is running with DEBUG on, so the resolved URLconf below is the debug one and the "
         "assertions over it say nothing about a deployed component."
+    )
+
+    # The suite's `MEDIA_URL` names a host, and that is what the assertion below
+    # rests on: `django.conf.urls.static.static` returns an empty list for any
+    # prefix with a netloc, so the media route mounts nothing here regardless of
+    # `DEBUG`. Pinned because the scheme is free only while this holds -- a
+    # `MEDIA_URL` quietly restored to a relative path would mount the route again
+    # and the `Resolver404` below would stop meaning what it says.
+    assert urlsplit(active_settings.MEDIA_URL).netloc, (
+        f"the suite's MEDIA_URL {active_settings.MEDIA_URL!r} names no host, so `static()` mounts a live media "
+        f"route over MEDIA_ROOT -- a writable path inside the source tree (AC #2)."
     )
 
     with pytest.raises(Resolver404):

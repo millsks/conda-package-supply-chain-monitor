@@ -36,14 +36,20 @@ announces the path exists and turns a guarded route into an error-rate signal.
 The seeding task's `ImproperlyConfigured` is right for something an operator
 invoked and wrong for something a stranger requested.
 
-The method check is written out rather than delegated to `require_POST`, and the
-order is the reason. A decorator runs *before* the function body, so a
-`require_POST`-wrapped view answers `405` to a `GET` without ever reaching the
-locality guard -- and `405` is not "nothing": it confirms the path exists and
-that only the verb was wrong, which is the disclosure the `404`-over-
-`ImproperlyConfigured` choice above exists to avoid. Locality is asked first, so
-a route that became reachable in a deployed component answers `404` to every
-verb.
+The method check is written out rather than delegated to `require_POST` or
+`require_safe`, and the order is the reason. A decorator runs *before* the
+function body, so a `require_POST`-wrapped view answers `405` to a `GET` without
+ever reaching the locality guard -- and `405` is not "nothing": it confirms the
+path exists and that only the verb was wrong, which is the disclosure the
+`404`-over-`ImproperlyConfigured` choice above exists to avoid. Locality is asked
+first, so a route that became reachable in a deployed component answers `404` to
+every verb.
+
+Both views make that check. The index is the listing half of a credential path,
+and a listing that answered a `POST`, a `PUT` or a `DELETE` identically to a
+`GET` would be a write-shaped request served out of a read-only view -- nothing
+is written today, and the guard is what keeps "nothing is written" from being a
+property of the body rather than of the contract.
 
 The module's *location* is load-bearing. Epic 4's stage-2 predicate resolves the
 URLconf and refuses any route whose view callable belongs to `config.local_dev`
@@ -104,6 +110,12 @@ SESSION_BACKEND: Final[str] = "django.contrib.auth.backends.ModelBackend"
 #: guard and the `Allow` header it answers with cannot disagree.
 _POST: Final[str] = "POST"
 
+#: The verbs that may list the personas: the safe pair, and `HEAD` alongside `GET`
+#: because Django answers a `HEAD` by running the view and discarding the body, so
+#: refusing it here would refuse a request `GET` already permits. Named for the
+#: same reason `_POST` is -- the guard and the `Allow` header read one list.
+_SAFE_METHODS: Final[tuple[str, ...]] = ("GET", "HEAD")
+
 #: The refusals, named rather than written at the `raise`. Neither says anything
 #: a 404 body would not already say; they exist so a log or a traceback in a
 #: developer's console explains itself.
@@ -118,10 +130,10 @@ def persona_index(request: HttpRequest) -> HttpResponse:
     access and establishes nothing.
 
     Args:
-        request: The incoming request.
+        request: The incoming request. Safe verbs only.
 
     Returns:
-        The rendered persona list.
+        The rendered persona list, or `405` when the verb is not a safe one.
 
     Raises:
         Http404: The run is not local.
@@ -129,6 +141,10 @@ def persona_index(request: HttpRequest) -> HttpResponse:
     """
     if not is_local():
         raise Http404(_NOT_LOCAL)
+    if request.method not in _SAFE_METHODS:
+        # After the locality guard, never before it -- which is why this is not
+        # `@require_safe`. See the module docstring.
+        return HttpResponseNotAllowed(_SAFE_METHODS)
     return _render_index(request)
 
 

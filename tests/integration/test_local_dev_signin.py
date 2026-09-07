@@ -288,6 +288,36 @@ def test_the_index_lists_every_declared_persona(client: Client) -> None:
     assert STAFF_GROUP in body
 
 
+def test_a_head_is_answered_like_a_get(client: Client) -> None:
+    """`HEAD` is a safe verb, and the guard must not refuse what `GET` permits.
+
+    Django answers a `HEAD` by running the view and discarding the body, so a
+    method list naming `GET` alone would turn a request the framework treats as a
+    `GET` into a `405`.
+    """
+    response = client.head(reverse(f"{LOCAL_SIGNIN_URL_NAME}_index"))
+
+    assert response.status_code == HTTPStatus.OK
+
+
+@pytest.mark.parametrize("verb", ["post", "put", "delete"])
+def test_a_write_verb_does_not_list_the_personas(verb: str, client: Client) -> None:
+    """The index is the listing half of a credential path, and listing is a safe verb.
+
+    405 rather than 404, matching the sign-in view: under a local run the path
+    exists and only the verb is wrong, and the locality guard has already answered
+    for the case where saying so would disclose anything.
+
+    The `Allow` header is read rather than only the status. A `405` that named the
+    wrong verbs would send a client that honours it straight back to a request
+    this view refuses, and the status alone cannot tell those apart.
+    """
+    response = getattr(client, verb)(reverse(f"{LOCAL_SIGNIN_URL_NAME}_index"))
+
+    assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert sorted(response.headers["Allow"].replace(" ", "").split(",")) == ["GET", "HEAD"]
+
+
 def test_an_unknown_persona_key_is_a_404(client: Client) -> None:
     """`UnknownPersonaError` is a `LookupError` narrowed on purpose, and it is a 404.
 
@@ -470,6 +500,28 @@ def test_a_deployed_run_answers_404_to_every_verb(
 
     with pytest.raises(Http404):
         views.persona_signin(request, persona_key="staff")
+
+
+@pytest.mark.parametrize("verb", ["get", "post", "put", "delete"])
+def test_a_deployed_run_answers_404_to_every_verb_on_the_index(
+    verb: str,
+    rf: RequestFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The index guard order, asserted the same way the sign-in guard order is.
+
+    The index refuses unsafe verbs too, and that check is written inside the body
+    rather than as `@require_safe` for the reason the sign-in view does not use
+    `@require_POST`: a decorator would answer `405` to a `POST` in a *deployed*
+    component without ever reaching the locality guard, which announces the path
+    exists. Under a deployed run every verb must be a `404`, the safe ones
+    included.
+    """
+    monkeypatch.setenv(RUNTIME_ENV_VAR, "production")
+    request: HttpRequest = getattr(rf, verb)("/")
+
+    with pytest.raises(Http404):
+        views.persona_index(request)
 
 
 def test_route_is_absent_when_not_local(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:

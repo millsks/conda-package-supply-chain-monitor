@@ -273,8 +273,19 @@ def test_the_same_breadth_always_produces_the_same_key() -> None:
     The key reads nothing but its three arguments -- no clock, no cached state, no
     row -- so two calls cannot disagree. Asserting it is cheap and it is the
     property the two-call integration case depends on.
+
+    The two calls are bound before they are compared rather than written out on
+    either side of the `==`. Comparing the two call expressions in place reads as
+    an assertion about one expression against itself, which is a shape a reader
+    cannot tell from a typo and which says nothing when it fails.
     """
-    assert _key(A_COUNT, A_LARGER_COUNT, A_KEY) == _key(A_COUNT, A_LARGER_COUNT, A_KEY)
+    first = _key(A_COUNT, A_LARGER_COUNT, A_KEY)
+    second = _key(A_COUNT, A_LARGER_COUNT, A_KEY)
+
+    assert first == second, (
+        f"two calls on the same breadth produced {first!r} and then {second!r}, so the key reads something "
+        f"beyond its three arguments and the queue is not the same sequence twice (AC 2)."
+    )
 
 
 # ---------------------------------------------------------------------------
