@@ -19,10 +19,12 @@ here.
 
 **This application declares a `ready()`, which is why this module has cases the
 other two do not.** `core` and `identity` declare none and their modules assert
-that; `collectors` was the first that did. The hook here adopts `CurrencyPass`
-and `FeedstockPresencePass` into `core`'s registry, and what is asserted is that
-both adoptions happened, in the declared order, that they are idempotent, and
-that no refusal was invented to go with them.
+that; `collectors` was the first that did. The hook here adopts the five passes
+this component ships -- `CurrencyPass`, `FeedstockPresencePass`,
+`VulnerabilityPass`, `LicensePass` and `RemediationPass` -- into `core`'s
+registry, and what is asserted is that every adoption happened, in the declared
+order, that they are idempotent, and that no refusal was invented to go with
+them.
 
 No database, no network, no subprocess. The app registry is populated at session
 start. It does read the application's own directory -- which modules are present,
@@ -55,6 +57,8 @@ from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as L
 from conda_package_supply_chain_monitor.policies.licence import LicensePass
 from conda_package_supply_chain_monitor.policies.parameters import parameters_directory
 from conda_package_supply_chain_monitor.policies.parameters import parameters_file
+from conda_package_supply_chain_monitor.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.remediation import RemediationPass
 from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
 from tests.passes import ADOPTED_PASS_NAMES
@@ -108,6 +112,7 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
     "models.py",
     "outcomes.py",
     "parameters.py",
+    "remediation.py",
     "vulnerability.py",
 )
 
@@ -146,6 +151,7 @@ EXPECTED_MIGRATIONS: Final[tuple[str, ...]] = (
     "0002_package_feedstock_presence.py",
     "0003_package_vulnerability.py",
     "0004_package_license.py",
+    "0005_package_remediation.py",
 )
 
 
@@ -256,6 +262,7 @@ def test_the_ready_hook_adopted_this_applications_passes() -> None:
     assert pass_registrations().get(FEEDSTOCK_POLICY_NAME) is FeedstockPresencePass
     assert pass_registrations().get(VULNERABILITY_POLICY_NAME) is VulnerabilityPass
     assert pass_registrations().get(LICENCE_POLICY_NAME) is LicensePass
+    assert pass_registrations().get(REMEDIATION_POLICY_NAME) is RemediationPass
     assert set(ADOPTED_PASS_NAMES) <= set(pass_registrations())
 
 
@@ -265,7 +272,7 @@ def test_the_passes_were_adopted_in_the_order_the_hook_declares() -> None:
     `core/policy.py` keeps *registration* order where the collector registry sorts
     by name, because `CPM-AD-21` lets a later pass read an earlier pass's derived
     rows for the same run -- and `policies/apps.py` spends four paragraphs saying
-    which order it chose and why the vulnerability pass is last. Every other
+    which order it chose and why the remediation pass is last. Every other
     assertion about the roster sorts or takes a set, so reordering that tuple
     failed nothing anywhere: the reasoning was a claim about a decision no case
     could tell had been made.

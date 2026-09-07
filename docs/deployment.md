@@ -2649,3 +2649,223 @@ The reasoning and the consequences are exactly the three sibling tables', above:
 there is no retention path, deleting old runs would have to delete these rows
 first, and no story currently claims it. Size the database accordingly, or run
 the policy less often than you collect.
+
+## The remediation readiness policy: what you can do now, and what is waiting on somebody else
+
+`CPM-SECURITY-S06` adds the fifth policy pass. Like the four before it, it runs
+inside the orchestrating policy run rather than on a schedule of its own, makes no
+outbound call of any kind, and reads only the evidence a collector has already
+written — here `vulnerability_findings` for the fixed version an advisory names,
+and the four currency-surface tables (`source_release_snapshots`,
+`pypi_release_snapshots`, `feedstock_snapshots`, `conda_package_snapshots`) for
+where that version has appeared. It answers `CPM-FR-41`: can a reviewer act on
+this finding this morning, and if not, what is it waiting for.
+
+**It reads no other pass's derived table.** Not `package_currency`, not
+`package_vulnerability`, not `package_license`. A readiness derived from another
+pass's verdict would depend on that pass's policy version as well as its own, and
+`CPM-FR-22`'s replay could then be stated for neither.
+
+**It reads no policy parameter.** There is no key for it in
+`policies/data/policy-parameters.toml` and there is deliberately not going to be
+one: the version comparison is the currency pass's, the freshness targets are the
+collectors' own declarations, and the vocabulary is fixed. Nothing you can put in
+that file changes what this pass says.
+
+**It writes no rollup column.** `CPM-AD-21` says no pass writes `package_health`,
+and the rollup offers no column for this domain. Nothing here changes
+`package_health` except the `policy_versions` map, which gains a `remediation`
+entry because the pass ran.
+
+### The verdicts, and what each one tells you to do next
+
+Each package gets one row in `package_remediation` per policy run. The vocabulary
+is `core`'s four sentinels plus four of its own:
+
+| Readiness | What it means | What to do about it |
+|---|---|---|
+| `ready` | A monitored channel publishes the fixed version. | **Install it.** This is the queue `CPM-UJ-1` opens with. The row names the exact `conda_package_snapshots` row — so you can see which channel and platform. |
+| `awaiting_build` | The conda-forge recipe carries the fixed version and no monitored channel has built it. | A build is due. Nothing to install yet; check the feedstock's CI, or wait for the next migration wave. |
+| `awaiting_packaging` | Upstream and/or PyPI has released the fixed version and the recipe has not been updated. | The recipe is the outstanding work. Open (or wait for) a feedstock version bump. The `source_fix` and `pypi_fix` columns say which of the two released it. |
+| `blocked` | Every one of the four surfaces was read and none carries the fixed version. **No row this product currently writes reaches it** — see the section below. | Nothing you can do with a package manager: a fix exists and nobody has shipped it anywhere. Consider a pin, a patch, or a vendored build. |
+| `not_applicable` | This run matched no advisory to the package, so there is no finding to be ready for. | Nothing. **This is not a claim that the package is clean** — whether this run established anything about its exposure is `package_vulnerability`'s verdict at the same cut-off. |
+| `unknown` | This run could not say. Read the row's `detail`: it names which of the causes it was. | See the table below — the causes call for different work. |
+| `error`, `not_found` | Reserved. This pass never produces them. | — |
+
+**`unknown` is not "nothing to do", and this is the reading that costs the most.**
+It has six causes and the row's `detail` names which:
+
+| Cause | What the row says |
+|---|---|
+| At least one of the four surfaces was not read | Names the surfaces that did not answer, and says why the row is **not** `blocked`. |
+| A surface answered with a version that is not the fix | Names the versions each surface stated. This is now the *most common* `unknown`: see "The comparison is equality" below. |
+| The advisory names a fixed range this product cannot compare — `>=1.2.3`, `<2.0.0`, `1.0,<2.0` | Names the expression, and says that no architecture decision owns version ordering yet. |
+| The finding records no fixed range | Says that a blank field and a source stating none are recorded identically, so this run cannot tell them apart. |
+| The advisory sweep itself is past the advisory collector's freshness target | Says so, and says no surface was asked. `evidence_stale` is `true`. |
+| There is no advisory evidence at all, or the only evidence establishes nothing | Says which. |
+
+### `blocked` is an established absence, and never an unread surface
+
+This is the property the whole pass is built around, and it is the mirror image of
+the licence pass's `allowed`. A false `allowed` ships a forbidden licence; a false
+`blocked` tells a security reviewer to give up on a package whose fix is sitting on
+a surface nobody checked. It is held in three independent places:
+
+1. **In the vocabulary.** Each of the four surface columns holds one of three
+   values — `published`, `not_published`, `not_read` — and never two. "This surface
+   was not read" is a value the schema can hold rather than a silence the reduction
+   has to guess at.
+2. **In the pass.** `blocked` is reached from four `not_published` readings and
+   from nowhere else. Every other shape — a surface with no evidence, a surface
+   that errored, a surface that does not carry the package, a surface whose
+   evidence is stale, a surface whose collector declares no freshness target, a
+   surface that stated a version that is not the fix — reads `not_read` and the
+   readiness is `unknown`.
+3. **In the database.** `package_remediation` carries two check constraints: a
+   `blocked` row must have all four surfaces `not_published`, with no exception,
+   and any surface that is not `not_read` must name the observation it was read
+   from. A hand-written `INSERT` that went round the pass is refused by PostgreSQL.
+
+### No row this product writes is `blocked`, and that is deliberate
+
+**Applying the rule above honestly leaves the verdict unreachable.** Read this
+before you conclude that nothing in your inventory is unfixable.
+
+`not_published` is the only reading permitted to vote towards `blocked`, and a
+surface may read `not_published` only where it *established* that the fix is not
+there. The four surface tables store the version each surface states as its
+**latest** — not the set of versions it carries. PyPI still hosts `1.5` when its
+latest is `2.0`, and a conda channel still serves older builds. So "this surface's
+latest is not the fix" establishes nothing in either direction, and the pass
+records it as `not_read` with the versions named in the `detail`.
+
+An earlier build recorded it as `not_published`. That made `blocked` the **steady
+state** rather than an edge case: advisories name a fix, surfaces move past it, and
+every package with an older advisory decayed into the one verdict that tells a
+security reviewer to stop looking.
+
+Two things would make `blocked` reachable, and neither exists yet:
+
+* **A version-ordering rule** — given a fix and a version a surface states, decide
+  whether the surface is at or past it. No architecture decision owns this. (It is
+  *not* `CPM-AD-6`, which is *version authority is explicit per package*: it owns
+  which surface is authoritative, not how two version strings compare. Earlier
+  builds cited it here and on the rows themselves, and were wrong.)
+* **A collector that records "the source stated there is no fix"** distinctly from
+  "the field was absent". Today `collectors/vulnerability.py` writes one clause per
+  field the source left blank, and blank means missing and is never inferred, so
+  the two cannot be told apart from a row. A matched advisory with no fixed range
+  is `unknown`.
+
+The verdict stays in the vocabulary, both check constraints still guard it, and the
+reduction still ranks it worst. Nothing about the schema or your queries changes on
+the day either gap closes.
+
+**What this means operationally:** an unfixable finding shows as `unknown` with a
+`detail` naming what each surface stated. Do not read `unknown` as "nothing to do"
+— it is the reading that costs the most, and the table above says which cause it
+was.
+
+### The comparison is equality, and what that costs you
+
+The pass asks "does this surface state the fixed version", compared as
+`policies/currency.py` compares versions: surrounding whitespace and a single
+leading `v` before a digit are reconciled, and nothing else is.
+
+**A surface that states any version other than the fix reads `not_read`.** If an
+advisory names `1.2.3` as the fix and a channel's latest is `1.2.4`, this product
+cannot decide that `1.2.4` contains the fix — and it equally cannot decide that
+`1.2.4` means the channel does *not* serve `1.2.3`, because what the row records is
+the channel's latest and not its contents. Both directions need a version-ordering
+rule across four ecosystems, and no architecture decision owns one. The row records
+what was compared: wherever any surface stated a version that is not the fix, the
+`detail` names every version that surface stated.
+
+The practical consequence: **a package whose fix has been superseded reads
+`unknown`, not `ready` and not `blocked`.** Read the row's `detail` and the four
+surface snapshots it references — the versions are all there. This is the story's
+recorded gap, not a defect to file.
+
+The same limit is why a fixed range that names a *set* of versions is never
+compared at all: `>=1.2.3`, `<2.0.0`, `1.0,<2.0` and `[1.2.3,)` all read `unknown`
+with the reason on the row, and the run does not fail.
+
+### Stale evidence is never relied on, and never asserts a fix
+
+`CPM-FR-38` and `CPM-AD-28` already decide when an observation has aged past its
+collector's declared freshness target, and this pass consumes that answer rather
+than restating it. A surface whose evidence is stale reads `not_read`:
+
+* it cannot make a package `ready` — a fix "available" on evidence you no longer
+  trust is exactly the claim `CPM-NFR-3` forbids;
+* it cannot make a package `blocked` either, for the same reason it cannot be an
+  absence.
+
+**The advisory evidence's own age is measured too.** `CPM-UJ-1`'s stated edge case
+is a finding older than its freshness target, and a pass that measured only the four
+surfaces would report a month-old advisory sweep beside a channel refreshed this
+morning as `ready`. Where the advisory sweep is stale the readiness is `unknown`,
+**no surface is asked at all**, `fixed_version` is blank and the `detail` says so.
+
+`package_remediation.evidence_stale` is `true` on any row where the advisory sweep
+or at least one surface this run read was past its target, and the `detail` names
+which. **A fresh surface beside a stale one still decides the row** — surface
+freshness is per surface, so a fix on a fresh channel is `ready` whatever the
+recipe's staleness. A stale *advisory* sweep is not per surface: it stops the row.
+
+The targets are the collectors' own: two days for the upstream, PyPI and
+published-package collectors, fourteen for the feedstock collector, and the
+advisory collector's own cadence-derived target for `vulnerability_findings`. They
+are declarations in code, not settings. A surface whose evidence table no
+registered collector writes has no target at all — staleness could not be decided,
+so the surface reads `not_read` and does not vote, and the `detail` says so.
+
+### A package is only as actionable as its worst finding
+
+A package with two matched advisories gets **one** row, carrying the least ready of
+the two verdicts — `blocked` first, then `unknown`, then `awaiting_packaging`,
+`awaiting_build`, `ready`. The four surface columns, `fixed_version` and the
+referenced `vulnerability_finding` are about the finding that verdict came from and
+about no other, because two advisories naming two fixed versions have two different
+sets of surface answers. Where there were several, the `detail` says how many and
+which one the columns describe.
+
+### Where the result lands
+
+| Table | What it holds |
+|---|---|
+| `package_remediation` | One row per package **per run**: the readiness, the four per-surface fix availabilities, the fixed version it looked for (blank where there was none), whether any surface's evidence was stale, the policy version and evidence cut-off it was computed under, a `detail` for the shapes the columns do not explain, and foreign keys to the advisory finding and to each surface observation the verdict rests on. |
+| `package_health` | **Nothing.** This pass contributes no rollup column. Its name appears in `policy_versions` because it ran. |
+
+### What a run costs
+
+This pass issues **eleven queries per package** with a matched advisory — two for
+the advisory sweep ("which sweep is current at the cut-off" and "which rows belong
+to it"), two each for the four surfaces, and the insert — on top of the currency
+pass's five, the feedstock pass's two, the vulnerability pass's five and the licence
+pass's three. A package with **no** matched advisory costs three: there is nothing
+to look for, so no surface is read at all. A package with **no advisory evidence at
+all** costs two — `current_findings` short-circuits after the first query when
+there is no sweep to read rows from. (An earlier note said three.) A package whose
+advisory sweep is stale also costs three: no surface is asked.
+
+The four surfaces are read once and reused across every matched finding, so a
+package with nine advisories costs the same eleven as one with a single advisory.
+
+Reading a *sweep* rather than a single row is what makes the published-package
+surface honest: `conda_package_snapshots` holds one row per `(channel, platform)`
+pair, and reading only one of them — as the currency pass does, by an alphabetical
+tie-break — would report `not_published` for a package whose fix a later-sorting
+channel publishes. Four such readings are `blocked`, which would be your channel
+list telling a reviewer to give up.
+
+### `package_remediation` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, with **every
+relation `PROTECT`** — to the package, to the policy run, to the advisory finding,
+and to each of the four surface observations. The reasoning and the consequences
+are exactly the four sibling tables', above: there is no retention path, deleting
+old runs would have to delete these rows first, and no story currently claims it.
+This table references more evidence rows than any of its siblings, so it is also
+the one that will most constrain a future retention story. Size the database
+accordingly, or run the policy less often than you collect.

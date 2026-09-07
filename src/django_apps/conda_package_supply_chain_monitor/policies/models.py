@@ -3,7 +3,8 @@
 `CPM-AD-21` gives every pass a per-domain table keyed `(package, policy_run)`.
 `PackageCurrency` (`CPM-CURRENCY-S06`) was the first, `PackageFeedstockPresence`
 (`CPM-CURRENCY-S07`) the second, `PackageVulnerability` (`CPM-SECURITY-S04`)
-the third and `PackageLicense` (`CPM-SECURITY-S05`) the fourth; they are four
+the third, `PackageLicense` (`CPM-SECURITY-S05`) the fourth and
+`PackageRemediation` (`CPM-SECURITY-S06`) the fifth; they are five
 tables and not one wide one,
 because a pass writes only its own and a shared table would make "which pass
 wrote this column" a convention rather than a schema. **None of them is the
@@ -32,6 +33,15 @@ so a reference can never come to disagree with what it points at, which is why
 the version strings themselves are not copied onto this row: they are one join
 away and they cannot drift.
 
+**`PackageRemediation` is the one table in this module with a constraint behind
+an *adverse* value that would otherwise be reached by silence.** `blocked` tells
+a security reviewer to stop looking for a fix, and it is honest only when every
+one of the four version surfaces was read and none carried the fixed version. So
+the database requires exactly that: a `blocked` row naming a surface this run did
+not read is refused, which is `PackageLicense`'s `allowed` rule turned round --
+there the danger is a permission reached by an absence, here it is an abandonment
+reached by one.
+
 **These are derived state, and they are not evidence.** None carries any of
 the three marks `tests/model_registry.py` reads -- none inherits
 `AppendOnlyModel`, the app label is `policies`, and none declares
@@ -52,14 +62,18 @@ reaches is the write itself, in `policies/currency.py`, `policies/feedstock.py`
 and `policies/vulnerability.py`, each recorded in its exemption table by name.
 The status columns are declared
 `editable=False` anyway: nothing but a policy run may write a derived verdict,
-and that is true whether or not an audit is currently looking.
+and that is true whether or not an audit is currently looking. What that audit's
+*source* scan still reaches is each pass's own `create()` call, and
+`policies/licence.py` and `policies/remediation.py` are recorded in its exemption
+table beside the three named above.
 
-**What `PackageVulnerability` and `PackageLicense` *do* copy, where the two
-older tables copy nothing, is the policy version and the cut-off** -- both facts
-about the run rather than about the evidence. Their class docstrings argue why,
-and the short of it is the same in both: the value each carries is meaningless
-without the version whose reviewed data produced it -- a severity order there, a
-licence rule set here.
+**What `PackageVulnerability`, `PackageLicense` and `PackageRemediation` *do*
+copy, where the two older tables copy nothing, is the policy version and the
+cut-off** -- both facts about the run rather than about the evidence. Their class
+docstrings argue why, and the short of it is the same in all three: the value
+each carries is meaningless without the version whose reviewed data produced it
+-- a severity order, a licence rule set, and for remediation the version under
+which the comparison and the vocabulary were fixed at all.
 
 **`PackageLicense` is the one table in this module with a constraint behind a
 *clean* value.** Every other constraint here requires evidence behind an adverse
@@ -94,10 +108,16 @@ from conda_package_supply_chain_monitor.identity.models import Package
 from conda_package_supply_chain_monitor.identity.models import VersionSurface
 from conda_package_supply_chain_monitor.policies.outcomes import ABSENT
 from conda_package_supply_chain_monitor.policies.outcomes import ADVISORIES_MATCHED
+from conda_package_supply_chain_monitor.policies.outcomes import AWAITING_BUILD
+from conda_package_supply_chain_monitor.policies.outcomes import AWAITING_PACKAGING
 from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
+from conda_package_supply_chain_monitor.policies.outcomes import BLOCKED
 from conda_package_supply_chain_monitor.policies.outcomes import CURRENCY_STATE_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import CURRENT
 from conda_package_supply_chain_monitor.policies.outcomes import FEEDSTOCK_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import FIX_AVAILABILITY_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import FIX_NOT_PUBLISHED
+from conda_package_supply_chain_monitor.policies.outcomes import FIX_PUBLISHED
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_LISTED
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_MEMBERSHIP_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_NOT_LISTED
@@ -106,25 +126,37 @@ from conda_package_supply_chain_monitor.policies.outcomes import MANUAL_REVIEW
 from conda_package_supply_chain_monitor.policies.outcomes import NO_ADVISORY_MATCHED
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_INACTIVE
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_package_supply_chain_monitor.policies.outcomes import READINESS_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import READY
 from conda_package_supply_chain_monitor.policies.outcomes import RULE_DISPOSITIONS
 from conda_package_supply_chain_monitor.policies.outcomes import STAGED_RECIPE_PENDING
+from conda_package_supply_chain_monitor.policies.outcomes import SURFACE_NOT_READ
 from conda_package_supply_chain_monitor.policies.outcomes import VULNERABILITY_STATE_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import CurrencyOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import FeedstockOutcome
+from conda_package_supply_chain_monitor.policies.outcomes import FixAvailability
 from conda_package_supply_chain_monitor.policies.outcomes import KevMembership
 from conda_package_supply_chain_monitor.policies.outcomes import PackageLicenseOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import PackageVulnerabilityOutcome
+from conda_package_supply_chain_monitor.policies.outcomes import RemediationReadiness
 from conda_package_supply_chain_monitor.policies.parameters import MAX_LICENSE_EXPRESSION_CHARACTERS
 from conda_package_supply_chain_monitor.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
 
 __all__ = [
     "AN_AGE_EXACTLY_WHEN_THERE_IS_AN_INSTANT",
+    "AN_AWAITING_BUILD_ROW_NAMES_THE_RECIPE_THAT_CARRIES_THE_FIX",
+    "AN_AWAITING_PACKAGING_ROW_NAMES_THE_RELEASE_THAT_CARRIES_THE_FIX",
     "AUTHORITY_IS_A_KNOWN_SURFACE",
+    "A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ",
+    "A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION",
+    "A_DETERMINATE_READINESS_NEEDS_ITS_FINDING",
     "A_MATCHED_RULE_ONLY_WHERE_A_RULE_DECIDED",
+    "A_READY_ROW_NAMES_THE_CHANNEL_THAT_CARRIES_THE_FIX",
     "A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED",
     "A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT",
     "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
+    "DETERMINATE_READINESS_VERDICTS",
     "DETERMINATE_STATUS_NEEDS_ITS_FINDING",
     "DETERMINATE_VERDICT_NEEDS_AN_AUTHORITY",
     "ESTABLISHED_KEV_MEMBERSHIPS",
@@ -135,8 +167,11 @@ __all__ = [
     "MEASURED_VERDICTS",
     "ONE_FEEDSTOCK_ROW_PER_PACKAGE_PER_RUN",
     "ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
+    "REMEDIATION_ROW_NAMES_ITS_POLICY_VERSION",
+    "SURFACE_FIX_FIELDS",
     "SURFACE_STATUS_FIELDS",
     "THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING",
     "THRESHOLD_IS_A_POSITIVE_INTERVAL",
@@ -145,6 +180,7 @@ __all__ = [
     "PackageCurrency",
     "PackageFeedstockPresence",
     "PackageLicense",
+    "PackageRemediation",
     "PackageVulnerability",
 ]
 
@@ -1525,3 +1561,587 @@ class PackageLicense(models.Model):
         outcome = self.license_outcome or "(no verdict)"
         rule = self.matched_rule or "no rule"
         return f"license of {scope}: {outcome} by {rule}"
+
+
+#: The unique constraint that makes `(package, policy_run)` the key `CPM-AD-21`
+#: requires of the remediation table, by name, so the case that asserts the
+#: refusal and the declaration that makes it cannot drift.
+ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_remediation_row_per_package_per_run"
+
+#: The constraint requiring the advisory finding behind a readiness the run
+#: *derived*, by name.
+A_DETERMINATE_READINESS_NEEDS_ITS_FINDING: Final[str] = "readiness_names_its_finding"
+
+#: The constraint requiring a `ready` row to name the channel that carries the
+#: fix, by name. This is the half of the story AC 1 asks for: a `ready` row that
+#: names no surface is refused by the database.
+A_READY_ROW_NAMES_THE_CHANNEL_THAT_CARRIES_THE_FIX: Final[str] = "ready_names_the_channel_that_carries_the_fix"
+
+#: The constraint requiring an `awaiting_build` row to name the recipe that
+#: carries the fix, by name.
+AN_AWAITING_BUILD_ROW_NAMES_THE_RECIPE_THAT_CARRIES_THE_FIX: Final[str] = (
+    "awaiting_build_names_the_recipe_that_carries_the_fix"
+)
+
+#: The constraint requiring an `awaiting_packaging` row to name the released
+#: surface that carries the fix, by name. Either of two surfaces satisfies it --
+#: see the class docstring for why upstream and PyPI share one verdict.
+AN_AWAITING_PACKAGING_ROW_NAMES_THE_RELEASE_THAT_CARRIES_THE_FIX: Final[str] = (
+    "awaiting_packaging_names_the_release_that_carries_the_fix"
+)
+
+#: The constraint this story exists to put in the schema, by name: `blocked`
+#: needs every surface read.
+A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ: Final[str] = "blocked_needs_every_surface_read"
+
+#: The constraint requiring the observation behind any surface that voted, by
+#: name.
+A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION: Final[str] = "decided_surface_names_its_observation"
+
+#: The constraint requiring every row to name the policy version that produced
+#: it, by name.
+REMEDIATION_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "remediation_row_names_its_policy_version"
+
+#: How wide the column holding the fixed version this row looked for is.
+#:
+#: Sized from `collectors.VulnerabilityFinding.fixed_range`, which is where the
+#: value is read from: a column narrower than the evidence column it copies would
+#: truncate a fix the collector recorded, and a truncated version compared for
+#: equality is a `not_published` reading of a surface that actually carries it.
+#: `tests/unit/django_apps/test_remediation_policy.py` reconciles the two
+#: directly rather than trusting this comment.
+_FIXED_VERSION_LENGTH: Final[int] = 1024
+
+#: Which column holds each surface's fix availability and which holds the
+#: observation it was read from, by `VersionSurface` value.
+#:
+#: The one place the four surfaces are tied to their eight columns, and it is
+#: read rather than merely declared: `A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ` and
+#: `A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION` below are both built from it, so a
+#: surface added to `VersionSurface` without columns here fails at import, and a
+#: column renamed without its entry drops out of both constraints rather than
+#: silently going unchecked. It is `SURFACE_STATUS_FIELDS`' shape with the
+#: evidence reference added, because this table's constraints are about the
+#: reference as well as the verdict.
+#:
+#: **`policies/remediation.py` deliberately does *not* read it**, on exactly the
+#: terms `SURFACE_STATUS_FIELDS` records: the pass spells the four `*_fix`
+#: keywords literally in its `create()` call so that
+#: `tests/unit/django_apps/test_derived_status_writability_audit.py` can see the
+#: write, and it carries the four reference column names on its own
+#: `SurfaceReader` table, because the four references are spread into the same
+#: call and a spread from *this* mapping would tie a constraint's declaration to a
+#: writer's argument list. Both spellings are reconciled against this table by a
+#: case in `tests/unit/django_apps/test_remediation_policy.py` rather than by one
+#: reading the other.
+SURFACE_FIX_FIELDS: Final[dict[str, tuple[str, str]]] = {
+    VersionSurface.SOURCE.value: ("source_fix", "source_snapshot"),
+    VersionSurface.PYPI.value: ("pypi_fix", "pypi_snapshot"),
+    VersionSurface.FEEDSTOCK.value: ("feedstock_fix", "feedstock_snapshot"),
+    VersionSurface.CONDA_PACKAGE.value: ("conda_package_fix", "conda_package_snapshot"),
+}
+
+#: Every readiness this run *derived from an advisory finding*, and therefore
+#: every one that cannot be reached without the finding that named the fix.
+#:
+#: The four `CPM-FR-41` names. `unknown` is deliberately absent, on exactly the
+#: terms `unknown` is absent from `ESTABLISHED_VULNERABILITY_STATUSES`: it is the
+#: readiness of a package with no advisory evidence at all, so requiring a finding
+#: behind it would forbid the row this vocabulary exists to be honest about.
+#: `not_applicable` is absent for the stronger reason that it is precisely the row
+#: for a package this run matched no advisory to -- there is no finding to name.
+#:
+#: A tuple rather than four literals inside the constraint, because
+#: `A_DETERMINATE_READINESS_NEEDS_ITS_FINDING` and
+#: `tests/unit/django_apps/test_remediation_policy.py` both name the same set and
+#: a second spelling of it is a constraint that stops matching what the pass
+#: produces. It holds `RemediationReadiness` values and no `OutcomeState`
+#: members, so it is not the shape
+#: `tests/unit/django_apps/test_single_ordering_audit.py` reads -- and it is not
+#: an order in any case: `READINESS_PRECEDENCE` is where the ranking lives, and
+#: these four are not contiguous in it.
+DETERMINATE_READINESS_VERDICTS: Final[tuple[str, ...]] = (READY, AWAITING_BUILD, AWAITING_PACKAGING, BLOCKED)
+
+
+def _every_surface_was_read() -> models.Q:
+    """Return the condition that every per-surface column records an established absence.
+
+    Built by walking `SURFACE_FIX_FIELDS` rather than by naming the four columns,
+    so a fifth surface joins the constraint at the moment it acquires a column and
+    a renamed column drops out of the check rather than going silently unchecked.
+    The migration freezes whatever this produced on the day it ran, which is
+    correct: a migration records what the schema was asked to be.
+
+    Returns:
+        The conjunction, one `Q(<column>=not_published)` per surface. No column
+        here is nullable, so no conjunct can be the third thing a SQL CHECK can
+        be.
+
+    """
+    condition = models.Q()
+    for column, _reference in SURFACE_FIX_FIELDS.values():
+        condition &= models.Q(**{column: FIX_NOT_PUBLISHED})
+    return condition
+
+
+def _every_decided_surface_names_its_observation() -> models.Q:
+    """Return the condition that a surface which voted names the row it voted from.
+
+    One implication per surface: either the surface was not read, or the
+    observation it was read from is on the row. Built by walking
+    `SURFACE_FIX_FIELDS` for the reason `_every_surface_was_read` is.
+
+    Returns:
+        The conjunction, one `Q(<column>=not_read) | Q(<reference>__isnull=False)`
+        per surface. The reference columns are nullable, and an `IS NULL` test is
+        never itself NULL, so no conjunct can be the third thing a SQL CHECK can
+        be.
+
+    """
+    condition = models.Q()
+    for column, reference in SURFACE_FIX_FIELDS.values():
+        condition &= models.Q(**{column: SURFACE_NOT_READ}) | models.Q(**{f"{reference}__isnull": False})
+    return condition
+
+
+class PackageRemediation(models.Model):
+    """What one policy run concluded about whether a package's findings can be acted on.
+
+    Table `package_remediation`. `CPM-FR-41` as a row: is there a fixed version,
+    where has it appeared, and therefore is this work a reviewer can do now or
+    work that is waiting on somebody else. Named by the same convention
+    `package_currency`, `package_feedstock_presence`, `package_vulnerability`,
+    `package_license` and `package_health` are: the architecture names the schema,
+    and a derived `policies_packageremediation` would make the table depend on
+    which application happened to declare the model.
+
+    **`blocked` is never reached by an absence, and this table is where that
+    stops being the pass's promise.** `blocked` means the fixed version was looked
+    for on every surface and found on none. A surface that was not read is not a
+    surface where the fix is absent, so `A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ`
+    requires all four per-surface columns to record an established absence before
+    a row may carry it, and `A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION` requires
+    each of those four absences to name the observation it was read from. A
+    hand-written `INSERT` that went round `policies/remediation.py` entirely is
+    refused by PostgreSQL.
+
+    It is `PackageLicense`'s `allowed` rule turned round. There the danger is a
+    permission reached by an absence, because it looks like good news; here it is
+    an abandonment reached by an absence, because it tells a reviewer to stop
+    looking. Both are absences masquerading as conclusions and both are held at
+    the database rather than trusted to the writer.
+
+    **No `blocked` row is exempt, and an earlier draft's exemption is why that is
+    said rather than assumed.** The constraint carried a `Q(fixed_version="")`
+    disjunct, admitting any `blocked` row that looked for nothing on the reasoning
+    that an advisory which stated there is no fix has nothing for a surface to
+    carry. No evidence this product records distinguishes an advisory that stated
+    there is no fix from a feed that left the field blank
+    (`collectors/vulnerability.py` writes one clause per *blank* field), so the
+    exemption admitted exactly the rows the pass should never have written -- four
+    `not_read` surfaces, blank fixed version, `blocked`. A finding with no fixed
+    range is `unknown`; `policies/remediation.py` argues it at length.
+
+    **`blocked` is currently unreachable, and the table keeps it anyway.** Nothing
+    this product records can establish that a surface does not carry a version --
+    each surface states its *latest*, not its contents -- so
+    `policies/remediation.py` writes no `not_published` column today and no row
+    reaches this verdict. The epic's AC 2 requires the value to exist and to be
+    distinct from `ready` and `unknown`, and the two constraints below are what
+    will hold it the day a version-ordering rule or a collector that records "the
+    source stated there is no fix" makes it reachable. A value defined and
+    guarded, with the gap recorded, is the honest shipping state; a value reached
+    by an absence is not.
+
+    **The per-surface answers are four columns rather than one flag.** AC 1 asks
+    *where* the fix is, and a reviewer's next action differs by surface: upstream
+    released it means wait for packaging, the recipe carries it means a build is
+    due, a channel has it means install it now. Collapsing four surfaces into one
+    boolean answers a question nobody asked -- the same argument
+    `PackageCurrency`'s four per-surface verdicts make one domain over.
+
+    **`awaiting_packaging` covers two surfaces and that is deliberate.** Upstream
+    and PyPI both mean "released, not yet in the recipe", which is one next action;
+    which of them released it is on `source_fix` and `pypi_fix` rather than folded
+    into the verdict, so nothing is lost. `AN_AWAITING_PACKAGING_ROW_NAMES_THE_RELEASE_THAT_CARRIES_THE_FIX`
+    is therefore the one constraint here whose antecedent is satisfied by either
+    of two columns.
+
+    **This is not the health rollup and contributes no column to it.**
+    `CPM-AD-21` says no pass writes `package_health`; each writes only its own
+    per-domain table keyed `(package, policy_run)`, and `CPM-EP-PRIORITY` owns the
+    orchestrating writer. Nor does it hold a priority, a score, a rank or a work
+    type: `CPM-FR-20` and PRD Open Question 8 own those and `CPM-SECURITY-S06`'s
+    Never list forbids them here.
+
+    **Every relation is `PROTECT`**, on exactly the terms `PackageCurrency`
+    states: deleting a policy run under `CASCADE` would silently take away the
+    findings that explain a verdict still naming it, and an evidence row is the
+    *support* for that verdict -- a snapshot deleted out from under a row that
+    cites it would leave the row claiming a fix nothing can be shown for.
+
+    **The five evidence references are nullable and the five verdicts are not.** A
+    package with no evidence at the cut-off is `unknown` with four `not_read`
+    surfaces, which is a real, ordinary answer and a matrix row of its own -- so
+    every verdict column always holds a value while the references have nothing to
+    point at. `NULL` here is the absence of a row rather than a second spelling of
+    a state.
+
+    **It copies the policy version and the cut-off**, on exactly the terms
+    `PackageVulnerability` and `PackageLicense` argue: `CPM-FR-22`'s replay is a
+    diff of two runs' rows over one cut-off, and carrying both means the diff is a
+    query over this table alone.
+
+    **It declares no `computed_at`**, for the reason the module docstring gives:
+    `CPM-AD-11` requires that column of the *rollup*, and `core/policy_run.py`
+    hands a pass no clock at all, so the only value such a column could hold is a
+    copy of an instant the referenced run already carries.
+    """
+
+    #: The package this finding is about, by the integer primary key `CPM-AD-3`
+    #: fixes. Together with `policy_run` it is `CPM-AD-21`'s key, made a database
+    #: rule by the constraint below.
+    #:
+    #: `related_name` is `remediation_findings`, which nothing else claims on
+    #: `Package` -- unlike `PackageVulnerability` and `PackageLicense`, whose
+    #: obvious accessors were already taken by the evidence tables they read.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that computed this row.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: What this run concluded about whether the package's findings can be acted
+    #: on. `editable=False`: a derived verdict is a policy run's to write and
+    #: nobody else's (`CPM-FR-37`), and the declaration leaves the field out of
+    #: every `ModelForm`, out of the admin and out of `full_clean()`'s validation
+    #: of user-supplied data.
+    #:
+    #: Named `readiness_status` rather than `readiness`, and the suffix is
+    #: load-bearing: `tests/unit/django_apps/test_outcome_field_audit.py`
+    #: recognises a derived status by name and then requires the four
+    #: `OutcomeState` sentinels of it. This column carries them by construction --
+    #: `RemediationReadiness` is composed by `outcome_type` -- so being inside that
+    #: sweep is what it wants, where `kev_membership` and the four `*_fix` columns
+    #: beside it deliberately are not.
+    readiness_status = models.CharField(
+        _("remediation readiness"),
+        max_length=READINESS_STATE_LENGTH,
+        choices=RemediationReadiness.choices,
+        editable=False,
+    )
+
+    #: Whether the upstream source surface carries the fixed version.
+    #:
+    #: **Named `*_fix` and deliberately not `*_status`**, on exactly the terms
+    #: `PackageVulnerability.kev_membership` records: the audit above recognises a
+    #: derived status by name and would then require the four sentinels of a
+    #: column whose whole point is that "this surface was not read" is exactly one
+    #: value. `FixAvailability` carries three and no more.
+    source_fix = models.CharField(
+        _("source fix availability"),
+        max_length=FIX_AVAILABILITY_LENGTH,
+        choices=FixAvailability.choices,
+        editable=False,
+    )
+
+    #: Whether the PyPI surface carries the fixed version. `not_read` here is
+    #: ordinary rather than exceptional: `CPM-FR-8` records a non-Python package
+    #: as inapplicable to PyPI, and a surface the question does not apply to has
+    #: not said the fix is absent from it.
+    pypi_fix = models.CharField(
+        _("PyPI fix availability"),
+        max_length=FIX_AVAILABILITY_LENGTH,
+        choices=FixAvailability.choices,
+        editable=False,
+    )
+
+    #: Whether the conda-forge recipe carries the fixed version -- the surface
+    #: that reaches `awaiting_build`.
+    feedstock_fix = models.CharField(
+        _("feedstock fix availability"),
+        max_length=FIX_AVAILABILITY_LENGTH,
+        choices=FixAvailability.choices,
+        editable=False,
+    )
+
+    #: Whether a monitored channel publishes the fixed version -- the one surface
+    #: that reaches `ready`, because it is the only one a reviewer can install
+    #: from.
+    conda_package_fix = models.CharField(
+        _("published conda package fix availability"),
+        max_length=FIX_AVAILABILITY_LENGTH,
+        choices=FixAvailability.choices,
+        editable=False,
+    )
+
+    #: The fixed version this row looked for, in the form it was compared as.
+    #:
+    #: Stored rather than only referenced, unlike the version strings
+    #: `PackageCurrency` leaves on its evidence rows: this is the value every one
+    #: of the four surfaces was compared against, and the comparison is what the
+    #: row exists to record. Evidence is append-only (`CPM-AD-2`), so the copy can
+    #: never come to disagree with the finding it was read from.
+    #:
+    #: Blank means the row looked for nothing, which is three shapes and the
+    #: `detail` says which: a matched finding that records no fixed range
+    #: (`unknown`), an advisory whose recorded fix states a set of versions and
+    #: cannot be compared without version-ordering semantics this product has not
+    #: decided (`unknown`; no architecture decision owns version ordering yet), and
+    #: an advisory sweep past its own freshness target (`unknown`, and no surface
+    #: was asked).
+    fixed_version = models.CharField(
+        _("fixed version"),
+        max_length=_FIXED_VERSION_LENGTH,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: Whether any surface this run read was past its collector's declared
+    #: freshness target and was therefore not relied on (`CPM-FR-38`, AC 3).
+    #:
+    #: **A boolean beside the status rather than a sixth status value**, which is
+    #: `core/freshness.py`'s own decision applied to a derived row: "staleness is
+    #: a property of a status, not a status of its own", and every export carries
+    #: a `<domain>_stale` companion. A `stale` member of `RemediationReadiness`
+    #: would put a fifth axis back into the channel `CPM-FR-6` exists to keep
+    #: un-collapsed and would break the audit that asserts the five fixed values.
+    #:
+    #: It is not itself a verdict and gates nothing: what a stale surface does is
+    #: read `not_read`, so it can neither assert that the fix is available nor vote
+    #: towards `blocked`. This column is how a reader sees that it happened, and
+    #: the `detail` says which surfaces they were.
+    #:
+    #: **True for the advisory evidence as well as for the four surfaces.**
+    #: `CPM-UJ-1`'s stated edge case is a finding older than its own freshness
+    #: target, and a column that measured only the surfaces would report a
+    #: month-old advisory sweep beside a channel refreshed this morning as fresh.
+    #: Where the advisory sweep is stale the readiness is `unknown` and no surface
+    #: is asked at all.
+    evidence_stale = models.BooleanField(_("evidence stale"), default=False, editable=False)
+
+    #: The policy version this row was computed under, copied from the run
+    #: (`CPM-AD-8`). See the class docstring for why this table copies it.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant this row's evidence was read as of, copied from the run
+    #: (`CPM-AD-21`). Never NULL: a pass is never called without one, and a row
+    #: that could not say what it was as of could not be replayed against.
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    #: The advisory finding this readiness rests on: the first, in the read's
+    #: stated order, whose own readiness is the one the row carries. NULL where
+    #: this run matched no advisory to the package at all.
+    #:
+    #: One reference where the reduction may have read several matched advisories,
+    #: and what that costs is stated rather than left to be discovered: a package
+    #: with nine matched advisories names one of them here, and the rest are one
+    #: query away on `vulnerability_findings` filtered by the package and this
+    #: row's `evidence_cutoff`. The four per-surface columns and `fixed_version`
+    #: are about *this* finding's fix and no other, which is what makes them
+    #: readable at all -- two findings naming two fixed versions have two different
+    #: sets of surface answers, and a row that mixed them would say nothing true.
+    #: The row's `detail` says when there were several.
+    vulnerability_finding = models.ForeignKey(
+        VulnerabilityFinding,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("vulnerability finding"),
+    )
+
+    #: The upstream-release observation `source_fix` was read from, or NULL where
+    #: that surface was not read. The `source` half of `CPM-FR-16`'s "the evidence
+    #: supporting it is stored with the result", applied to this domain -- and here
+    #: it is more than an audit trail: `A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION`
+    #: makes it the thing that stops `blocked` resting on a surface nobody read.
+    source_snapshot = models.ForeignKey(
+        SourceReleaseSnapshot,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("source release snapshot"),
+    )
+
+    #: The PyPI observation `pypi_fix` was read from, on the same terms.
+    pypi_snapshot = models.ForeignKey(
+        PyPIReleaseSnapshot,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("PyPI release snapshot"),
+    )
+
+    #: The feedstock observation `feedstock_fix` was read from, on the same terms.
+    feedstock_snapshot = models.ForeignKey(
+        FeedstockSnapshot,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("feedstock snapshot"),
+    )
+
+    #: The published-package observation `conda_package_fix` was read from.
+    #:
+    #: One row, where `conda_package_snapshots` holds one per `(channel,
+    #: platform)` pair -- and unlike `policies/currency.py`, this pass reads the
+    #: **whole sweep** and this reference names whichever row of it decided the
+    #: column: the pair that publishes the fixed version where one does, and
+    #: otherwise the first in read order that states a version. See
+    #: `policies/remediation.py` for why a single-row read would have made `ready`
+    #: depend on which channel sorts first.
+    conda_package_snapshot = models.ForeignKey(
+        CondaPackageSnapshot,
+        on_delete=models.PROTECT,
+        related_name="remediation_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("conda package snapshot"),
+    )
+
+    #: What this run has to say about the readiness it reached, where the columns
+    #: beside it do not already say it.
+    #:
+    #: Populated on exactly the shapes whose reason is not readable off the row:
+    #: an `unknown` and which of its kinds it was, a `blocked` and which of its two
+    #: it was, a surface whose evidence was stale and therefore not relied on, a
+    #: package whose findings disagreed, and the equality limit wherever a surface
+    #: stated a version that is not the fix. Empty everywhere else, which is the
+    #: rule every table in this product applies to its own `detail`: an explanation
+    #: of an unremarkable row is noise.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    class Meta:
+        """The table the architecture names, not the `policies_packageremediation` Django derives."""
+
+        db_table = "package_remediation"
+        verbose_name = _("package remediation")
+        verbose_name_plural = _("package remediation")
+        constraints = [
+            # `CPM-AD-21`'s key, as a database rule rather than as the writer's
+            # promise, on exactly the terms the four sibling tables state.
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # The evidence half. All four determinate verdicts are statements
+            # about *a fix a finding named*, so each names the finding it was
+            # derived from. A row carrying one while referencing nothing is a
+            # claim about work a reviewer can or cannot do, made by a row that
+            # cannot show any advisory was ever matched.
+            #
+            # The converse is deliberately not asserted: a row referencing a
+            # finding and reading `unknown` is the ordinary shape of an advisory
+            # whose fix cannot be compared, and a row referencing nothing and
+            # reading `unknown` is the ordinary shape of a package with no
+            # advisory evidence at all.
+            #
+            # No column tested here is the third thing a SQL CHECK can be: the
+            # status is NOT NULL and an `IS NULL` test is never itself NULL.
+            models.CheckConstraint(
+                condition=~models.Q(readiness_status__in=DETERMINATE_READINESS_VERDICTS)
+                | models.Q(vulnerability_finding__isnull=False),
+                name=A_DETERMINATE_READINESS_NEEDS_ITS_FINDING,
+            ),
+            # AC 1's half: `ready` means a monitored channel publishes the fix, so
+            # the row says that channel carries it. A `ready` row naming no surface
+            # would be the one verdict in this table that sends a reviewer to
+            # install something, resting on nothing.
+            models.CheckConstraint(
+                condition=~models.Q(readiness_status=READY) | models.Q(conda_package_fix=FIX_PUBLISHED),
+                name=A_READY_ROW_NAMES_THE_CHANNEL_THAT_CARRIES_THE_FIX,
+            ),
+            # The same rule for the recipe verdict. Held on this one and on the
+            # next as well as on `ready`, because a rule held on one value of a
+            # family and not the others is the sibling defect
+            # `ESTABLISHED_VULNERABILITY_STATUSES` records the cost of.
+            models.CheckConstraint(
+                condition=~models.Q(readiness_status=AWAITING_BUILD) | models.Q(feedstock_fix=FIX_PUBLISHED),
+                name=AN_AWAITING_BUILD_ROW_NAMES_THE_RECIPE_THAT_CARRIES_THE_FIX,
+            ),
+            # And for the released-but-unpackaged verdict, which either release
+            # surface may support: upstream and PyPI mean the same next action and
+            # share one verdict, so the antecedent is satisfied by either column.
+            models.CheckConstraint(
+                condition=~models.Q(readiness_status=AWAITING_PACKAGING)
+                | models.Q(source_fix=FIX_PUBLISHED)
+                | models.Q(pypi_fix=FIX_PUBLISHED),
+                name=AN_AWAITING_PACKAGING_ROW_NAMES_THE_RELEASE_THAT_CARRIES_THE_FIX,
+            ),
+            # **The constraint this story exists to put in the schema.** `blocked`
+            # is an established absence: the fixed version was looked for on every
+            # surface and found on none. A surface that was not read is not a
+            # surface where the fix is absent, so a `blocked` row whose surfaces do
+            # not all record `not_published` is refused. No exception, and the
+            # exception that was here is the reason to say so: a
+            # `Q(fixed_version="")` disjunct admitted any `blocked` row that looked
+            # for nothing, which is precisely the shape a `blocked` reached from a
+            # blank advisory field produced -- so the hole in the schema was cut to
+            # exactly the size of the defect above it, and the claim that a
+            # hand-written `INSERT` is refused by PostgreSQL was false for the one
+            # row that mattered. `blocked` now requires four established absences
+            # and nothing else does.
+            models.CheckConstraint(
+                condition=~models.Q(readiness_status=BLOCKED) | _every_surface_was_read(),
+                name=A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ,
+            ),
+            # The other half of the same property, and the one that makes the
+            # constraint above mean something. A surface reads `not_published`
+            # only from a determinate observation that stated a version, and reads
+            # `published` only from one that stated the fix -- so either way it
+            # voted, and a vote names the row it was cast from. Without this, four
+            # `not_published` columns could be written by a caller that read
+            # nothing, and `blocked` would be back to being reachable by silence.
+            models.CheckConstraint(
+                condition=_every_decided_surface_names_its_observation(),
+                name=A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION,
+            ),
+            # `CPM-AD-8` in the column that carries it, on the terms
+            # `VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION` states. A row whose
+            # version names nothing cannot be replayed and cannot say which
+            # vocabulary its readiness was drawn from.
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=REMEDIATION_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the package, the readiness and the fixed version it looked for.
+
+        Returns:
+            A one-line summary. Read off `package_id` rather than off `package`,
+            for the reason `PackageCurrency.__str__` gives: the related object of
+            an unsaved instance raises `RelatedObjectDoesNotExist`, and a
+            `__str__` that raises breaks the two places a half-built object is
+            most likely to be rendered, a debugger and a traceback.
+
+            The fixed version is rendered beside the readiness because the one
+            line a human is likeliest to read is where "blocked, having looked for
+            nothing" should be hardest to mistake for "blocked, having looked
+            everywhere".
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        readiness = self.readiness_status or "(no verdict)"
+        fixed = self.fixed_version or "no fixed version"
+        return f"remediation of {scope}: {readiness} for {fixed}"

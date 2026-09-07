@@ -1,17 +1,19 @@
 """The policy verdict vocabularies, in a leaf module that imports one thing.
 
-Five vocabularies live here: `CurrencyOutcome` (`CPM-CURRENCY-S06`),
+Seven vocabularies live here: `CurrencyOutcome` (`CPM-CURRENCY-S06`),
 `FeedstockOutcome` (`CPM-CURRENCY-S07`), `CPM-SECURITY-S04`'s
-`PackageVulnerabilityOutcome` and `KevMembership`, and `CPM-SECURITY-S05`'s
-`PackageLicenseOutcome`. They share this module for one
+`PackageVulnerabilityOutcome` and `KevMembership`, `CPM-SECURITY-S05`'s
+`PackageLicenseOutcome`, and `CPM-SECURITY-S06`'s `RemediationReadiness` and
+`FixAvailability`. They share this module for one
 reason and it is the same reason none of them is beside its own pass -- the
 import cycle argued immediately below -- and they share nothing else. None is
 derived from another and none ranks against another.
 
-**`KevMembership` is the one that is not an outcome type**, and its own docstring
-argues why: it records a membership rather than a derived status, it carries
-three values and not the four sentinels plus verdicts `outcome_type` composes,
-and the column that holds it is deliberately not named for a status.
+**`KevMembership` and `FixAvailability` are the two that are not outcome
+types**, and their own docstrings argue why: each records a membership rather
+than a derived status, each carries three values and not the four sentinels plus
+verdicts `outcome_type` composes, and the columns that hold them are deliberately
+not named for a status.
 
 `CurrencyOutcome` is composed here rather than in `policies/currency.py`, and the
 reason is an import cycle rather than a preference. Two modules need the type:
@@ -97,6 +99,19 @@ pass produces it from a rule's own disposition and from nothing else, and
 `policies/models.py` puts a database check constraint behind it so a row claiming
 it while naming no rule is refused rather than merely avoided.
 
+**`RemediationReadiness` is the one whose *worst* value is the interesting one,
+and it is `PackageLicenseOutcome`'s mirror.** There, `allowed` must never be
+reached by an absence because it looks like good news. Here `blocked` must never
+be reached by an absence for the opposite reason: it tells a security reviewer to
+stop looking. A false `allowed` ships a forbidden licence; a false `blocked`
+abandons a package whose fix is sitting on a surface nobody checked. Both are
+absences masquerading as conclusions, and both are prevented the same way -- by
+making "not read" a value the vocabulary can hold rather than a silence the
+reduction has to guess at. `FixAvailability` below is that value's home, and
+`policies/models.py` puts a database check constraint behind `blocked` so a row
+claiming it while naming a surface that was never read is refused rather than
+merely avoided.
+
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
 carries the `CPM-` prefix.
@@ -124,8 +139,14 @@ __all__ = [
     "ADVISORIES_MATCHED_MEMBER",
     "ALLOWED",
     "ALLOWED_MEMBER",
+    "AWAITING_BUILD",
+    "AWAITING_BUILD_MEMBER",
+    "AWAITING_PACKAGING",
+    "AWAITING_PACKAGING_MEMBER",
     "BEHIND",
     "BEHIND_MEMBER",
+    "BLOCKED",
+    "BLOCKED_MEMBER",
     "CURRENCY_PRECEDENCE",
     "CURRENCY_STATE_LENGTH",
     "CURRENT",
@@ -136,6 +157,9 @@ __all__ = [
     "FEEDSTOCK_NOT_FOUND",
     "FEEDSTOCK_STATE_LENGTH",
     "FEEDSTOCK_UNKNOWN",
+    "FIX_AVAILABILITY_LENGTH",
+    "FIX_NOT_PUBLISHED",
+    "FIX_PUBLISHED",
     "FORBIDDEN",
     "FORBIDDEN_MEMBER",
     "INACTIVE_MEMBER",
@@ -159,11 +183,20 @@ __all__ = [
     "NO_ADVISORY_MATCHED_MEMBER",
     "PRESENT_AND_INACTIVE",
     "PRESENT_AND_MAINTAINED",
+    "READINESS_ERROR",
+    "READINESS_NOT_APPLICABLE",
+    "READINESS_NOT_FOUND",
+    "READINESS_PRECEDENCE",
+    "READINESS_STATE_LENGTH",
+    "READINESS_UNKNOWN",
+    "READY",
+    "READY_MEMBER",
     "RESTRICTED",
     "RESTRICTED_MEMBER",
     "RULE_DISPOSITIONS",
     "STAGED_MEMBER",
     "STAGED_RECIPE_PENDING",
+    "SURFACE_NOT_READ",
     "UNKNOWN",
     "VULNERABILITY_PRECEDENCE",
     "VULNERABILITY_STATE_LENGTH",
@@ -173,12 +206,15 @@ __all__ = [
     "VULNERABILITY_STATUS_UNKNOWN",
     "CurrencyOutcome",
     "FeedstockOutcome",
+    "FixAvailability",
     "KevMembership",
     "PackageLicenseOutcome",
     "PackageVulnerabilityOutcome",
+    "RemediationReadiness",
     "worst_currency",
     "worst_kev_membership",
     "worst_license",
+    "worst_readiness",
     "worst_vulnerability",
 ]
 
@@ -1060,3 +1096,324 @@ def worst_license(verdicts: Iterable[str]) -> str:
     if not ranked:
         return EMPTY_AGGREGATE.value
     return LICENSE_PRECEDENCE[min(ranked)]
+
+
+# ---------------------------------------------------------------------------
+# `CPM-FR-41`'s remediation readiness vocabulary, and the per-surface
+# availability it is reduced from.
+#
+# A sixth and a seventh vocabulary, and only one of them is an outcome type.
+# `RemediationReadiness` below is the per-package *status* the readiness pass
+# derives; `FixAvailability` is not a status at all and is deliberately not built
+# from `outcome_type` -- see its own declaration for why three values is the whole
+# of it, and why the third is the one this story exists for.
+#
+# **`READINESS_PRECEDENCE` is invisible to
+# `tests/unit/django_apps/test_single_ordering_audit.py`'s detector**, for the
+# reason `VULNERABILITY_PRECEDENCE`'s and `LICENSE_PRECEDENCE`'s are: that
+# detector reads a literal holding *two or more* `OutcomeState` member references,
+# and this one ranks exactly one sentinel (`unknown`) alongside four domain
+# verdicts. `not_applicable` is not ranked at all -- it is excluded from the
+# reduction, on the terms `worst_currency` excludes it -- so there is no second
+# sentinel to spell. That is a property of the vocabulary rather than of how the
+# tuple is written, and `tests/unit/django_apps/test_remediation_policy.py` pins
+# the order by name and by contents instead.
+# ---------------------------------------------------------------------------
+
+#: The determinate verdict for a finding whose fixed version a monitored channel
+#: publishes, declared once as the `(member name, value)` pair `outcome_type`
+#: takes.
+#:
+#: A pair rather than a member reference, on exactly the terms `CURRENT_MEMBER`
+#: is one: the composed type below is built from it and `READY` is read back out
+#: of it, so a second spelling of `"ready"` anywhere would be a value that could
+#: drift from the one the column actually offers.
+#:
+#: **The only value that says a reviewer can act this morning.** `CPM-UJ-1` is
+#: about separating work that is available from work that is waiting on somebody
+#: else, and the difference is entirely whether the fix is installable now. A
+#: fixed version upstream, on PyPI or in a recipe is not: there is nothing to
+#: install. So `ready` is reached from the published-package surface and from no
+#: other, and `policies/models.py` requires the row to name the channel
+#: observation that carries it.
+READY_MEMBER: Final[tuple[str, str]] = ("READY", "ready")
+
+#: The determinate verdict for a finding whose fixed version the conda-forge
+#: recipe carries and no monitored channel has built yet.
+#:
+#: Distinct from `ready` because the reviewer's next action differs: a recipe
+#: carrying the fix means a build is due, and nothing can be installed until it
+#: lands. Distinct from `awaiting_packaging` for the same reason in the other
+#: direction: the packaging work is done and only the build is outstanding.
+AWAITING_BUILD_MEMBER: Final[tuple[str, str]] = ("AWAITING_BUILD", "awaiting_build")
+
+#: The determinate verdict for a finding whose fixed version exists upstream or
+#: on PyPI and has not reached the recipe.
+#:
+#: The matrix's "released but not yet packaged". One value for two surfaces
+#: rather than two, because the reviewer's next action is the same for both -- the
+#: recipe has to be updated -- and *which* of them released it is on the row's own
+#: per-surface columns rather than folded into the verdict. AC 1 asks where, and
+#: the columns are where the answer lives.
+AWAITING_PACKAGING_MEMBER: Final[tuple[str, str]] = ("AWAITING_PACKAGING", "awaiting_packaging")
+
+#: The determinate verdict for a finding whose fix is on no surface at all.
+#:
+#: **This is the value that must never be reached by an absence**, and it is the
+#: mirror of `ALLOWED_MEMBER` one vocabulary up. `blocked` means the fixed version
+#: was looked for on **every** surface and found on none, or that the advisory
+#: itself established there is no fix to look for. A surface that was not read is
+#: not a surface where the fix is absent: `FixAvailability.NOT_READ` is the value
+#: that keeps those two apart, `policies/remediation.py` reaches `blocked` only
+#: from four `not_published` readings, and `policies/models.py` puts a database
+#: check constraint behind it so a row claiming it while naming an unread surface
+#: is refused by PostgreSQL rather than merely avoided here.
+BLOCKED_MEMBER: Final[tuple[str, str]] = ("BLOCKED", "blocked")
+
+#: The per-package remediation readiness vocabulary: `core`'s four sentinels plus
+#: `CPM-FR-41`'s four determinate verdicts.
+#:
+#: Named `RemediationReadiness` rather than `ReadinessOutcome`, because
+#: "readiness" alone is what `config/` already calls an HTTP probe and what
+#: `docs/deployment.md` has a whole section about. The two are unrelated and a
+#: shared name would make "which readiness does this mean" a question about
+#: imports.
+RemediationReadiness: Final[type[models.TextChoices]] = outcome_type(
+    "RemediationReadiness",
+    [READY_MEMBER, AWAITING_BUILD_MEMBER, AWAITING_PACKAGING_MEMBER, BLOCKED_MEMBER],
+)
+
+#: `RemediationReadiness`'s own members, by name, read off the composed type
+#: itself, for the reason `_MEMBER_VALUES` above is: the functional enum API makes
+#: the members invisible to a type checker, and reaching them *through* the type
+#: is what makes a drifted sentinel fail at import rather than silently make every
+#: comparison false. A comprehension rather than a literal, which is also what
+#: keeps it out of `tests/unit/django_apps/test_single_ordering_audit.py`'s reach.
+_READINESS_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in RemediationReadiness}
+
+#: A monitored channel publishes the fixed version. The reviewer can act now.
+READY: Final[str] = _READINESS_MEMBER_VALUES["READY"]
+
+#: The recipe carries the fixed version and no monitored channel has built it.
+AWAITING_BUILD: Final[str] = _READINESS_MEMBER_VALUES["AWAITING_BUILD"]
+
+#: The fixed version exists upstream or on PyPI and has not reached the recipe.
+AWAITING_PACKAGING: Final[str] = _READINESS_MEMBER_VALUES["AWAITING_PACKAGING"]
+
+#: Every surface was read and none carries the fixed version -- or the advisory
+#: established that there is no fixed version at all. Never reached from a surface
+#: nobody read.
+BLOCKED: Final[str] = _READINESS_MEMBER_VALUES["BLOCKED"]
+
+#: This run established nothing about whether the finding can be acted on: no
+#: advisory evidence at the cut-off, advisory evidence past its own freshness
+#: target, an advisory whose recorded fix cannot be compared without
+#: version-ordering semantics this product has not decided -- no architecture
+#: decision owns version ordering -- or a fix that at least one surface was never
+#: asked about, which since `CPM-SECURITY-S06`'s review includes every surface
+#: that stated some other version.
+#:
+#: Reached through `RemediationReadiness` rather than through `OutcomeState`, and
+#: named apart from the four `UNKNOWN` constants above rather than shared with any
+#: of them. They carry the same string -- `verify_sentinels` guarantees it -- but a
+#: column's default and a column's values must be *its own* choices, and a
+#: readiness column taking a constant off the currency vocabulary would be the one
+#: place this module took a value from a type the field does not declare.
+READINESS_UNKNOWN: Final[str] = _READINESS_MEMBER_VALUES["UNKNOWN"]
+
+#: `core`'s "the look failed", carried in the vocabulary by construction and
+#: produced by nothing. An unreadable advisory or surface row makes the readiness
+#: `unknown` and the row says so in its own `detail`: at the *package* level, a
+#: read that failed means this run established nothing about whether the finding
+#: can be acted on, which is what `unknown` means.
+READINESS_ERROR: Final[str] = _READINESS_MEMBER_VALUES["ERROR"]
+
+#: `core`'s informative negative, carried by construction and produced by nothing.
+#: A surface answering that it has no version for this package has not said the
+#: fix is absent -- it has said nothing about the fix -- so it reads
+#: `FixAvailability.NOT_READ` and never reaches this column.
+READINESS_NOT_FOUND: Final[str] = _READINESS_MEMBER_VALUES["NOT_FOUND"]
+
+#: The readiness question is not this package's: this run matched no advisory to
+#: it, so there is no finding to be ready for.
+#:
+#: **Produced, and deliberately not `unknown`.** `CPM-FR-6` forbids folding a
+#: check that does not apply into clean or unknown, and "there is nothing to
+#: remediate" is a different fact from "we could not tell whether there is". It is
+#: also emphatically not a claim that the package is clean: whether this run
+#: *established* that is `package_vulnerability`'s verdict, which this pass reads
+#: nothing from and restates nowhere.
+READINESS_NOT_APPLICABLE: Final[str] = _READINESS_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `RemediationReadiness`'s
+#: longest value is `awaiting_packaging`, eighteen characters, and its longest
+#: sentinel is `not_applicable`, fourteen; the rest is headroom. Sized like
+#: `CURRENCY_STATE_LENGTH` rather than derived from it: six vocabularies, six
+#: declarations, each argued from its own longest value.
+READINESS_STATE_LENGTH: Final[int] = 32
+
+#: How the verdicts several findings support rank when they are reduced to one
+#: package readiness. Worst first, and only five of the eight values are ranked.
+#:
+#: **Why only five.** `policies/remediation.py` produces exactly these: the four
+#: `CPM-FR-41` names, plus the un-established state. `error` and `not_found` are
+#: members by construction and are never reached, and `not_applicable` is decided
+#: before there is anything to reduce -- a package with no matched advisory has no
+#: per-finding verdicts at all -- so it is excluded from this order rather than
+#: ranked, on exactly the terms `CURRENCY_PRECEDENCE` excludes its own. Ranking a
+#: value no reduction can meet would be data no function reads, which is the
+#: objection `FeedstockOutcome`'s missing order records.
+#:
+#: **Why the ranks are what they are.** "A package is only as actionable as its
+#: worst finding" is the story's own words, so the order runs from least
+#: actionable to most.
+#:
+#: * `blocked` first, because it is the least actionable thing this vocabulary
+#:   can say and it is an *established* adverse finding. A package with one
+#:   finding whose fix exists nowhere and one whose fix is on a channel is not a
+#:   package a reviewer can finish this morning, and reporting the milder verdict
+#:   would drop the blocked finding out of the queue `CPM-UJ-1` opens with.
+#: * `unknown` second, above the three that say where the fix is. An un-established
+#:   state hides risk, on exactly the terms `CURRENCY_PRECEDENCE` puts its own
+#:   un-observed states above `current`; and it must not mask `blocked`, which is
+#:   why it sits below it rather than above.
+#: * `awaiting_packaging`, then `awaiting_build`, then `ready` -- the three
+#:   determinate verdicts in order of how much work is left before a reviewer can
+#:   install anything. `ready` is last because it is the only verdict that says
+#:   the work is available now, so a reduction cannot reach it while any finding
+#:   said anything else.
+#:
+#: The one sentinel is written as an `OutcomeState` member on purpose, on the
+#: terms `CURRENCY_PRECEDENCE` states: it is the same string `READINESS_UNKNOWN`
+#: carries, and spelling it this way is what makes the rank *legible* as a
+#: sentinel rather than as one more domain token.
+READINESS_PRECEDENCE: Final[tuple[str, ...]] = tuple(
+    # `str()` for the reason `CURRENCY_PRECEDENCE` gives: the sentinel is written
+    # as an `OutcomeState` member and Django renders a `Choices` member as its
+    # value, so the tuple is the plain strings the column holds.
+    str(verdict)
+    for verdict in (BLOCKED, OutcomeState.UNKNOWN, AWAITING_PACKAGING, AWAITING_BUILD, READY)
+)
+
+#: Rank by value, so a caller may pass either this vocabulary's own strings or
+#: `OutcomeState`'s -- which are the same strings for the sentinel.
+_READINESS_RANK: Final[dict[str, int]] = {value: index for index, value in enumerate(READINESS_PRECEDENCE)}
+
+
+def worst_readiness(verdicts: Iterable[str]) -> str:
+    """Reduce several findings' readiness verdicts to the one readiness for the package.
+
+    **The reduction can never reach `ready` unless every verdict it was given is
+    `ready`**, because `ready` is last in the order and `min` takes the worst
+    rank. **`blocked` is the mirror of that and not a second guarantee of it**:
+    it is rank 0, so a *single* `blocked` finding makes the package `blocked`
+    however many of its siblings are `ready`. That is the intended arithmetic --
+    a package with one unfixable finding is not a package a reviewer can finish --
+    and this docstring said the inverse of it for a while, which is worse than
+    saying nothing: a false safety claim in the place a reviewer checks reads as
+    the property holding.
+
+    Where the property this story turns on is actually held is one level down, in
+    `policies/remediation.py`: a finding whose surfaces were not all read never
+    reaches `blocked` in the first place, so there is no such verdict for this
+    reduction to propagate.
+
+    Args:
+        verdicts: The per-finding verdicts, as `RemediationReadiness` values.
+
+    Returns:
+        The worst verdict among them, by `READINESS_PRECEDENCE`, and
+        `core.outcomes.EMPTY_AGGREGATE`'s value -- `unknown` -- for no verdicts at
+        all. The empty case is unreachable from `RemediationPass`, which decides
+        `not_applicable` before there is nothing to reduce, and is stated here
+        rather than left to whatever `min()` over an empty sequence happens to do.
+
+    Raises:
+        OutcomeVocabularyError: When a verdict has no rank. That is every value
+            this pass never produces -- `error` and `not_found` -- plus
+            `not_applicable`, which is decided before the reduction rather than
+            ranked inside it, and every string from outside the vocabulary
+            entirely. Refused rather than treated as determinate, on exactly the
+            terms `core.outcomes.aggregate` refuses one: ranking an unrecognised
+            value beside `blocked` would be the `CPM-FR-6` fold arrived at by
+            silence, on the one column that tells a reviewer whether to stop
+            looking.
+
+    """
+    ranked: list[int] = []
+    for verdict in verdicts:
+        rank = _READINESS_RANK.get(verdict)
+        if rank is None:
+            message = (
+                f"{verdict!r} has no rank in the remediation readiness order. The ranked values are "
+                f"{sorted(_READINESS_RANK)}; {READINESS_NOT_APPLICABLE!r} is decided before the reduction "
+                f"rather than ranked inside it, and every other member of RemediationReadiness is carried by "
+                f"construction and produced by nothing, so a verdict outside the five needs its rank decided by "
+                f"the story that starts producing it, not inferred here."
+            )
+            raise OutcomeVocabularyError(message)
+        ranked.append(rank)
+    if not ranked:
+        return EMPTY_AGGREGATE.value
+    return READINESS_PRECEDENCE[min(ranked)]
+
+
+class FixAvailability(models.TextChoices):
+    """Whether one version surface carries the fixed version a finding names.
+
+    **Three values, and the third is the whole reason this type exists.** A
+    surface either states the fixed version, states a version that is not it, or
+    was never read -- and collapsing the third into the second is what produces a
+    false `blocked`. `CPM-SECURITY-S04`'s `KevMembership` needed exactly this
+    distinction and is the precedent: recording a package the KEV collector never
+    ran for as `not_listed` would claim an absence the run never established, and
+    recording a surface nobody read as one where the fix is absent is the same
+    claim about a different subject.
+
+    `not_read` covers every way a surface can fail to answer: no observation at
+    the run's cut-off, an observation carrying any of `core`'s four sentinels, an
+    observation that states no version at all, and an observation whose evidence is
+    past its collector's declared freshness target (`CPM-FR-38`) and is therefore
+    not relied on. Each of those is a surface this run did not get a current answer
+    from, and none of them is a statement that the fix is absent from it.
+
+    **Deliberately not built from `outcome_type`, and deliberately not named for a
+    status.** This is not one of `CPM-AD-5`'s derived statuses: it records what one
+    surface carries, the way `KevMembership` records a membership and
+    `AuthorityOrderSource` records a provenance. The four sentinels an outcome type
+    supplies would be four more ways of spelling `not_read` on a column whose whole
+    point is that there is exactly one. The columns that hold it are named
+    `*_fix` for the same reason `kev_membership` is not `kev_status` --
+    `tests/unit/django_apps/test_outcome_field_audit.py` recognises a derived
+    status by name, and a name ending `_status` would put these columns under a
+    rule that would then demand the four sentinels they must not offer.
+
+    **It declares no precedence and ranks nothing.** The four surfaces are not
+    reduced to one availability: `RemediationReadiness` is what a reviewer reads,
+    and which surface produced it is a fixed consultation order declared in
+    `policies/remediation.py` beside the verdicts it names, not a ranking of these
+    three values against each other. The day a story reduces several surfaces'
+    availabilities to one availability, that story declares the order.
+    """
+
+    PUBLISHED = "published"
+    NOT_PUBLISHED = "not_published"
+    NOT_READ = "not_read"
+
+
+#: How wide a column holding one of these values is. `not_published` is thirteen
+#: characters; the rest is headroom, on the terms every width in this module is
+#: argued.
+FIX_AVAILABILITY_LENGTH: Final[int] = 32
+
+#: This surface states the fixed version the finding names.
+FIX_PUBLISHED: Final[str] = FixAvailability.PUBLISHED.value
+
+#: This surface was read, states a version, and it is not the fixed version. The
+#: only value that may vote towards `blocked`.
+FIX_NOT_PUBLISHED: Final[str] = FixAvailability.NOT_PUBLISHED.value
+
+#: This surface was not read, or its answer is not one this run relies on. Never
+#: a statement that the fix is absent, which is the defect this vocabulary exists
+#: to prevent.
+SURFACE_NOT_READ: Final[str] = FixAvailability.NOT_READ.value

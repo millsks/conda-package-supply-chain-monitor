@@ -293,6 +293,9 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/policies/licence.py": {
         KEYWORD_FORM.format(name="license_outcome", method="create"): 1,
     },
+    "django_apps/conda_package_supply_chain_monitor/policies/remediation.py": {
+        KEYWORD_FORM.format(name="readiness_status", method="create"): 1,
+    },
 }
 
 #: The one module `CPM-AD-11` permits to write current package health, named so
