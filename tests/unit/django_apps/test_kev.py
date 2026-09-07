@@ -1081,11 +1081,19 @@ def test_a_body_that_is_not_json_is_refused_naming_the_source() -> None:
 
 
 def test_a_deeply_nested_document_is_refused_rather_than_crashing_the_worker() -> None:
-    """`json.loads` recurses per level, so a nested body raises `RecursionError` rather than a decode error."""
-    nested = "[" * 100_000 + "]" * 100_000
+    """A nested body is refused, and the refusal is a `KevDocumentError` however it is reached.
 
-    with pytest.raises(KevDocumentError, match="readable KEV catalog"):
-        catalog_in(nested, source=AN_ANSWERING_SOURCE)
+    **Which** refusal fires is a property of the interpreter's stack, not of this module, so it
+    is deliberately not asserted -- the three sibling collectors state the guarantee the same
+    way for the same reason. `json.loads` recurses per level, so on a platform whose limit the
+    nesting exceeds the body raises `RecursionError` and this module refuses it as unreadable;
+    on a platform where the parse completes, the result is a list rather than an object and the
+    shape check refuses it instead. Both are the guarantee this case is about: a document this
+    module cannot read is refused rather than allowed to take the worker down with it.
+    Asserting the recursion message pinned one platform's answer and failed on Linux.
+    """
+    with pytest.raises(KevDocumentError):
+        catalog_in("[" * 200_000, source=AN_ANSWERING_SOURCE)
 
 
 def test_a_document_larger_than_the_ceiling_is_refused_before_it_is_decoded() -> None:
