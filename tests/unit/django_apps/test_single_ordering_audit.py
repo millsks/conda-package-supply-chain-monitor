@@ -492,6 +492,37 @@ def _recorded_key(path: Path) -> str:
 #: four sentinel ranks so that the detector below can *see* it, and licensed here
 #: by somebody who decided to.
 #:
+#: **That file now declares two more orders the detector cannot see, and they are
+#: recorded here in prose because there is nothing for the table to hold.**
+#: `CPM-SECURITY-S04` added `VULNERABILITY_PRECEDENCE` and
+#: `KEV_MEMBERSHIP_PRECEDENCE` beside `CURRENCY_PRECEDENCE`. This detector matches
+#: a literal holding **two or more** `OutcomeState` member references, and neither
+#: of those holds two: the vulnerability order ranks exactly one sentinel
+#: (`unknown`) alongside two domain verdicts, and the KEV membership order ranks
+#: none at all, because `KevMembership` is not composed from `outcome_type` and
+#: carries no sentinel. That is a property of what those vocabularies *are*, not
+#: of how the tuples are spelled -- there is no second sentinel to write -- so
+#: neither is the "order written over a composed type" evasion this module's
+#: docstring names, and `test_every_recorded_ordering_still_declares_the_order_it_records`
+#: below still finds exactly one declaration in that file and means it.
+#: `tests/unit/django_apps/test_vulnerability_policy.py` pins both of the invisible
+#: orders by name and by contents instead, which is the assertion this table would
+#: have made if it could see them.
+#:
+#: **The residual, stated rather than left to be found.** This table names one of
+#: the three orders that file declares, and the file is excluded from
+#: `SUBJECT_MODULES` wholesale -- so a *fourth* order added there is caught by
+#: nothing in this module. `test_every_recorded_ordering_still_declares_the_order_it_records`'s
+#: `len(declared) == 1` sees only what the detector sees, and a fourth order over
+#: a vocabulary with fewer than two sentinels would be invisible to it exactly as
+#: the two above are. The check that would catch one is a case in the domain's own
+#: suite, pinning that domain's orders by name and contents, which is what the two
+#: `CPM-SECURITY-S04` orders have. Widening the table to hold several names per
+#: module would not close it either: the names would still have to be maintained
+#: by hand, and the alternative -- reshaping `policies/outcomes.py` so the
+#: detector could see all three -- is shaping code around a detector, which this
+#: module's own docstring refuses.
+#:
 #: Both directions are checked, as every recorded table in this repository is:
 #: the entry must still describe a real declaration under that name, and no
 #: unrecorded module may declare one.

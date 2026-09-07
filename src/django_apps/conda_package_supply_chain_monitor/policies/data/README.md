@@ -25,6 +25,7 @@ exactly this, and a change here is a pull request.
 ```toml
 [versions."<policy version>"]
 feedstock_inactivity_days = <positive whole number>
+vulnerability_risk_order = ["<severity>", "<severity>", ...]
 ```
 
 `versions` is the only top-level table, and each entry under it is one policy
@@ -33,10 +34,55 @@ version's complete parameter set.
 | Key | Required | Meaning |
 |---|---|---|
 | `feedstock_inactivity_days` | yes | How long a feedstock may go without a push to its repository before `CPM-FR-40`'s policy calls it **inactive**. A positive whole number of days. A feedstock pushed to *exactly* this long before the run's evidence cut-off is still `present_and_maintained`; inactivity begins strictly after it. |
+| `vulnerability_risk_order` | no | The severity labels `CPM-FR-17`'s per-package **risk level** is drawn from, **worst first**. A non-empty list of distinct, fixed lowercase strings, each at most 32 characters. Compared case-insensitively against the `severity` a vulnerability finding stored exactly as its source stated it. A version that omits it gets vulnerability rows with **no risk level**, and every other verdict on them is unaffected. |
 
 What counts as recipe activity is **not** a parameter. `CPM-CURRENCY-S03` fixed
 it — a push to the feedstock repository — and the collector records the instant.
 This file only says how long a gap has to be.
+
+### `vulnerability_risk_order` is optional, and a version that omits it still runs
+
+It is the one key an entry may legitimately omit, and the asymmetry is
+deliberate. `CPM-SECURITY-S04` added the key after versions had already been
+recorded, and an old entry has to keep saying what it said or `CPM-FR-22`'s
+replay of a run at that version stops working. So an entry without it **parses**,
+and a run at that version writes a complete `package_vulnerability` row: the
+status and the KEV membership are derived exactly as they would be otherwise —
+neither reads this parameter — the **risk level is blank**, and the row's
+`detail` says the version records no order.
+
+**Nothing fails, and an earlier version of this document said otherwise.** It
+claimed the pass refused per package so that "only this domain's rows" were lost.
+That was wrong twice over: `CPM-AD-23` puts one *package* in a transaction rather
+than one *pass*, so a refusal there rolled the currency and feedstock rows back
+with it — and since the condition holds for every package, the whole run
+finalized `failed` and wrote nothing at all. That destroyed the currency and
+feedstock replay of every run recorded at such a version while protecting no
+vulnerability replay, because no run at one ever carried a vulnerability verdict.
+
+A **malformed** order is a different thing and is still refused, at the read,
+naming this file: see the editing rules below. There is no default risk level and
+there must not be one — a blank is a missing measurement, never a low one.
+
+The practical consequence: **enqueue a policy run at a version that records this
+key** if you want risk levels. A run at an older version is complete in every
+other respect.
+
+### The risk level is a selection, never an arithmetic
+
+A package's risk level is the **worst-ranked severity among the advisories
+matched to it** — the first entry of this list that any matched finding's
+severity names. A matched advisory whose severity this list does not name, or
+whose source stated no severity, contributes nothing to the ranking; a package
+whose matched advisories name none of these labels reads no risk level at all,
+and the derived row's `detail` says so.
+
+**Never add a KEV label to this list.** `CPM-FR-17` requires that KEV membership
+stay distinguishable and never be averaged into severity, and the derived row
+carries it in a stored column of its own. A `"kev"` entry here would be exactly
+the collapse the requirement forbids — and the pass reads this order only over a
+finding's own stated severity, so such an entry would simply never match
+anything while looking to a reviewer as though it did.
 
 **A version's policy version string is the operator's, not this component's.**
 `CPM-AD-8` makes the version the identity of the *rule data*, so the strings here
@@ -64,6 +110,13 @@ constant moves, and no test asserts the number.
   is a reviewer who believes they changed a verdict.
 * **A missing, non-integer, boolean, non-positive or absurdly large threshold is
   refused.** No value is repaired and none is defaulted.
+* **A risk order that is not a list, is empty, or holds an entry that is not a
+  distinct, non-blank, untrimmed-free, lowercase string of at most 32 characters
+  is refused.** Every fault in the list is reported at once, so correcting one
+  entry at a time does not mean reading the file four times. A version that means
+  to rank nothing **omits the key**; an empty list is refused, because it would
+  produce a blank risk level for every package and read exactly like a source
+  that states no severities.
 * **A version key that names nothing, or that carries surrounding whitespace, is
   refused.** The lookup is exact and the run ledger refuses a version naming
   nothing, so such an entry could never be reached by any run.
@@ -87,8 +140,10 @@ version here obliges an edit to `tests/passes.py`'s `A_RECORDED_POLICY_VERSION`
 **only if you removed or renamed the version that constant names**. Three
 integration modules execute real policy runs at it, and each of them would fail
 every package if it stopped being recorded. Adding a *new* version beside it
-needs no test change at all — which is the ordinary case, and the one this file's
-editing rule above asks for.
+needs no test change at all, which is the ordinary case; `CPM-SECURITY-S04`
+moved the constant to `2026.09.1` anyway, so that the version the suite runs at
+records a *complete* set for every adopted pass and the cases about risk levels
+have one to draw from — not because a run at `2026.09` fails, which it does not.
 
 ## The operational consequence, stated plainly
 
@@ -98,13 +153,15 @@ editing rule above asks for.
 version accomplishes nothing. Check this file before enqueuing `cpm.policy.run`
 with a new version string.
 
-## The shipped threshold is provisional
+## Both shipped parameters are provisional
 
 PRD Open Question 10 asks what the inactivity threshold should be, and this
-component has not answered it. The value in the file is a starting point with its
-reasoning written beside it — the file is the only place the number appears, so
-this document does not repeat it — and it is changeable by review **without a
-code change**, which is the whole point of the mechanism.
+component has not answered it. `CPM-FR-17` names a risk level and the PRD seeds
+no severity scale for it, and this component has not answered that either. Both
+values in the file are starting points with their reasoning written beside them —
+the file is the only place either appears, so this document does not repeat them
+— and both are changeable by review **without a code change**, which is the whole
+point of the mechanism.
 
 Nothing in the codebase depends on it: the pass reads whatever this file records,
 each derived row stores the threshold it applied, and both test tiers

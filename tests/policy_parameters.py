@@ -40,25 +40,43 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from typing import Final
 
 from conda_package_supply_chain_monitor.policies import parameters as parameters_module
 from conda_package_supply_chain_monitor.policies.parameters import INACTIVITY_DAYS_KEY
 from conda_package_supply_chain_monitor.policies.parameters import PARAMETERS_FILENAME
+from conda_package_supply_chain_monitor.policies.parameters import RISK_ORDER_KEY
 from conda_package_supply_chain_monitor.policies.parameters import VERSIONS_TABLE
 from conda_package_supply_chain_monitor.policies.parameters import forget_recorded_parameters
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from collections.abc import Mapping
+    from collections.abc import Sequence
     from pathlib import Path
 
     import pytest
 
-__all__ = ["parameter_document", "recorded_policy_parameters"]
+__all__ = ["A_FIXTURE_RISK_ORDER", "parameter_document", "recorded_policy_parameters"]
+
+#: The severity order a substituted file records unless a case says otherwise.
+#:
+#: **Deliberately not the shipped labels.** `policies/data/policy-parameters.toml`
+#: ranks `critical`/`high`/`moderate`/`low`; a fixture using those would pass just
+#: as well against a pass that had gone back to reading a constant, which is the
+#: same argument `tests/unit/django_apps/test_feedstock_policy.py` makes for
+#: choosing a threshold the shipped file does not carry.
+#:
+#: It exists because `CPM-SECURITY-S04` adopted a pass that refuses a version
+#: recording no risk order: every substituted file that a *real policy run* reads
+#: has to record one, or every run in the suite would finalize `partial` with
+#: every package's vulnerability row missing, and the cases about the rollup and
+#: the orchestration would be measuring that instead.
+A_FIXTURE_RISK_ORDER: Final[tuple[str, ...]] = ("severe", "moderate", "mild")
 
 
-def parameter_document(inactivity_days: Mapping[str, int]) -> str:
-    """Render a parameter file recording one threshold per named policy version.
+def parameter_document(inactivity_days: Mapping[str, int], *, risk_order: Sequence[str] | None = None) -> str:
+    """Render a parameter file recording one parameter set per named policy version.
 
     Written by rendering TOML rather than by calling `tomllib` in reverse,
     because what the cases need is a *document* -- the thing
@@ -68,11 +86,18 @@ def parameter_document(inactivity_days: Mapping[str, int]) -> str:
     Args:
         inactivity_days: The inactivity threshold to record for each version, in
             whole days.
+        risk_order: The severity order to record for every version, or `None` to
+            record none at all. `None` is the default and not an oversight: the
+            key is optional in the file by design -- a version recorded before
+            `CPM-SECURITY-S04` cannot carry it and must stay replayable -- so the
+            document a case gets by asking for nothing is the document a version
+            that predates the parameter really has.
 
     Returns:
         The file's text.
 
     """
+    ranked = "" if risk_order is None else f"{RISK_ORDER_KEY} = {json.dumps(list(risk_order))}\n"
     return "".join(
         # `json.dumps` for the key rather than surrounding quotes. A TOML basic
         # string escapes the way a JSON string does, and a version containing a
@@ -81,7 +106,11 @@ def parameter_document(inactivity_days: Mapping[str, int]) -> str:
         # rejects. The failure would then surface from this helper as "not
         # readable as TOML" rather than from the fixture as whatever it was
         # about, which is the least useful place for it to appear.
-        f"[{VERSIONS_TABLE}.{json.dumps(version)}]\n{INACTIVITY_DAYS_KEY} = {days}\n\n"
+        #
+        # `json.dumps` again for the severity list, and for the same reason plus
+        # one: a TOML array of basic strings is spelled exactly as a JSON array
+        # of strings, so the one call renders both correctly.
+        f"[{VERSIONS_TABLE}.{json.dumps(version)}]\n{INACTIVITY_DAYS_KEY} = {days}\n{ranked}\n"
         for version, days in inactivity_days.items()
     )
 
@@ -91,6 +120,8 @@ def recorded_policy_parameters(
     monkeypatch: pytest.MonkeyPatch,
     directory: Path,
     inactivity_days: Mapping[str, int],
+    *,
+    risk_order: Sequence[str] | None = A_FIXTURE_RISK_ORDER,
 ) -> Iterator[Path]:
     """Point the parameter reader at a file recording exactly these versions.
 
@@ -110,6 +141,12 @@ def recorded_policy_parameters(
         directory: Where to write the file. `tmp_path` in an integration case.
         inactivity_days: The threshold to record for each policy version, in
             whole days.
+        risk_order: The severity order to record for every version. Defaults to
+            `A_FIXTURE_RISK_ORDER` rather than to `None`, which is the opposite
+            of `parameter_document`'s default and is deliberate: this helper
+            substitutes the file a *real policy run* will read, and
+            `VulnerabilityPass` fails every package at a version recording no
+            order. A case that wants that refusal passes `None` and says so.
 
     Yields:
         The substituted file's path, so a case can assert against it or corrupt
@@ -117,7 +154,7 @@ def recorded_policy_parameters(
 
     """
     path = directory / PARAMETERS_FILENAME
-    path.write_text(parameter_document(inactivity_days), encoding="utf-8")
+    path.write_text(parameter_document(inactivity_days, risk_order=risk_order), encoding="utf-8")
     monkeypatch.setattr(parameters_module, "parameters_file", lambda: path)
     forget_recorded_parameters()
     try:

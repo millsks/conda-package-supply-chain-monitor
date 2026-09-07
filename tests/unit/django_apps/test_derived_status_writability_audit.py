@@ -235,6 +235,24 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: rather than the currency pass's five because this table holds one verdict per
 #: package where that one holds five; a second would fail here until it is
 #: recorded.
+#
+#: `policies/vulnerability.py` -- `CPM-SECURITY-S04`'s vulnerability pass, and the
+#: fifth collision of the same kind, on exactly the terms the two passes above
+#: state. `PackageVulnerability` is a per-domain derived table (`CPM-AD-21`)
+#: carrying no `computed_at`, so the registry sweep correctly does not find it;
+#: what collides is the naming convention.
+#:
+#: One entry, one `create()` keyword, and the count is one rather than two for a
+#: reason worth recording: that row carries *two* verdict columns, and only
+#: `vulnerability_status` is named for a status. `kev_membership` is deliberately
+#: not -- it records a membership rather than a derived status, and a name ending
+#: `_status` would put it under
+#: `tests/unit/django_apps/test_outcome_field_audit.py`'s rule, which would then
+#: demand the four `OutcomeState` sentinels of a column whose whole point is that
+#: it offers exactly three values. That is a naming decision argued in
+#: `policies/outcomes.py`, not a dodge of this table: the column it produces is
+#: still `editable=False`, and the write that fills it is in the same visible
+#: `create()` call as the one recorded here.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
@@ -251,6 +269,9 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     },
     "django_apps/conda_package_supply_chain_monitor/policies/feedstock.py": {
         KEYWORD_FORM.format(name="presence_status", method="create"): 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/policies/vulnerability.py": {
+        KEYWORD_FORM.format(name="vulnerability_status", method="create"): 1,
     },
 }
 

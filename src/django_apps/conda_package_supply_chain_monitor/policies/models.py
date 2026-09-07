@@ -1,10 +1,14 @@
 """The policy passes' own derived tables. One row per package per policy run, each.
 
 `CPM-AD-21` gives every pass a per-domain table keyed `(package, policy_run)`.
-`PackageCurrency` (`CPM-CURRENCY-S06`) was the first and `PackageFeedstockPresence`
-(`CPM-CURRENCY-S07`) is the second; they are two tables and not one wide one,
+`PackageCurrency` (`CPM-CURRENCY-S06`) was the first, `PackageFeedstockPresence`
+(`CPM-CURRENCY-S07`) the second and `PackageVulnerability` (`CPM-SECURITY-S04`)
+the third; they are three tables and not one wide one,
 because a pass writes only its own and a shared table would make "which pass
-wrote this column" a convention rather than a schema. The key is what makes
+wrote this column" a convention rather than a schema. **None of them is the
+health rollup** -- `CPM-AD-21` says no pass writes `package_health` and
+`CPM-EP-PRIORITY` owns the orchestrating writer, so "rollup" in a story title
+means a pass's own reduction into its own table. The key is what makes
 `CPM-FR-22`'s replay a comparison rather than an overwrite: re-running the same
 policy version against the same cut-off opens a *new* run, writes a new row, and
 leaves the original where it was for the two to be diffed.
@@ -27,24 +31,33 @@ so a reference can never come to disagree with what it points at, which is why
 the version strings themselves are not copied onto this row: they are one join
 away and they cannot drift.
 
-**These are derived state, and they are not evidence.** Neither carries any of
-the three marks `tests/model_registry.py` reads -- neither inherits
-`AppendOnlyModel`, the app label is `policies`, and neither declares
-`observed_at` -- so neither needs a `not_evidence` declaration and neither may
+**These are derived state, and they are not evidence.** None carries any of
+the three marks `tests/model_registry.py` reads -- none inherits
+`AppendOnlyModel`, the app label is `policies`, and none declares
+`observed_at` -- so none needs a `not_evidence` declaration and none may
 take one (`CPM-AD-2`'s escape is for a model that carries a mark, and
 `tests/unit/django_apps/test_evidence_inheritance_audit.py` fails an unused one).
 
-**Neither declares a `computed_at`, and the consequence is stated rather than
+**None declares a `computed_at`, and the consequence is stated rather than
 implied.** `CPM-AD-11` requires that column of the *rollup*, and
 `tests/unit/django_apps/test_derived_status_writability_audit.py` uses it as the
-mark of a model holding derived state -- so this table is outside that audit's
-registry sweep. The instant this row was computed at is the run's, on the row
+mark of a model holding derived state -- so these tables are outside that audit's
+registry sweep. The instant a row was computed at is the run's, on the row
 `policy_run` names, and a copy of it here would be a second spelling of one fact
-on a row that already carries the reference. What the audit's *source* scan still
-reaches is the write itself, in `policies/currency.py` and `policies/feedstock.py`,
-each recorded in its exemption table by name. The status columns are declared
+on a row that already carries the reference. `core/policy_run.py` reinforces it
+by construction: a pass is handed no clock at all, so there is no honest instant
+for such a column to hold. What the audit's *source* scan still
+reaches is the write itself, in `policies/currency.py`, `policies/feedstock.py`
+and `policies/vulnerability.py`, each recorded in its exemption table by name.
+The status columns are declared
 `editable=False` anyway: nothing but a policy run may write a derived verdict,
 and that is true whether or not an audit is currently looking.
+
+**What `PackageVulnerability` *does* copy, where its siblings copy nothing, is
+the policy version and the cut-off** -- both facts about the run rather than
+about the evidence. Its class docstring argues why, and the short of it is that
+the risk level it carries is meaningless without the version whose severity order
+produced it.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
@@ -61,37 +74,56 @@ from django.utils.translation import gettext_lazy as _
 
 from conda_package_supply_chain_monitor.collectors.models import CondaPackageSnapshot
 from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
+from conda_package_supply_chain_monitor.collectors.models import KevFinding
 from conda_package_supply_chain_monitor.collectors.models import PyPIReleaseSnapshot
 from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
+from conda_package_supply_chain_monitor.collectors.models import VulnerabilityFinding
 from conda_package_supply_chain_monitor.core.models import PolicyRun
 from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
 from conda_package_supply_chain_monitor.identity.models import VersionSurface
 from conda_package_supply_chain_monitor.policies.outcomes import ABSENT
+from conda_package_supply_chain_monitor.policies.outcomes import ADVISORIES_MATCHED
 from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
 from conda_package_supply_chain_monitor.policies.outcomes import CURRENCY_STATE_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import CURRENT
 from conda_package_supply_chain_monitor.policies.outcomes import FEEDSTOCK_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import KEV_LISTED
+from conda_package_supply_chain_monitor.policies.outcomes import KEV_MEMBERSHIP_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import KEV_NOT_LISTED
+from conda_package_supply_chain_monitor.policies.outcomes import NO_ADVISORY_MATCHED
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_INACTIVE
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
 from conda_package_supply_chain_monitor.policies.outcomes import STAGED_RECIPE_PENDING
+from conda_package_supply_chain_monitor.policies.outcomes import VULNERABILITY_STATE_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import CurrencyOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import FeedstockOutcome
+from conda_package_supply_chain_monitor.policies.outcomes import KevMembership
+from conda_package_supply_chain_monitor.policies.outcomes import PackageVulnerabilityOutcome
+from conda_package_supply_chain_monitor.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
 
 __all__ = [
     "AN_AGE_EXACTLY_WHEN_THERE_IS_AN_INSTANT",
     "AUTHORITY_IS_A_KNOWN_SURFACE",
+    "A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED",
+    "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
+    "DETERMINATE_STATUS_NEEDS_ITS_FINDING",
     "DETERMINATE_VERDICT_NEEDS_AN_AUTHORITY",
+    "ESTABLISHED_KEV_MEMBERSHIPS",
+    "ESTABLISHED_VULNERABILITY_STATUSES",
     "MAINTENANCE_VERDICT_NEEDS_AN_ACTIVITY_INSTANT",
     "MEASURED_VERDICTS",
     "ONE_FEEDSTOCK_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
     "SURFACE_STATUS_FIELDS",
     "THRESHOLD_IS_A_POSITIVE_INTERVAL",
+    "VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION",
     "AuthorityOrderSource",
     "PackageCurrency",
     "PackageFeedstockPresence",
+    "PackageVulnerability",
 ]
 
 #: How wide the two short vocabulary columns are. `VersionSurface`'s longest
@@ -101,6 +133,18 @@ __all__ = [
 #: value -- a fixed token from a closed vocabulary -- on the terms
 #: `identity/models.py`'s `_VOCABULARY_LENGTH` states.
 _VOCABULARY_LENGTH: Final[int] = 32
+
+#: How wide a column holding a copied policy version is, matching what
+#: `core/models.py` gives `PolicyRun.policy_version`.
+#:
+#: The number is repeated rather than imported, on the terms every width in this
+#: repository is argued: a version string is *not* a value from a closed
+#: vocabulary -- `CPM-AD-8` makes it data an operator supplies -- so it cannot
+#: share `_VOCABULARY_LENGTH`, and a column narrower than the run's own would
+#: truncate a version the ledger accepted. `tests/unit/django_apps/`
+#: `test_vulnerability_policy.py` reconciles the two directly rather than
+#: trusting this comment.
+_POLICY_VERSION_LENGTH: Final[int] = 128
 
 #: The unique constraint that makes `(package, policy_run)` the key `CPM-AD-21`
 #: requires, by name, so the case that asserts the refusal and the declaration
@@ -774,3 +818,364 @@ class PackageFeedstockPresence(models.Model):
         verdict = self.presence_status or "(no verdict)"
         threshold = "no threshold" if self.inactivity_threshold is None else str(self.inactivity_threshold)
         return f"feedstock of {scope}: {verdict} against {threshold}"
+
+
+#: The unique constraint that makes `(package, policy_run)` the key `CPM-AD-21`
+#: requires of the vulnerability table, by name, so the case that asserts the
+#: refusal and the declaration that makes it cannot drift.
+ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_vulnerability_row_per_package_per_run"
+
+#: The constraint requiring the finding behind a status the run *established*, by
+#: name.
+DETERMINATE_STATUS_NEEDS_ITS_FINDING: Final[str] = "vulnerability_status_names_its_finding"
+
+#: The constraint requiring the cross-reference behind an established KEV
+#: membership, by name.
+DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE: Final[str] = "kev_membership_names_its_cross_reference"
+
+#: The constraint holding a risk level to a row that matched something, by name.
+A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED: Final[str] = "risk_level_only_where_advisories_matched"
+
+#: The constraint requiring every row to name the policy version that produced
+#: it, by name.
+VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "vulnerability_row_names_its_policy_version"
+
+#: The two KEV memberships the catalog itself established, and therefore the two
+#: that cannot be reached without the cross-reference row that established them.
+#:
+#: `not_established` is deliberately absent: it is exactly the membership a
+#: package with no cross-reference gets, so requiring a row behind it would
+#: forbid the row this column exists to be honest about. A tuple rather than two
+#: literals inside the constraint, because
+#: `DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE` and
+#: `tests/unit/django_apps/test_vulnerability_policy.py` both name the same pair
+#: and a second spelling of it is a constraint that stops matching what the pass
+#: produces. It holds `KevMembership` values and no `OutcomeState` members, so it
+#: is not the shape `tests/unit/django_apps/test_single_ordering_audit.py` reads
+#: -- and it is not an order in any case: `KEV_MEMBERSHIP_PRECEDENCE` is where the
+#: ranking lives, and these two are not adjacent in it.
+ESTABLISHED_KEV_MEMBERSHIPS: Final[tuple[str, ...]] = (KEV_LISTED, KEV_NOT_LISTED)
+
+#: The two vulnerability statuses this run *established*, and therefore the two
+#: that cannot be reached without the finding that established them.
+#:
+#: **`no_advisory_matched` is here for the same reason `advisories_matched` is**,
+#: and it was added because the sibling rule was being held on one half only. It
+#: is not the milder of the pair: it is the value a read surface is likeliest to
+#: paint green, and a row carrying it while referencing no finding would be a
+#: claim that a source was read, made by a row that cannot show a source was ever
+#: asked. Unreachable from `VulnerabilityPass`, which derives both *from* a
+#: finding -- which is exactly what `PackageCurrency`'s constraints are for too:
+#: the rule is held at the database for the hand-written `INSERT` that went round
+#: the pass.
+#:
+#: `unknown` is deliberately absent, on exactly the terms `not_established` is
+#: absent from `ESTABLISHED_KEV_MEMBERSHIPS`: it is the status of a package with
+#: no evidence at all, so requiring a finding behind it would forbid the row this
+#: vocabulary exists to be honest about.
+ESTABLISHED_VULNERABILITY_STATUSES: Final[tuple[str, ...]] = (ADVISORIES_MATCHED, NO_ADVISORY_MATCHED)
+
+
+class PackageVulnerability(models.Model):
+    """What one policy run concluded about one package's advisory exposure. Table `package_vulnerability`.
+
+    `CPM-FR-17` as a row: one vulnerability status per package, one KEV
+    membership beside it in a column of its own, and a risk level drawn from a
+    versioned severity order. Named by the same convention `package_currency`,
+    `package_feedstock_presence` and `package_health` are.
+
+    **This is not the health rollup, and the word "rollup" in the story's title
+    does not mean that table.** `CPM-AD-21` says no pass writes
+    `package_health`; each writes only its own per-domain table keyed
+    `(package, policy_run)`, and `CPM-EP-PRIORITY` owns the orchestrating writer.
+    This table is the reduction of many findings to one per-package result, and
+    it is the only thing this pass writes. It contributes **no** rollup column at
+    all, which is the one way its two shipped siblings differ from it: the rollup
+    offers none for this domain and adding one would be the new column the
+    story's Never list forbids.
+
+    **`kev_membership` is a stored column and never a number, and that is the
+    whole point of the table.** `CPM-FR-17`'s one testable hazard is a severity
+    score that averages a known-exploited advisory away -- one KEV entry among
+    nine moderate findings coming out looking moderate. A design in which KEV
+    contributed to `risk_level` can, for some combination of findings, produce a
+    level that does not distinguish a KEV package from a non-KEV one; a separate
+    column cannot, because a reader filters on it directly. So the requirement is
+    the stronger one: KEV never becomes a number here, never contributes to an
+    average, and never substitutes for the status. `policies/vulnerability.py` is
+    where that is true of the arithmetic, and this column is where it is true of
+    the schema.
+
+    **Three values in `kev_membership`, not two.** `KevOutcome` has `listed` and
+    `not_listed`; a package the KEV collector never ran for is neither, and
+    recording it as `not_listed` would claim an absence the run never
+    established. `KevMembership` carries `not_established` for exactly that, and
+    the constraint below requires a cross-reference row behind the other two.
+
+    **Every relation is `PROTECT`**, on exactly the terms `PackageCurrency`
+    states: deleting a policy run under `CASCADE` would silently take away the
+    findings that explain a verdict still naming it, and an evidence row is the
+    *support* for that verdict -- a finding deleted out from under a row that
+    cites it would leave the row claiming an advisory nothing can be shown for.
+
+    **The two evidence references are nullable and the two verdicts are not.** A
+    package with no evidence at the cut-off is `unknown` and `not_established`,
+    which is a real, ordinary answer and the story's own AC 2 -- so both verdict
+    columns always hold a value while the references have nothing to point at.
+    `NULL` here is the absence of a row rather than a second spelling of a state.
+
+    **This table copies the policy version and the cut-off, where its two
+    siblings copy neither**, and that is a decision rather than an inconsistency.
+    Both are on the `policy_runs` row this one references, so a reader *could*
+    join -- but this pass's whole output is governed by a rule set chosen by
+    version, and `CPM-FR-22`'s replay is a diff of two runs' rows over one
+    cut-off. Carrying both means the diff is a query over this table alone, and
+    means a row can never be read at a version it was not computed under. It is
+    the same argument `PackageFeedstockPresence.inactivity_threshold` makes for
+    storing the parameter it applied, one level up: what the row exists to record
+    is a judgement made under stated rules, and the statement of those rules
+    belongs on the row.
+
+    **It still declares no `computed_at`, for the reason the module docstring
+    gives.** `CPM-AD-11` requires that column of the *rollup*, and
+    `tests/unit/django_apps/test_derived_status_writability_audit.py` uses it as
+    the mark of the model `CPM-AD-11` governs. `core/policy_run.py` hands a pass
+    no clock at all -- the clock reaches `compose_rollup` and nothing else -- so a
+    `computed_at` here could only be a copy of an instant the referenced run
+    already carries, which is the second spelling of one fact that docstring
+    forbids. The status columns are `editable=False` regardless.
+    """
+
+    #: The package this finding is about, by the integer primary key `CPM-AD-3`
+    #: fixes. Together with `policy_run` it is `CPM-AD-21`'s key, made a database
+    #: rule by the constraint below.
+    #:
+    #: `related_name` is `vulnerability_policy_findings` and not
+    #: `vulnerability_findings`, because `collectors.VulnerabilityFinding`
+    #: already claims that accessor on `Package`. The two are evidence and
+    #: verdict about one subject, and a shared accessor would make
+    #: `package.vulnerability_findings` mean whichever application imported last.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="vulnerability_policy_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that computed this row.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="vulnerability_policy_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: What this run concluded about the package's advisory exposure.
+    #: `editable=False`: a derived verdict is a policy run's to write and nobody
+    #: else's (`CPM-FR-37`), and the declaration leaves the field out of every
+    #: `ModelForm`, out of the admin and out of `full_clean()`'s validation of
+    #: user-supplied data.
+    #:
+    #: `no_advisory_matched` and `unknown` are different values on purpose and
+    #: `policies/outcomes.py` argues it: "the source was read and matched
+    #: nothing" is an established negative, and "nobody looked", "the look
+    #: failed" and "the source did not know the package" are three ways of
+    #: establishing nothing. Neither is clean.
+    vulnerability_status = models.CharField(
+        _("vulnerability status"),
+        max_length=VULNERABILITY_STATE_LENGTH,
+        choices=PackageVulnerabilityOutcome.choices,
+        editable=False,
+    )
+
+    #: Whether the KEV catalog lists any advisory this run recorded against the
+    #: package -- the column `CPM-FR-17` is about. See the class docstring for
+    #: why it is a column rather than a contribution to `risk_level`, and
+    #: `policies/outcomes.py` for why it carries three values.
+    #:
+    #: **Named `kev_membership` and deliberately not `kev_status`.**
+    #: `tests/unit/django_apps/test_outcome_field_audit.py` recognises a derived
+    #: status by name and would then require the four `OutcomeState` sentinels of
+    #: this column -- four more ways of spelling `not_established` on a column
+    #: whose whole point is that there is exactly one. It is a membership, the
+    #: way `authority_order_source` is a provenance.
+    kev_membership = models.CharField(
+        _("KEV membership"),
+        max_length=KEV_MEMBERSHIP_LENGTH,
+        choices=KevMembership.choices,
+        editable=False,
+    )
+
+    #: `CPM-FR-17`'s risk level: the worst-ranked severity among the advisories
+    #: matched to this package, by the order this run's policy version records.
+    #:
+    #: **No `choices`, and that is the shape of the decision rather than an
+    #: omission.** The labels are versioned data in
+    #: `policies/data/policy-parameters.toml` (`CPM-AD-8`), so the set of values
+    #: this column may hold is a property of the run's policy version rather than
+    #: of the schema -- declaring `choices` here would freeze into code the
+    #: severity taxonomy nobody has decided, which is exactly what shipping the
+    #: parameter as data avoids. `policy_version` beside it is what says which
+    #: order a given value was drawn from, and `parameters.py` is what stops the
+    #: file recording a label this column could not hold.
+    #:
+    #: Blank means missing (PRD Appendix A.1) and is an ordinary answer: a
+    #: package nothing matched has no risk level, and so has one whose matched
+    #: advisories state no severity or state severities the version does not
+    #: rank. The row's `detail` says which of those it is, because the blank
+    #: alone cannot.
+    risk_level = models.CharField(
+        _("risk level"),
+        max_length=MAX_RISK_LEVEL_CHARACTERS,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: The policy version whose parameters produced this row, copied from the run
+    #: (`CPM-AD-8`). See the class docstring for why this table copies it where
+    #: its siblings do not.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant this row's evidence was read as of, copied from the run
+    #: (`CPM-AD-21`). Never NULL: a pass is never called without one, and a row
+    #: that could not say what it was as of could not be replayed against.
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    #: The vulnerability finding this status rests on: the first, in the read's
+    #: stated order, whose own verdict is the one the row carries. NULL where
+    #: there was no finding at the cut-off at all.
+    #:
+    #: One reference where the reduction may have read several rows, and what
+    #: that costs is stated rather than left to be discovered: a package with
+    #: nine matched advisories names one of them here, and the rest are one query
+    #: away on `vulnerability_findings` filtered by the package and this row's
+    #: `evidence_cutoff`. What the reference buys is that the verdict names an
+    #: observation a reader can open -- which is the same thing
+    #: `PackageCurrency`'s four references buy, and the same limitation its
+    #: `conda_package_snapshot` records for a table with one row per pair.
+    vulnerability_finding = models.ForeignKey(
+        VulnerabilityFinding,
+        on_delete=models.PROTECT,
+        related_name="vulnerability_policy_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("vulnerability finding"),
+    )
+
+    #: The KEV cross-reference this membership rests on, on the same terms. NULL
+    #: where no cross-reference existed at the cut-off -- which is precisely the
+    #: `not_established` row, and is why the constraint below requires one only
+    #: of the two memberships the catalog itself established.
+    kev_finding = models.ForeignKey(
+        KevFinding,
+        on_delete=models.PROTECT,
+        related_name="vulnerability_policy_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("KEV finding"),
+    )
+
+    #: What this run has to say about the verdict it reached, where the columns
+    #: beside it do not already say it.
+    #:
+    #: Populated on exactly the shapes whose reason is not readable off the row:
+    #: a status of `unknown` reached from an `error` or a `not_found` finding
+    #: rather than from no evidence at all, and a blank `risk_level` on a row
+    #: that did match advisories. Empty everywhere else, which is the rule every
+    #: table in this product applies to its own `detail`: an explanation of an
+    #: unremarkable row is noise.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    class Meta:
+        """The table the architecture names, not the `policies_packagevulnerability` Django derives."""
+
+        db_table = "package_vulnerability"
+        verbose_name = _("package vulnerability")
+        verbose_name_plural = _("package vulnerability")
+        constraints = [
+            # `CPM-AD-21`'s key, as a database rule rather than as the writer's
+            # promise, on exactly the terms the two sibling tables state.
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # The status's own invariant, over **both** values this run can
+            # establish. `advisories_matched` is a claim that an advisory source
+            # matched an advisory to this package, and `no_advisory_matched` is a
+            # claim that a source was read and matched none; each is reached by
+            # reading a finding that says so, and a row carrying either while
+            # referencing nothing is a security verdict resting on nothing. The
+            # second half is the one a reader is likelier to trust, because it is
+            # the half that looks clean.
+            #
+            # The converse is deliberately not asserted: a row referencing a
+            # finding and reading `unknown` is the ordinary shape of an errored
+            # lookup, and a row referencing nothing and reading `unknown` is the
+            # ordinary shape of a package nobody looked at.
+            #
+            # No column tested here is the third thing a SQL CHECK can be: the
+            # status is NOT NULL and an `IS NULL` test is never itself NULL.
+            models.CheckConstraint(
+                condition=~models.Q(vulnerability_status__in=ESTABLISHED_VULNERABILITY_STATUSES)
+                | models.Q(vulnerability_finding__isnull=False),
+                name=DETERMINATE_STATUS_NEEDS_ITS_FINDING,
+            ),
+            # The membership's own invariant, and the one this story exists to
+            # make a schema rule. `listed` and `not_listed` are things the
+            # *catalog* said, so each names the cross-reference that said it;
+            # `not_established` is the row that says nothing was said, and
+            # requiring evidence behind it would forbid the honest answer. A
+            # `not_listed` with no cross-reference is exactly the claimed absence
+            # the three-valued vocabulary exists to prevent.
+            models.CheckConstraint(
+                condition=~models.Q(kev_membership__in=ESTABLISHED_KEV_MEMBERSHIPS)
+                | models.Q(kev_finding__isnull=False),
+                name=DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE,
+            ),
+            # A risk level is a statement *about matched advisories*: it is the
+            # worst-ranked severity among them, so a row carrying one while
+            # matching nothing would be a severity for advisories nobody found.
+            # The converse is not asserted -- a matched row with no risk level is
+            # ordinary, and means the version ranks none of the severities its
+            # findings stated.
+            #
+            # `risk_level` is NOT NULL and blank means missing, so this
+            # expression is always true or false.
+            models.CheckConstraint(
+                condition=models.Q(risk_level="") | models.Q(vulnerability_status=ADVISORIES_MATCHED),
+                name=A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED,
+            ),
+            # `CPM-AD-8` in the column that carries it. A row whose version names
+            # nothing cannot be replayed and cannot say which severity order its
+            # risk level was drawn from -- and `core/ledger.py` already refuses a
+            # policy run whose version names nothing, so this holds the same rule
+            # for the hand-written `INSERT` that went round it.
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the package, the status, the KEV membership and the risk level.
+
+        Returns:
+            A one-line summary. Read off `package_id` rather than off `package`,
+            for the reason `PackageCurrency.__str__` gives: the related object of
+            an unsaved instance raises `RelatedObjectDoesNotExist`, and a
+            `__str__` that raises breaks the two places a half-built object is
+            most likely to be rendered, a debugger and a traceback.
+
+            The KEV membership is rendered beside the status rather than folded
+            into it, which is this table's whole rule applied to the one line a
+            human is likeliest to read.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        status = self.vulnerability_status or "(no verdict)"
+        membership = self.kev_membership or "(no KEV answer)"
+        risk = self.risk_level or "no risk level"
+        return f"vulnerability of {scope}: {status}, KEV {membership}, {risk}"

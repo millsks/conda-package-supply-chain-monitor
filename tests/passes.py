@@ -96,6 +96,8 @@ from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as 
 from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
 from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
+from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -140,6 +142,14 @@ A_VERDICT: Final[str] = OutcomeState.OK.value
 #: about would stop being a refusal and the case would pass for the opposite
 #: reason. `test_the_undeclared_column_is_one_the_rollup_really_does_not_offer`
 #: in `tests/unit/django_apps/test_policy_registry.py` is what says so.
+#:
+#: **`CPM-SECURITY-S04` landed the vulnerability pass and this constant did not
+#: move**, which is worth stating because it looks like an oversight. That pass
+#: contributes *no* rollup column at all -- `CPM-AD-21` says no pass writes the
+#: health rollup and the story's Never list forbids adding one for this domain --
+#: so `vulnerability_status` is still a column `core/rollup.py` does not offer,
+#: and still the right stand-in. `package_vulnerability.vulnerability_status` is
+#: a column on that pass's own derived table and is a different thing entirely.
 AN_UNDECLARED_COLUMN: Final[str] = "vulnerability_status"
 
 #: How wide the fixture verdict column is. Wide enough for any `OutcomeState`
@@ -159,10 +169,14 @@ NO_DERIVED_MODEL: Final = None
 #: hand-written roster on purpose, on the terms `tests/model_registry.py`'s
 #: `RUN_LEDGER_MODEL_LABELS` is one: adopting a pass is a decision, and a
 #: roster derived from the registry would only ever agree with itself.
-ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (CURRENCY_POLICY_NAME, FEEDSTOCK_POLICY_NAME)
+ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (
+    CURRENCY_POLICY_NAME,
+    FEEDSTOCK_POLICY_NAME,
+    VULNERABILITY_POLICY_NAME,
+)
 
 #: The adopted pass classes, in the same order, so a case can re-register them.
-ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPresencePass)
+ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPresencePass, VulnerabilityPass)
 
 #: The policy version the cases that execute a real policy run must declare.
 #:
@@ -179,7 +193,28 @@ ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPr
 #: ever agree with it, and what the suite needs to know is that *this* version is
 #: recorded. `tests/integration/django_apps/test_feedstock_policy.py` reconciles
 #: it against the file in both directions.
-A_RECORDED_POLICY_VERSION: Final[str] = "2026.09"
+#:
+#: **`CPM-SECURITY-S04` moved it from `2026.09` to `2026.09.1`.** That story added
+#: `vulnerability_risk_order`, a parameter `2026.09` predates and therefore does
+#: not record, and what this constant names is the version recording a *complete*
+#: set for every adopted pass -- so the cases that assert a risk level have an
+#: order to draw one from.
+#:
+#: **A run at `2026.09` is not a failure, and an earlier version of this comment
+#: said it was.** It claimed such a run would finalize `partial` with every
+#: package's vulnerability row missing, because `VulnerabilityPass` refused a
+#: version recording no order. That refusal was the defect: `core/policy_run.py`
+#: wraps all three passes for one package in one `transaction.atomic()`
+#: (`CPM-AD-23`'s unit is one package, not one pass), so it rolled back that
+#: package's currency and feedstock rows too and -- the condition holding for
+#: every package -- finalized the run `failed` having written nothing. The pass
+#: now derives the status and the KEV membership normally at such a version and
+#: leaves the risk level blank, so `2026.09` replays with all three domains' rows.
+#: `2026.09` stays in the shipped file, unedited, because a run recorded at it
+#: must still replay (`CPM-FR-22`), and
+#: `tests/integration/django_apps/test_vulnerability_policy.py` asserts both
+#: halves of that by name.
+A_RECORDED_POLICY_VERSION: Final[str] = "2026.09.1"
 
 
 @memoized

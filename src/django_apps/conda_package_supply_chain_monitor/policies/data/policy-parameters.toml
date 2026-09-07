@@ -20,3 +20,41 @@
 # Changing it is a pull request against this line. Add a new [versions."..."]
 # entry instead if runs recorded at 2026.09 must stay replayable as they were.
 feedstock_inactivity_days = 180
+
+[versions."2026.09.1"]
+# Added, not edited: 2026.09 above stays exactly as it was so a run recorded at
+# it still replays (CPM-FR-22). This entry is 2026.09 plus CPM-FR-17's risk-level
+# parameter, which 2026.09 predates and therefore does not record; a run at
+# 2026.09 computes currency, feedstock presence and vulnerability alike, and its
+# vulnerability rows simply carry no risk level, each saying so in its detail.
+# Nothing fails: a version predating a parameter is a historical fact, not a
+# misconfiguration, and refusing would have taken that version's currency and
+# feedstock rows down with it (one package is the atomic unit, not one pass).
+feedstock_inactivity_days = 180
+
+# PROVISIONAL. CPM-FR-17 asks for a per-package risk level and the PRD seeds no
+# severity scale for it -- the PRD's own note on CPM-FR-20 says the equivalent
+# rules "seed from an organizational risk posture that does not exist yet", and
+# no open question has answered this one either.
+#
+# What this currently is: the four severity labels the common advisory sources
+# state, ranked worst first, matched case-insensitively against the `severity`
+# string a vulnerability finding stored verbatim. A package's risk level is the
+# worst-ranked severity among the advisories matched to it; a matched advisory
+# whose severity this list does not name contributes nothing to the ranking, and
+# a package whose matched advisories name none of these reads no risk level at
+# all, with the row's `detail` saying so.
+#
+# What review is expected to change: all of it. The labels are the ones sources
+# happen to use rather than ones this organization has chosen; the ranking is the
+# obvious reading of those four words rather than a posture anybody has stated;
+# and a review that decides risk should also weigh how many advisories matched,
+# or how the fix is available, would replace this list with whatever expresses
+# that. Changing it is a new [versions."..."] entry, not an edit to this one.
+#
+# What review must NOT do here: add a KEV entry. KEV membership is a stored
+# column of its own on every derived row and is never an input to this ordering
+# (CPM-FR-17: "never averaged into severity"). A label such as "kev" in this list
+# would be exactly the collapse the requirement forbids, and the pass reads this
+# order only over a finding's own stated severity.
+vulnerability_risk_order = ["critical", "high", "moderate", "low"]
