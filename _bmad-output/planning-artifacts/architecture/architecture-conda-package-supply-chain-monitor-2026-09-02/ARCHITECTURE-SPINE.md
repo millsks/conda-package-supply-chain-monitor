@@ -707,6 +707,7 @@ src/
 | `CPM-EP-EVIDENCE` | `django_apps/evidence`, `core` | `CPM-AD-2`, `CPM-AD-3`, `CPM-AD-15`, `CPM-AD-23` |
 | `CPM-EP-CURRENCY` | `django_apps/collectors`, `policies` | `CPM-AD-6`, `CPM-AD-7`, `CPM-AD-8`, `CPM-AD-20` |
 | `CPM-EP-SECURITY` | `django_apps/collectors`, `policies` | `CPM-AD-5`, `CPM-AD-7`, `CPM-AD-8`, `CPM-AD-20` |
+| `CPM-EP-RENAME` | the `django_apps/` import root itself | `CPM-AD-8` (adoption stays explicit) |
 | `CPM-EP-PY314` | `django_apps/collectors`, `policies` | `CPM-AD-5`, `CPM-AD-7`, `CPM-AD-20` (`verify` queue) |
 | `CPM-EP-PRIORITY` | `django_apps/policies` | `CPM-AD-8`, `CPM-AD-11`, `CPM-AD-21` |
 | `CPM-EP-APP` | `django_apps/reporting`, `workflow`, `config/api_router.py` | `CPM-AD-9`–`CPM-AD-14`, `CPM-AD-22`, `CPM-AD-24` |

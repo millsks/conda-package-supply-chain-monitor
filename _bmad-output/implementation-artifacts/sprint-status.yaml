@@ -98,6 +98,13 @@ development_status:
   cpm-security-s06-whether-finding-can-actually-be: ready-for-dev
   epic-security-retrospective: optional
 
+  # CPM-EP-RENAME: The product is called Conda-Sentinel
+  epic-rename: backlog
+  cpm-rename-s01-import-root-becomes-conda-sentinel: ready-for-dev
+  cpm-rename-s02-conda-sentinel-on-operator-surfaces: ready-for-dev
+  cpm-rename-s03-planning-artifacts-name-new-module: ready-for-dev
+  epic-rename-retrospective: optional
+
   # CPM-EP-PY314: Inferred and verified compatibility, kept apart
   epic-py314: backlog
   cpm-py314-s01-static-readiness-assessment: ready-for-dev

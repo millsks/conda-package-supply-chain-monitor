@@ -761,6 +761,7 @@ Non-positional keys. Adding an epic never renumbers another.
 | `CPM-EP-IDENTITY` | Package identity resolution, the inventory, provenance, confidence, review queue, audited override | CPM-FR-1 – CPM-FR-6, CPM-FR-32, CPM-FR-42 | `CPM-EP-PLATFORM` |
 | `CPM-EP-CURRENCY` | Source, PyPI, feedstock, and published-conda collectors; version currency and feedstock presence policies | CPM-FR-7 – CPM-FR-10, CPM-FR-15, CPM-FR-16, CPM-FR-40 | `CPM-EP-IDENTITY` |
 | `CPM-EP-SECURITY` | Vulnerability, KEV, and license collectors and their policies; remediation readiness | CPM-FR-11 – CPM-FR-13, CPM-FR-17, CPM-FR-18, CPM-FR-41 | `CPM-EP-IDENTITY`, `CPM-EP-CURRENCY` |
+| `CPM-EP-RENAME` | Renames the product to Conda-Sentinel and the import root to `conda_sentinel`. Changes no behaviour and satisfies no requirement. | — | `CPM-EP-SECURITY` |
 | `CPM-EP-PY314` | Python 3.14 static assessment, then optional build and import verification | CPM-FR-14, CPM-FR-19 | `CPM-EP-IDENTITY` |
 | `CPM-EP-PRIORITY` | Priority bucket, score, rank, work type; policy versioning and replay | CPM-FR-20 – CPM-FR-22 | `CPM-EP-CURRENCY`, `CPM-EP-SECURITY` |
 | `CPM-EP-APP` | Current-health view, package detail, role-scoped queues, reports, governed API, role scoping | CPM-FR-23 – CPM-FR-27, CPM-FR-31, CPM-NFR-4 – CPM-NFR-6 | `CPM-EP-PRIORITY` |

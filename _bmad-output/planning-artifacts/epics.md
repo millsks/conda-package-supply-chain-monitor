@@ -1328,6 +1328,105 @@ So that I can separate work I can do now from work that is waiting on someone el
 **Satisfies:** `CPM-FR-41`
 **Governed by:** `CPM-AD-5`, `CPM-AD-8`
 
+## CPM-EP-RENAME: The product is called Conda-Sentinel
+
+Renames the product to **Conda-Sentinel** and the Django import root from
+`conda_package_supply_chain_monitor` to `conda_sentinel`. This epic changes no behaviour and
+satisfies no functional requirement. It is placed here, between `CPM-EP-SECURITY` and
+`CPM-EP-PY314`, for one reason: the cost is textual and grows with every story, while the risk
+does not fall by waiting.
+
+**What makes this cheaper than a Django app rename usually is.** Two things that normally make
+it expensive do not apply, and both were verified against the tree rather than assumed:
+
+- **No table is renamed.** All nineteen models declare an explicit `db_table` and not one
+  carries the package name. There is no `AlterModelTable`, no data migration, and nothing an
+  operator has to schedule.
+- **No app label changes.** Django derives a label from the last segment of the app's `name`,
+  so the labels are `core`, `identity`, `collectors` and `policies`. Migration dependencies
+  reference those short labels, as does `django_content_type`. All twenty-four migrations are
+  untouched, and only three mention the package name at all.
+
+What remains is a Python import path, the `name` field of four `AppConfig` classes, and prose.
+
+**What is deliberately not in scope.** The `CPM-` requirement prefix does not change. Those
+identifiers are opaque keys cross-referenced by the PRD, this file, the architecture spine and
+the Dev Notes of every merged story. Renaming them would break traceability on shipped work and
+buy nothing; `CPM-` becomes a historical prefix. Renaming the GitHub repository is an operator
+action outside any story here.
+
+### CPM-RENAME-S01: The import root becomes `conda_sentinel`
+
+As an engineer reading this codebase,
+I want the import root to carry the product's name,
+So that the module path and the product stop disagreeing.
+
+**Acceptance Criteria:**
+
+**Given** the repository after this story
+**When** `conda_package_supply_chain_monitor` is searched for anywhere under `src/` or `tests/`
+**Then** it appears nowhere, and a test fails if it ever returns
+
+**Given** the database schema before and after this story
+**When** the two are compared
+**Then** no table, column, index or constraint differs, and `makemigrations --check` reports
+no changes
+
+**Given** the twenty-four existing migration files
+**When** the diff for this story is read
+**Then** no migration's operations are edited, and no `AlterModelTable` is added
+
+**Satisfies:** no functional requirement — this story changes no behaviour
+**Governed by:** `CPM-AD-8` — adoption stays explicit; entry-point discovery remains forbidden
+**Constrained:** the four `AppConfig.name` values move with the package, but their derived
+labels must not. A story that changes an app label has changed the migration graph and
+`django_content_type`, which this story is defined not to do.
+
+### CPM-RENAME-S02: Conda-Sentinel on every operator-facing surface
+
+As an operator,
+I want the documentation and packaging to call the product by its name,
+So that what I deploy and what I read about are recognisably the same thing.
+
+**Acceptance Criteria:**
+
+**Given** the README, `docs/`, the packaging metadata and the workspace manifests
+**When** they are read after this story
+**Then** they name Conda-Sentinel, and no operator-facing surface uses the former name
+
+**Given** an operator following the deployment documentation
+**When** they run the commands it gives
+**Then** the commands work against the renamed import root
+
+**Satisfies:** no functional requirement
+**Governed by:** none — this story touches no architecture decision
+**Constrained:** deployment prose names module paths in several places. A rename that updates
+the narrative and leaves a stale path in a command is worse than not renaming, because the
+prose then reads as current while the command fails.
+
+### CPM-RENAME-S03: The living planning artifacts name the new module
+
+As the next person to pick up a story,
+I want the documents I am told to read to name paths that exist,
+So that a Code Map does not send me to a directory that is gone.
+
+**Acceptance Criteria:**
+
+**Given** this file, the architecture spine, the PRD and `CLAUDE.md`
+**When** they name a module path after this story
+**Then** the path is the one on disk
+
+**Given** the story files of already-merged work
+**When** they are read after this story
+**Then** they are unchanged, and a recorded decision says why
+
+**Satisfies:** no functional requirement
+**Governed by:** none
+**Constrained:** merged story files are a record of what was built and when. Rewriting their
+Code Maps would make them describe paths that did not exist at the time, and would edit the
+review history of shipped work. The stubs of stories not yet started are a different case:
+they are instructions to a future reader, and they must be correct.
+
 ## CPM-EP-PY314: Inferred and verified compatibility, kept apart
 
 ### CPM-PY314-S01: Static readiness assessment
