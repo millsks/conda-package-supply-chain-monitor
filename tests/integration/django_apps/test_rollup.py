@@ -9,15 +9,21 @@ domains surviving one compose, which is the property the single-writer rule
 exists for: a writer that reset another domain's table would satisfy every
 single-domain assertion there is.
 
-**The contributed column is real here, and so is the gate.** `epics.md` says
-the rollup "grows as passes are added"; `CPM-CURRENCY-S06` added the first,
-`currency_status`, and adopted the pass that produces it -- so every run in this
-module executes two domains and every row composed here carries a gated verdict.
-What the `unmapped` cases assert is both halves of what `CPM-AD-4` requires: the
-row *exists* and records the confidence it was computed at, and the verdict in
-its contributable column has been replaced. Expressing the gate as writing a
-value rather than as suppressing a row is what makes the first half assertable at
-all.
+**The contributed columns are real here, and so is the gate.** `epics.md` says
+the rollup "grows as passes are added"; `CPM-CURRENCY-S06` added `currency_status`
+and `CPM-CURRENCY-S07` added `feedstock_presence_status`, each adopting the pass
+that produces it -- so every run in this module executes those two domains before
+any fixture pass, and every row composed here carries two gated verdicts. What
+the `unmapped` cases assert is both halves of what `CPM-AD-4` requires: the row
+*exists* and records the confidence it was computed at, and the verdict in every
+contributable column has been replaced. Expressing the gate as writing a value
+rather than as suppressing a row is what makes the first half assertable at all.
+
+**A policy version this component records is a precondition here now.**
+`FeedstockPresencePass` refuses a version `policies/data/policy-parameters.toml`
+does not record, so `_recorded_parameters` below substitutes a file naming this
+module's two fixture versions. Without it every run here would fail every package
+for a reason that has nothing to do with the rollup.
 
 Every case here rolls back. `@pytest.mark.django_db` wraps each in a transaction;
 the fixture derived tables are built once for the session by `conftest.py`.
@@ -53,7 +59,10 @@ from conda_package_supply_chain_monitor.identity.models import IdentityConfidenc
 from conda_package_supply_chain_monitor.identity.models import Package
 from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
+from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
@@ -62,17 +71,32 @@ from tests.passes import SECOND_DOMAIN
 from tests.passes import failing_pass_class
 from tests.passes import registered_pass
 from tests.passes import working_pass_class
+from tests.policy_parameters import recorded_policy_parameters
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from django.db import models
     from structlog.typing import EventDict
 
 #: The policy version the cases record. Two of them, because the recompose case
 #: is about the *newer* run's stamps replacing the older run's.
+#:
+#: Both are fixture versions rather than the one the shipped parameter file
+#: records, and `_recorded_parameters` below is what makes that legal: since
+#: `CPM-CURRENCY-S07` a run at a version nothing records fails every package, and
+#: this module needs *two* versions where the reviewed file ships one. Recording
+#: them into a substituted file is the honest way round -- a version in the
+#: reviewed file is a reviewed decision, and a test fixture is not.
 A_POLICY_VERSION: Final[str] = "cpm-fixture-policy-1"
 A_NEWER_POLICY_VERSION: Final[str] = "cpm-fixture-policy-2"
+
+#: The inactivity threshold the substituted file records for both versions, in
+#: days. Identical for the two, deliberately: nothing in this module is about the
+#: threshold, and two different ones would make the recompose case look as though
+#: it depended on a rule change it has nothing to do with.
+A_FIXTURE_INACTIVITY: Final[int] = 180
 
 #: The two versions the fixture observations state, and the feedstock they are
 #: about. Different on purpose: the gate case needs the currency pass to reach a
@@ -106,6 +130,34 @@ AN_UNRECOGNISED_CONFIDENCE: Final[str] = "asserted"
 #: asserts over what it caught. The pattern and its reason are
 #: `tests/integration/django_apps/test_run_ledger.py`'s.
 CAPTURE_CONTROL: Final[str] = "rollup-capture-control"
+
+
+@pytest.fixture(autouse=True)
+def _recorded_parameters(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+    """Record this module's two fixture policy versions, so a run at either can complete.
+
+    Autouse because it is a precondition of every case here rather than a subject
+    of any of them: `FeedstockPresencePass` is adopted at boot and refuses a
+    policy version `policies/data/policy-parameters.toml` does not record, so
+    without this every run below would fail every package and finalize `failed`.
+    What each case is actually about -- the full-row replace, the stamps, the
+    gate, the two domains surviving one compose -- would then be untestable for a
+    reason that has nothing to do with the rollup.
+
+    The substitution and its teardown are `tests/policy_parameters.py`'s, which
+    argues why the file is substituted rather than the reviewed one extended.
+
+    Args:
+        monkeypatch: pytest's patcher, which restores the shipped path.
+        tmp_path: Where the substituted file is written.
+
+    Yields:
+        Nothing; the substitution is the effect.
+
+    """
+    versions = dict.fromkeys((A_POLICY_VERSION, A_NEWER_POLICY_VERSION), A_FIXTURE_INACTIVITY)
+    with recorded_policy_parameters(monkeypatch, tmp_path, versions):
+        yield
 
 
 @pytest.fixture
@@ -189,6 +241,7 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
         assert row.confidence == IdentityConfidence.VERIFIED
         assert row.policy_versions == {
             CURRENCY_POLICY_NAME: A_POLICY_VERSION,
+            FEEDSTOCK_POLICY_NAME: A_POLICY_VERSION,
             FIRST_DOMAIN: A_POLICY_VERSION,
         }
 
@@ -219,6 +272,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
     assert second_model.objects.filter(package_id=package.pk).count() == 1
     assert PackageHealth.objects.get(package=package).policy_versions == {
         CURRENCY_POLICY_NAME: A_POLICY_VERSION,
+        FEEDSTOCK_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }
@@ -315,6 +369,13 @@ def test_an_unmapped_package_still_gets_a_row_recording_that_it_is_unmapped() ->
             state=OutcomeState.OK,
             feedstock_name=A_FEEDSTOCK_NAME,
             recipe_version=AN_EARLIER_VERSION,
+            # Dated, and dated at the cut-off itself, so the feedstock pass
+            # reaches `present_and_maintained` rather than the `unknown` an
+            # undatable feedstock earns. That matters for the same reason
+            # `behind` does above: `unknown` is the string `GATED_VALUE` carries,
+            # so a gated column and an ungated one would agree by coincidence and
+            # the assertion would prove nothing.
+            last_recipe_activity_at=FIXED_INSTANT,
         )
 
     execute_policy_run(policy_version=A_POLICY_VERSION, clock=FixedClock(instant=LATER_INSTANT))
@@ -324,7 +385,18 @@ def test_an_unmapped_package_still_gets_a_row_recording_that_it_is_unmapped() ->
     assert PackageHealth.objects.get(package=unmapped).currency_status == GATED_VALUE
     assert PackageHealth.objects.get(package=verified).currency_status == BEHIND
     assert GATED_VALUE != BEHIND, "the gate must change the value, or this case asserts nothing"
-    assert contributable_columns() == frozenset({ROLLUP_COLUMN}), (
+    # The second domain column, gated on the same row by the same writer.
+    # `CPM-CURRENCY-S07` added it, and asserting it here is what says the gate is
+    # applied per *contributable column* rather than to whichever one somebody
+    # remembered: both packages' feedstocks were pushed to at the cut-off, so the
+    # feedstock pass reaches `present_and_maintained` for each, and only the
+    # unmapped one's is replaced.
+    assert PackageHealth.objects.get(package=unmapped).feedstock_presence_status == GATED_VALUE
+    assert PackageHealth.objects.get(package=verified).feedstock_presence_status == PRESENT_AND_MAINTAINED
+    assert GATED_VALUE != PRESENT_AND_MAINTAINED, (
+        "the gate must change this value too, or half this case asserts nothing"
+    )
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN}), (
         "the rollup declares a contributable column this case does not assert the gated value on"
     )
 

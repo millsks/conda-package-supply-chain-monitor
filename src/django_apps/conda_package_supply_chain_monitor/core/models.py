@@ -105,8 +105,11 @@ from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.runs import RunState
 from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence
 from conda_package_supply_chain_monitor.policies.outcomes import CURRENCY_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import FEEDSTOCK_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import FEEDSTOCK_UNKNOWN
 from conda_package_supply_chain_monitor.policies.outcomes import UNKNOWN as CURRENCY_UNKNOWN
 from conda_package_supply_chain_monitor.policies.outcomes import CurrencyOutcome
+from conda_package_supply_chain_monitor.policies.outcomes import FeedstockOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -951,16 +954,18 @@ class PackageHealth(models.Model):
     table every read surface reads. `SET_NULL` is worse: the row would survive
     claiming a health nothing can say where it came from.
 
-    **One domain status column, and the table grows a column per pass.**
+    **Two domain status columns, and the table grows a column per pass.**
     `epics.md` says the rollup "composes whatever derived tables exist, so it
     grows as passes are added". `CPM-CURRENCY-S06` added the first,
-    `currency_status`, in the same story as the pass that produces it -- which is
-    the rule this table follows and not a coincidence: a column added ahead of
-    its pass is one nothing writes and one every read surface reports `unknown`
-    for forever. `CPM-AD-5` forbids the alternative of a JSON map keyed by
-    domain, because a map would evade every audit that reads column names.
+    `currency_status`, and `CPM-CURRENCY-S07` the second,
+    `feedstock_presence_status` -- each in the same story as the pass that
+    produces it, which is the rule this table follows and not a coincidence: a
+    column added ahead of its pass is one nothing writes and one every read
+    surface reports `unknown` for forever. `CPM-AD-5` forbids the alternative of a
+    JSON map keyed by domain, because a map would evade every audit that reads
+    column names.
 
-    The *mechanism* is unchanged and is what the remaining seven passes use:
+    The *mechanism* is unchanged and is what the remaining passes use:
     `core/policy.py` validates a declared contribution against this model's real
     fields, and `core/rollup.py` is the one writer that applies it after
     `CPM-AD-4`'s gate.
@@ -1095,6 +1100,28 @@ class PackageHealth(models.Model):
         max_length=CURRENCY_STATE_LENGTH,
         choices=CurrencyOutcome.choices,
         default=CURRENCY_UNKNOWN,
+        editable=False,
+    )
+
+    #: What `CPM-FR-40`'s feedstock presence pass concluded about this package,
+    #: gated by `CPM-AD-4` on the way in. The second domain status column, added
+    #: by `CPM-CURRENCY-S07` with the pass that produces it, on exactly the terms
+    #: `currency_status` above states -- `editable=False`, the vocabulary read
+    #: from `policies/outcomes.py` rather than restated, and a default of
+    #: `unknown` that goes through the gate like any contribution.
+    #:
+    #: **Named `feedstock_presence_status` and not `feedstock_status`, which is
+    #: not fussiness.** `package_currency.feedstock_status` already exists and
+    #: means something else entirely: whether the conda-forge *recipe* pins the
+    #: authoritative version. This column is whether a feedstock exists at all and
+    #: whether anybody is pushing to it. Two columns in one schema spelled the
+    #: same and meaning different things is a query somebody writes correctly and
+    #: reads wrongly.
+    feedstock_presence_status = models.CharField(
+        _("feedstock presence"),
+        max_length=FEEDSTOCK_STATE_LENGTH,
+        choices=FeedstockOutcome.choices,
+        default=FEEDSTOCK_UNKNOWN,
         editable=False,
     )
 

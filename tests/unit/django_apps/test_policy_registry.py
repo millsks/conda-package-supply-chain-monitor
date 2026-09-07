@@ -12,14 +12,15 @@ deliberately differs from `core/registry.py`, which sorts collectors by name.
 same run, so the order is a *declaration* about which reads which, and sorting it
 alphabetically would make that depend on what somebody called their pass.
 
-**The rollup offers exactly one contributable column, and it already has an
-owner.** `CPM-CURRENCY-S06` added `currency_status` and `CurrencyPass` owns it
-from `django.setup()` onwards, which is why the two column refusals are still
-shaped differently below: "a column the rollup does not declare" is reachable
-against the real rollup and is asserted against it, while "two passes, one
-column" needs a column *nobody owns*, so the case substitutes the offered set
-and says so. Contributing the real column here would measure the collision with
-the real owner rather than the rule.
+**Every contributable column the rollup offers already has an owner.**
+`CPM-CURRENCY-S06` added `currency_status`, owned by `CurrencyPass`, and
+`CPM-CURRENCY-S07` added `feedstock_presence_status`, owned by
+`FeedstockPresencePass` -- both from `django.setup()` onwards, which is why the
+two column refusals are still shaped differently below: "a column the rollup does
+not declare" is reachable against the real rollup and is asserted against it,
+while "two passes, one column" needs a column *nobody owns*, so the case
+substitutes the offered set and says so. Contributing a real column here would
+measure the collision with its real owner rather than the rule.
 
 **The registry is not empty, and each case is handed an empty one.** The adopted
 passes are withdrawn for the body of every case by the fixture below and put back
@@ -68,8 +69,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 #: The column the substituted rollup offers, for the cases that need a
-#: contributable column *nobody owns* -- the real one's single column,
-#: `currency_status`, is owned by `CurrencyPass` from `django.setup()` onwards.
+#: contributable column *nobody owns* -- every column the real rollup offers is
+#: owned by an adopted pass from `django.setup()` onwards.
 #:
 #: `tests/passes.py` owns both the name and the model that declares it, so the
 #: substitution and the column it is about cannot drift. And the substitution is
@@ -178,11 +179,11 @@ def test_a_contribution_the_rollup_does_not_declare_is_refused() -> None:
     """A misspelled column contributes nowhere, silently, for as long as the pass runs.
 
     Asserted against the real rollup, and against a column it genuinely does not
-    offer. `PackageHealth` now declares one domain status -- `currency_status`,
-    which `CPM-CURRENCY-S06` added -- so the stand-in must name a column no epic
-    has landed yet, or this case would pass by registering successfully and
-    failing to raise for the opposite reason. The case below is what holds
-    `AN_UNDECLARED_COLUMN` to that.
+    offer. `PackageHealth` now declares two domain statuses -- `currency_status`
+    (`CPM-CURRENCY-S06`) and `feedstock_presence_status` (`CPM-CURRENCY-S07`) --
+    so the stand-in must name a column no epic has landed yet, or this case would
+    pass by registering successfully and failing to raise for the opposite reason.
+    The case below is what holds `AN_UNDECLARED_COLUMN` to that.
     """
     inventor = working_pass_class(contributes=(AN_UNDECLARED_COLUMN,))
 
@@ -236,13 +237,13 @@ def test_two_passes_cannot_own_one_column() -> None:
     """A rollup column has one owner, or its version map cannot say which version produced it.
 
     **The offered set is substituted, and that is still the honest way to write
-    this case.** The rollup's one real column, `currency_status`, is owned by
-    `CurrencyPass` from `django.setup()` onwards -- so using it here would make
-    the *first* registration collide with a real owner and the two-fixture-pass
-    rule would never be reached, a case that "passed" without exercising
-    anything. Substituting `contributable_columns` where `core/policy.py` reads
-    it puts an *unowned* column in the world, and leaves every other refusal
-    reading the real model.
+    this case.** Every column the real rollup offers is owned by an adopted pass
+    from `django.setup()` onwards -- so using one here would make the *first*
+    registration collide with a real owner and the two-fixture-pass rule would
+    never be reached, a case that "passed" without exercising anything.
+    Substituting `contributable_columns` where `core/policy.py` reads it puts an
+    *unowned* column in the world, and leaves every other refusal reading the real
+    model.
     """
     first, second = fixture_derived_models()
     owner = working_pass_class(name=FIRST_DOMAIN, derived_model=first, contributes=(A_SHARED_COLUMN,))
@@ -397,8 +398,8 @@ def test_a_pass_declaring_one_column_twice_is_refused() -> None:
     The ownership map records one of them, so the duplicate is invisible
     afterwards -- and the day the two entries stop agreeing, because somebody
     edited one of them, the pass silently contributes whichever the map kept. The
-    offered set is substituted for the reason the two-owner case gives: the
-    rollup's one real column already has an owner.
+    offered set is substituted for the reason the two-owner case gives: every
+    real rollup column already has an owner.
     """
     stutterer = working_pass_class(contributes=(A_SHARED_COLUMN, A_SHARED_COLUMN))
 

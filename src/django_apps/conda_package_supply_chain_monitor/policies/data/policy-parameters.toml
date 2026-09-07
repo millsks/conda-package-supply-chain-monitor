@@ -1,0 +1,22 @@
+# The reviewed policy parameters, keyed by the policy version that applies them.
+#
+# The contract, the editing rules and what each parameter means are in README.md
+# beside this file. Read it before changing a number here: a value in this file
+# changes derived verdicts for every package, with no code change and no test
+# failure to warn anybody.
+#
+# Entries are ADDED, never edited in place. A recorded run may be replayed at its
+# own version (CPM-FR-22), which is only possible while that version's entry is
+# still here.
+
+[versions."2026.09"]
+# PROVISIONAL. PRD Open Question 10 asks how long a feedstock may go without a
+# push before it is called inactive, and nobody has answered it. 180 days is a
+# starting point that review is expected to change, not a decision this component
+# has made: half a year is long enough that a stable, finished recipe is not
+# reported as abandoned, and short enough that a feedstock nobody has touched
+# through two conda-forge migration waves is visible.
+#
+# Changing it is a pull request against this line. Add a new [versions."..."]
+# entry instead if runs recorded at 2026.09 must stay replayable as they were.
+feedstock_inactivity_days = 180

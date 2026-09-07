@@ -55,8 +55,17 @@ class PoliciesConfig(AppConfig):
         **The order is a declaration, and it is why this is a tuple.**
         `core/policy.py` keeps registration order where the collector registry
         sorts by name, because `CPM-AD-21` lets a later pass read an earlier
-        pass's derived rows for the same run. One pass today; the loop is what
-        keeps the ordering explicit when there are seven.
+        pass's derived rows for the same run. Two passes today, in the order this
+        component's epics landed them: currency (`CPM-CURRENCY-S06`), then
+        feedstock presence (`CPM-CURRENCY-S07`).
+
+        **Neither reads the other, and the order is therefore not yet load
+        bearing -- which is exactly why it is worth stating now.** Both read
+        evidence and write their own derived tables, so today the two could be
+        adopted either way round with identical results. Recording the order
+        while it is free is what makes it a declaration somebody chose rather
+        than one discovered on the day a third pass starts reading a second
+        pass's rows.
 
         **Adopting the same class twice is a no-op, and that is not a softening
         of the registry's duplicate-name refusal.** That refusal is about two
@@ -86,7 +95,10 @@ class PoliciesConfig(AppConfig):
         from conda_package_supply_chain_monitor.core.policy import pass_registrations  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.core.policy import register_pass  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.policies.currency import CurrencyPass  # noqa: PLC0415 - see above
+        from conda_package_supply_chain_monitor.policies.feedstock import (  # noqa: PLC0415 - see above
+            FeedstockPresencePass,
+        )
 
-        for policy_pass in (CurrencyPass,):
+        for policy_pass in (CurrencyPass, FeedstockPresencePass):
             if pass_registrations().get(policy_pass.name) is not policy_pass:
                 register_pass(policy_pass)

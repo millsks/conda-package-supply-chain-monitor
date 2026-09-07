@@ -34,16 +34,17 @@ refuse a pass claiming a column the rollup does not declare -- and a cycle
 between the registry and the writer would make either of them unimportable
 alone, which is precisely what the ownership audit needs to be able to do.
 
-**One column is contributable, and the table grows a column per pass.**
+**Two columns are contributable, and the table grows a column per pass.**
 `epics.md` says the rollup "grows as passes are added"; `CPM-CURRENCY-S06` added
-the first, `currency_status`, in the same story as the `CurrencyPass` that
-produces it. So `contributable_columns()` returns exactly that one, the
-contribution loop below writes it on every row, and the mechanism is now proved
-end to end by `tests/integration/django_apps/test_currency_policy.py` as well as
-by the fixture passes in `tests/passes.py` and the registry's refusals. The
-fixtures still exist and still contribute nothing: the one real column has a real
-owner, so a fixture claiming it would be measuring that collision rather than the
-mechanism.
+the first, `currency_status`, and `CPM-CURRENCY-S07` the second,
+`feedstock_presence_status` -- each in the same story as the pass that produces
+it. So `contributable_columns()` returns exactly those two, the contribution loop
+below writes both on every row, and the mechanism is proved end to end by
+`tests/integration/django_apps/test_currency_policy.py` and
+`tests/integration/django_apps/test_feedstock_policy.py` as well as by the
+fixture passes in `tests/passes.py` and the registry's refusals. The fixtures
+still exist and still contribute nothing: each real column has a real owner, so a
+fixture claiming one would be measuring that collision rather than the mechanism.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
@@ -130,12 +131,12 @@ def contributable_columns() -> frozenset[str]:
 
     Returns:
         The rollup's concrete field names, less the primary key and less
-        `STAMP_COLUMNS`. Exactly `{"currency_status"}` today, which
-        `CPM-CURRENCY-S06` added with the pass that owns it. It is computed from
-        the model's real fields rather than listed, which is why that column
-        became contributable without an edit here -- and why a column *removed*
-        stops being contributable at the same moment, which a hand-written list
-        would not manage.
+        `STAMP_COLUMNS`. Exactly `{"currency_status", "feedstock_presence_status"}`
+        today, which `CPM-CURRENCY-S06` and `CPM-CURRENCY-S07` added with the
+        passes that own them. It is computed from the model's real fields rather
+        than listed, which is why each became contributable without an edit here
+        -- and why a column *removed* stops being contributable at the same
+        moment, which a hand-written list would not manage.
 
     """
     meta = ROLLUP_MODEL._meta  # noqa: SLF001 - `_meta` is Django's own public-by-convention API

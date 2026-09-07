@@ -94,6 +94,8 @@ from conda_package_supply_chain_monitor.core.policy import register_pass
 from conda_package_supply_chain_monitor.core.policy import unregister_pass
 from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
+from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -157,10 +159,27 @@ NO_DERIVED_MODEL: Final = None
 #: hand-written roster on purpose, on the terms `tests/model_registry.py`'s
 #: `RUN_LEDGER_MODEL_LABELS` is one: adopting a pass is a decision, and a
 #: roster derived from the registry would only ever agree with itself.
-ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (CURRENCY_POLICY_NAME,)
+ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (CURRENCY_POLICY_NAME, FEEDSTOCK_POLICY_NAME)
 
 #: The adopted pass classes, in the same order, so a case can re-register them.
-ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass,)
+ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPresencePass)
+
+#: The policy version the cases that execute a real policy run must declare.
+#:
+#: **`CPM-CURRENCY-S07` made the policy version load-bearing, and this constant is
+#: what records that.** Until it landed, `CPM-AD-8`'s "the version is data an
+#: operator supplies" meant any stable string did, and the integration modules
+#: said so. `FeedstockPresencePass` now looks its inactivity threshold up *by that
+#: version* from `policies/data/policy-parameters.toml` and refuses a version the
+#: file does not record -- per package, so a run at an unrecorded version
+#: finalizes `failed` having accomplished nothing.
+#:
+#: A hand-written literal rather than a value read out of the shipped file, on the
+#: terms `ADOPTED_PASS_NAMES` is one: a constant derived from the file would only
+#: ever agree with it, and what the suite needs to know is that *this* version is
+#: recorded. `tests/integration/django_apps/test_feedstock_policy.py` reconciles
+#: it against the file in both directions.
+A_RECORDED_POLICY_VERSION: Final[str] = "2026.09"
 
 
 @memoized

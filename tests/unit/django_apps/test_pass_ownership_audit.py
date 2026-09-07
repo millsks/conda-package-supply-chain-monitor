@@ -53,6 +53,8 @@ from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import ADOPTED_PASS_NAMES
 from tests.passes import FIRST_DOMAIN
@@ -69,8 +71,9 @@ if TYPE_CHECKING:
     from conda_package_supply_chain_monitor.core.policy import PolicyPass
 
 #: The column the substituted rollup offers, for the cases that need a
-#: contributable column *nobody owns* -- the real one's single column,
-#: `currency_status`, is owned by `CurrencyPass` from `django.setup()` onwards.
+#: contributable column *nobody owns* -- the real rollup's two columns,
+#: `currency_status` and `feedstock_presence_status`, are owned by `CurrencyPass`
+#: and `FeedstockPresencePass` from `django.setup()` onwards.
 #:
 #: `tests/passes.py` owns both the name and the model that declares it, so the
 #: substitution and the column it is about cannot drift. And the substitution is
@@ -265,11 +268,11 @@ def test_the_contest_detector_would_notice_two_owners() -> None:
     """The anti-vacuity guard for the contested-column case.
 
     The offered set is substituted for the reason
-    `tests/unit/django_apps/test_policy_registry.py` gives at length: the rollup's
-    one real column, `currency_status`, is owned by `CurrencyPass` from
-    `django.setup()` onwards, so against the real model the *first* pass below
-    would collide with a real owner and the two-fixture-pass rule would never be
-    reached. The substitution puts an *unowned* column in the world.
+    `tests/unit/django_apps/test_policy_registry.py` gives at length: every column
+    the real rollup offers already has an adopted owner from `django.setup()`
+    onwards, so against the real model the *first* pass below would collide with a
+    real owner and the two-fixture-pass rule would never be reached. The
+    substitution puts an *unowned* column in the world.
 
     `substituted_rollup()` rather than a bare `monkeypatch`, and for the reason
     `tests/passes.py` records: the substitution has to end before any fixture
@@ -333,11 +336,15 @@ def test_the_audit_reaches_a_pass_that_is_actually_registered() -> None:
     with registered_pass(working_pass_class()) as declared:
         assert declared in registered_passes()
         assert rollup_claimants(registered_passes()) == []
-        # The fixture pass contributes nothing, so the only entry in the map is
-        # the adopted pass's own column. Asserted as equality rather than as a
-        # containment check: an ownership map that had acquired a second owner
-        # for `currency_status` some other way is exactly what this audit is for.
-        assert column_owners() == {ROLLUP_COLUMN: CURRENCY_POLICY_NAME}
+        # The fixture pass contributes nothing, so the only entries in the map
+        # are the two adopted passes' own columns. Asserted as equality rather
+        # than as a containment check: an ownership map that had acquired a
+        # second owner for either column some other way is exactly what this
+        # audit is for.
+        assert column_owners() == {
+            ROLLUP_COLUMN: CURRENCY_POLICY_NAME,
+            FEEDSTOCK_ROLLUP_COLUMN: FEEDSTOCK_POLICY_NAME,
+        }
 
 
 def test_the_rollup_the_audit_guards_is_the_one_the_writer_writes() -> None:

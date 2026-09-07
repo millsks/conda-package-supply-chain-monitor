@@ -66,6 +66,7 @@ than colliding with it -- a run killed mid-fixture is what leaves them.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING
 from typing import Final
 
@@ -149,51 +150,77 @@ def _refuse_a_database_the_test_runner_did_not_prepare() -> None:
         raise RuntimeError(message)
 
 
-def _the_state_the_session_must_be_returned_to() -> tuple[str, str]:
-    """Return `core`'s current leaf migration, which is where the teardown restores to.
+def _the_state_the_session_must_be_returned_to() -> list[tuple[str, str]]:
+    """Return every leaf in the migration graph, which is where the teardown restores to.
 
     Resolved from the graph rather than named as a constant, and the distinction
     is the whole of this function. `AFTER` is the conversion this module is
     *about*, and it was also `core`'s leaf on the day the module was written --
     but `MigrationExecutor.migrate` unapplies everything after its target, so
-    restoring to a fixed name undoes every migration added to `core` since. It
-    leaves them undone for the rest of the session, because nothing re-applies
-    them, and the symptom lands nowhere near here: the cases asserting on
-    `stage_two`'s unapplied-migration refusal start reporting
-    `DATABASES['default']` instead of the alias they configured.
-    `CPM-IDENTITY-S05` is where that happened.
+    restoring to a fixed name undoes every migration added since. It leaves them
+    undone for the rest of the session, because nothing re-applies them, and the
+    symptom lands nowhere near here: the cases asserting on `stage_two`'s
+    unapplied-migration refusal start reporting `DATABASES['default']` instead of
+    the alias they configured. `CPM-IDENTITY-S05` is where that happened.
+
+    **Every leaf, not `core`'s.** This asked the graph for `core`'s single leaf
+    until `CPM-CURRENCY-S07`, and that was a narrower claim than the teardown
+    needs: rolling `core` back to `BEFORE` unapplies every migration that
+    *depends* on the ones it undoes, in any application, and restoring `core`'s
+    own leaf puts none of those back. `policies.0002_package_feedstock_presence`
+    is the migration that found it. That one now depends only on what it
+    references, which is the rule `policies.0001` already stated -- but the
+    teardown should not have needed it to: restoring what the loader calls the
+    end of the graph is the state `migrate` with no arguments produces, and it is
+    the only description of "fully migrated" that stays true as applications are
+    added.
 
     Returns:
-        The `(app_label, name)` of `core`'s single leaf migration.
+        The `(app_label, name)` of every leaf migration in the graph.
 
     Raises:
-        RuntimeError: When `core` has more than one leaf. That is a graph
-            `migrate` itself cannot order, and picking one of them here would
-            restore to a state the application never has.
+        RuntimeError: When the graph has no leaves at all -- an empty or
+            unreadable migration graph, which would make the teardown a no-op
+            that silently left the database at `BEFORE`. And when any single
+            application carries more than one leaf, which is a conflicted graph
+            `migrate` itself cannot order: restoring to both would apply two
+            divergent states and restoring to one would leave the other's
+            migrations undone for the rest of the session, which is the failure
+            this whole function exists to prevent. That check was here when this
+            read `leaf_nodes("core")` and it is kept: widening the restore to
+            every application widened what a conflict can be, it did not remove
+            the possibility.
 
     """
-    leaves = MigrationExecutor(connection).loader.graph.leaf_nodes("core")
-    if len(leaves) != 1:
+    leaves = MigrationExecutor(connection).loader.graph.leaf_nodes()
+    if not leaves:
+        message = "the migration graph has no leaf nodes, so there is no state to restore the session's database to"
+        raise RuntimeError(message)
+    by_application = Counter(app_label for app_label, _ in leaves)
+    conflicted = sorted(app for app, count in by_application.items() if count > 1)
+    if conflicted:
         message = (
-            f"`core` has {len(leaves)} leaf migrations ({sorted(leaves)}), so there is no single state to "
-            f"restore the session's database to"
+            f"{conflicted} each carry more than one leaf migration ({sorted(leaves)}), so there is no single "
+            f"state to restore the session's database to"
         )
         raise RuntimeError(message)
-    return leaves[0]
+    return leaves
 
 
-def _migrate_to(target: tuple[str, str]) -> None:
-    """Move the database to one migration state, forwards or backwards.
+def _migrate_to(*targets: tuple[str, str]) -> None:
+    """Move the database to one or more migration states, forwards or backwards.
 
     A fresh executor per call rather than one reused: the recorder's table
     changes with every step, and an executor holding a graph built before the
     move would plan the next one from a state the database has left.
 
     Args:
-        target: The `(app_label, migration_name)` to end at.
+        *targets: The `(app_label, migration_name)` states to end at. One when
+            moving to `BEFORE` or `AFTER`; every leaf when restoring, which is
+            what `migrate` with no arguments does.
 
     """
-    MigrationExecutor(connection).migrate([target])
+    MigrationExecutor(connection).migrate(list(targets))
 
 
 def _the_applied_state() -> Apps:
@@ -308,7 +335,7 @@ def a_populated_ledger_before_the_conversion(
             yield
         finally:
             _remove_the_rows(historical)
-            _migrate_to(_the_state_the_session_must_be_returned_to())
+            _migrate_to(*_the_state_the_session_must_be_returned_to())
 
 
 @pytest.mark.django_db
@@ -367,7 +394,7 @@ def test_the_module_restores_every_migration_it_unapplies(
     with django_db_blocker.unblock():
         _refuse_a_database_the_test_runner_did_not_prepare()
         _migrate_to(BEFORE)
-        _migrate_to(_the_state_the_session_must_be_returned_to())
+        _migrate_to(*_the_state_the_session_must_be_returned_to())
 
         executor = MigrationExecutor(connection)
         assert executor.migration_plan(executor.loader.graph.leaf_nodes()) == []

@@ -1583,3 +1583,156 @@ Two costs follow, and both are real:
 
 A verdict per pair is a larger table than this one's `(package, policy_run)` key
 describes, and it is not built here.
+
+## The feedstock presence policy: does it exist, and is anybody maintaining it
+
+`CPM-CURRENCY-S07` adds the second policy pass. Like the currency pass it runs
+inside the orchestrating policy run rather than on a schedule of its own, makes
+no outbound call of any kind, and reads only the evidence a collector has already
+written — here the `feedstock_snapshots` table alone. It answers the question
+`CPM-UJ-2` asks: which packages have no feedstock worth filling, and which have
+one nobody is maintaining.
+
+### The verdicts
+
+Each package gets one row in `package_feedstock_presence` per policy run, and one
+value in `package_health.feedstock_presence_status`. The vocabulary is `core`'s
+four sentinels plus four outcomes of its own:
+
+| Verdict | What it means | What to do about it |
+|---|---|---|
+| `present_and_maintained` | A feedstock exists and was pushed to within the inactivity threshold of the run's evidence cut-off. | Nothing. |
+| `present_and_inactive` | A feedstock exists and its last push is older than the threshold. | Somebody should look at it — or the threshold is wrong (see below). |
+| `absent` | conda-forge answered that there is no feedstock, and no staged recipe was found. | This is the gap to fill: a recipe has to be written. |
+| `staged_recipe_pending` | No feedstock, but an open staged-recipes pull request would create one. | Finish the review. **Never `absent`** — the work is already started, and reporting it as a gap sends a second person to redo the first person's. |
+| `unknown` | Nothing was observed at the cut-off; **or** the observation records `unknown`; **or** a feedstock exists whose last push the collector could not date. | Look at the row's `detail` and its referenced observation — the last case says so explicitly. |
+| `error` | The lookup failed. Not an absence, and never folded into one. | Check the collector's own `detail` and the source. |
+| `not_applicable` | Resolution recorded the feedstock question as inapplicable to this package. | Nothing. |
+| `not_found` | Reserved. This pass never produces it: `absent` and `staged_recipe_pending` are the two more specific answers it has instead. | — |
+
+**A feedstock that exists but cannot be dated reads `unknown`, never `inactive`.**
+The collector records an absent or unusable push instant honestly rather than
+inventing one, and a threshold cannot be applied to nothing. Calling it inactive
+would be a guess; calling it maintained would be worse. The row's `detail` says
+which case it is, because a row for an undatable feedstock and a row for a
+package nobody observed carry the same three empty columns otherwise.
+
+### The inactivity threshold is versioned data, not a constant
+
+This is the part with an operational consequence, so read it before enqueuing a
+run.
+
+The threshold lives in
+`src/django_apps/conda_package_supply_chain_monitor/policies/data/policy-parameters.toml`,
+which ships inside the wheel and is changed **by pull request**. One entry per
+policy version:
+
+```toml
+[versions."<policy version>"]
+feedstock_inactivity_days = <positive whole number>
+```
+
+The pass looks the threshold up **by the policy version the run declares**, which
+means three things:
+
+1. **A policy run must name a version this file records, or the run fails
+   outright.** There is no default and there must not be one: a defaulted verdict
+   is indistinguishable from a reviewed one in every report that reads it. The
+   version is a fact about the run rather than about any package, so it is
+   established once before the first package: the run finalizes `failed`, the
+   task raises with a message naming the file and the version, and **nothing is
+   written at all** — no derived row of any pass, and no rollup row. Every
+   package keeps whatever health it had.
+2. **Changing the threshold changes verdicts, with no code change and no test
+   failure.** That is the mechanism working as intended. Every row records the
+   threshold it applied, so a report can always say what a verdict was measured
+   against.
+3. **A change means adding a version entry**, because a recorded run can be
+   replayed at its own version (`CPM-FR-22`) and can only be replayed while that
+   version's entry still says what it said. The one exception is a version no run
+   has ever recorded, which has nothing to keep replayable and may be edited in
+   place.
+
+`policies/data/README.md` is the contract: the keys, the refusals, the editing
+rule and what a change does not do by itself. Every refusal names the file.
+
+**The shipped value is provisional.** PRD Open Question 10 asks what the
+threshold should be and this component has not answered it; the file carries the
+reasoning for the starting point beside the number, and the file is the only
+place the number appears — repeating it here would be a second copy nothing keeps
+in step.
+
+**The file is read once per process.** A change takes effect at the next start,
+which shipping a new artifact already is. This is deliberately unlike the
+inventory watchlist, which is re-read on every sweep: a policy version means one
+rule set (`CPM-AD-8`), and a file re-read per package would let an edit part-way
+through a run judge half the inventory under one threshold and half under
+another.
+
+### The boundary
+
+A feedstock pushed to **exactly** the threshold ago at the run's cut-off reads
+`present_and_maintained`. The threshold is how long a feedstock may go without a
+push, so inactivity begins strictly after it. It matters when choosing a number,
+and it is asserted by a test rather than left to be discovered.
+
+### Two things that stop a maintenance verdict being reported
+
+**A feedstock nobody re-observed reads `unknown`, not `present_and_inactive`.**
+If the observation the verdict would rest on is *itself* older than the applied
+threshold, this pass will not say whether anybody is maintaining the recipe: a
+collector that stopped running and a recipe that stopped moving produce the same
+arithmetic, and only one of them is a finding. The row's `detail` says which
+observation and how old it was. If a whole inventory suddenly reads `unknown`,
+check that the feedstock collector is still running before changing the
+threshold.
+
+**An absence nobody established reads `unknown`, not `absent`.** `not_found` on a
+feedstock snapshot is reachable four ways — conda-forge answered that the
+repository is not there, the repository could not be read, the staged-recipes
+queue could not be read, or the queue held more than one candidate or overflowed
+its page — and only the first is evidence that there is nothing there. Only the
+first produces `absent`. That matters because `absent` dispatches somebody to
+write a recipe, and three of those four shapes are a GitHub outage or a busy
+queue rather than a gap. The evidence row's own `detail` says which shape it was.
+
+### Where the result lands
+
+| Table | What it holds |
+|---|---|
+| `package_health.feedstock_presence_status` | One value per package: the verdict, **after** the confidence gate. This is the read surface. |
+| `package_feedstock_presence` | One row per package **per run**: the verdict ungated, the threshold applied, the last recipe activity instant, the age that was measured against the threshold, the identity confidence the row was computed under, a `detail` for the two verdicts whose columns do not explain them, and a foreign key to the feedstock observation the verdict rests on. |
+
+**`package_health.feedstock_presence_status` is not
+`package_currency.feedstock_status`.** The first is whether a feedstock exists
+and whether anybody is pushing to it; the second is whether the conda-forge
+*recipe* pins the authoritative version. They are different questions with
+different answers, and the names are deliberately not the same.
+
+An `unmapped` package reads `unknown` in `package_health`
+**whatever this pass computed**, exactly as the currency column does and for the
+same reason (`CPM-AD-4`, `CPM-FR-5`) — and in particular it never reads `absent`,
+so no unresolved package sends anybody to write a recipe. `package_feedstock_presence`
+still records the verdict the pass reached, and it records the confidence beside
+it, so the two together say why they differ. An `inventory-derived` package's
+verdict is **not** degraded: that confidence is a label, and it travels on the
+rollup row beside the value.
+
+### What a run costs
+
+This pass issues **two queries per package** — one evidence read and the insert of
+the derived row — inside the orchestration's per-package loop, on top of the
+currency pass's five. Looking the threshold up costs no query at all: it is a
+memoized read of a file, established once per run rather than once per package.
+The count is pinned by a test at three inventory sizes so a regression is
+visible; making the reads set-based is recorded as deferred work on
+**this story**, `CPM-CURRENCY-S07`, alongside `CPM-CURRENCY-S06`'s entry for the
+currency pass's own five.
+
+### `package_feedstock_presence` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, with **every
+relation `PROTECT`** — to the package, to the policy run, and to the feedstock
+observation. The reasoning and the consequences are exactly `package_currency`'s,
+above: there is no retention path, deleting old runs would have to delete these
+rows first, and no story currently claims it. Size the database accordingly.

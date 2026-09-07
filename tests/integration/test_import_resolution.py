@@ -605,6 +605,29 @@ def test_the_built_wheel_ships_the_source_tree_at_its_root(tmp_path: Path) -> No
     assert expected_watchlists, "an empty watchlist set would make the comparison vacuous"
     assert expected_watchlists <= set(names), sorted(names)
 
+    # The reviewed policy parameters (`CPM-CURRENCY-S07`), the second data tree and
+    # the first one that is not CSV. Asserted separately rather than folded into a
+    # generic "every non-Python file ships" sweep, because the two trees fail
+    # differently and a reader needs to know which: a missing watchlist refuses an
+    # ingestion sweep, and a missing parameter file refuses every package of every
+    # policy run at a version it would have recorded.
+    #
+    # The suffix filter is `.toml` rather than "anything not .csv" so that the
+    # README beside the file -- which states the column contract and is not read by
+    # any code -- is not itself asserted into the wheel.
+    parameters_dir = application_root / APPLICATION_PACKAGE / "policies" / "data"
+
+    assert parameters_dir.is_dir(), f"the policy parameter data tree is missing: {parameters_dir}"
+
+    expected_parameters = {
+        f"{APPLICATION_PACKAGE}/policies/data/{path.name}"
+        for path in parameters_dir.iterdir()
+        if path.is_file() and path.suffix == ".toml"
+    }
+
+    assert expected_parameters, "an empty parameter set would make the comparison vacuous"
+    assert expected_parameters <= set(names), sorted(names)
+
 
 @pytest.mark.integration
 def test_the_domain_application_resolves_in_a_plain_interpreter() -> None:

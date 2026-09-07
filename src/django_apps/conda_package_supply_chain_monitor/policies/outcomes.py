@@ -1,4 +1,10 @@
-"""The currency verdict vocabulary, in a leaf module that imports one thing.
+"""The policy verdict vocabularies, in a leaf module that imports one thing.
+
+Two vocabularies live here: `CurrencyOutcome` (`CPM-CURRENCY-S06`) and
+`FeedstockOutcome` (`CPM-CURRENCY-S07`). They share this module for one reason
+and it is the same reason either of them is not beside its own pass -- the import
+cycle argued immediately below -- and they share nothing else. Neither is derived
+from the other and neither ranks against the other.
 
 `CurrencyOutcome` is composed here rather than in `policies/currency.py`, and the
 reason is an import cycle rather than a preference. Two modules need the type:
@@ -12,7 +18,10 @@ cycle and fail at start-up.
 `identity/confidence.py` exists for exactly this problem and solves it exactly
 this way: the vocabulary is the half of the pair that depends on nothing, so the
 vocabulary is the half that moves. This module imports `core.outcomes` and
-nothing else, in either direction.
+nothing else, in either direction. `FeedstockOutcome` is here for the identical
+pair of edges: `policies/models.py` declares it as a column's `choices` and
+`core/models.py` declares the same vocabulary on the rollup column
+`feedstock_presence_status`, while `policies/feedstock.py` reaches `core.policy`.
 
 **Bound once, at module scope, and that is load-bearing.** `outcome_type` mints a
 distinct class on every call, so two calls would produce two types whose members
@@ -46,6 +55,31 @@ beside the vocabulary it ranks and recorded by name in
 audit cannot see, which is worse than the duplication the audit exists to
 prevent: an order written as control flow is an order nobody can enumerate.
 
+**`FeedstockOutcome` declares no precedence, and that is a decision rather than
+an omission.** `CURRENCY_PRECEDENCE` exists because the currency pass reduces
+*four surfaces' verdicts* to one column, and a reduction needs a ranking. The
+feedstock presence pass reduces nothing: one package has one feedstock, one
+observation at the cut-off answers for it, and the verdict the row carries is the
+verdict the rollup column carries. An order declared here would be data no
+function reads -- which `tests/unit/django_apps/test_single_ordering_audit.py`
+would have to license by name, and which the next reader would take for a ranking
+this product applies somewhere. The day a story reduces several feedstock
+verdicts to one, that story declares the order and records it there.
+
+**Why `FeedstockOutcome` refines two of `core`'s values rather than one.**
+`CPM-AD-5` calls `ok` "the generic determinate value, the one a per-status type
+refines into verdicts of its own", and `CurrencyOutcome` refines only that.
+Feedstock presence refines `ok` into `present_and_maintained` and
+`present_and_inactive`, and it also refines `not_found` -- conda-forge answering
+that there is no feedstock is `absent` when nothing is queued to create one and
+`staged_recipe_pending` when something is, and `CPM-FR-40` fixes both as outcomes
+of their own. Refining a sentinel is not the same as replacing it: `not_found`
+remains a member of this vocabulary by construction and remains legal in every
+column that declares it, and `FeedstockPresencePass` simply never produces it,
+because for this domain it always has the more specific answer. Which of the four
+sentinels a given pass can produce is a property of the pass, not of the
+vocabulary.
+
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
 carries the `CPM-` prefix.
@@ -67,6 +101,8 @@ if TYPE_CHECKING:
     from django.db import models
 
 __all__ = [
+    "ABSENT",
+    "ABSENT_MEMBER",
     "BEHIND",
     "BEHIND_MEMBER",
     "CURRENCY_PRECEDENCE",
@@ -74,10 +110,22 @@ __all__ = [
     "CURRENT",
     "CURRENT_MEMBER",
     "ERROR",
+    "FEEDSTOCK_ERROR",
+    "FEEDSTOCK_NOT_APPLICABLE",
+    "FEEDSTOCK_NOT_FOUND",
+    "FEEDSTOCK_STATE_LENGTH",
+    "FEEDSTOCK_UNKNOWN",
+    "INACTIVE_MEMBER",
+    "MAINTAINED_MEMBER",
     "NOT_APPLICABLE",
     "NOT_FOUND",
+    "PRESENT_AND_INACTIVE",
+    "PRESENT_AND_MAINTAINED",
+    "STAGED_MEMBER",
+    "STAGED_RECIPE_PENDING",
     "UNKNOWN",
     "CurrencyOutcome",
+    "FeedstockOutcome",
     "worst_currency",
 ]
 
@@ -265,3 +313,93 @@ def worst_currency(verdicts: Iterable[str]) -> str:
             raise OutcomeVocabularyError(message)
         ranked.append(rank)
     return CURRENCY_PRECEDENCE[min(ranked)]
+
+
+# ---------------------------------------------------------------------------
+# `CPM-FR-40`'s feedstock presence and maintenance vocabulary.
+#
+# A second vocabulary in this module and not a second *order*: see the module
+# docstring for why this one declares no precedence, and for why it refines
+# `not_found` as well as `ok`.
+# ---------------------------------------------------------------------------
+
+#: The verdict for a package conda-forge has no feedstock for and nothing queued
+#: to create one, declared as the `(member name, value)` pair `outcome_type`
+#: takes.
+#:
+#: A pair rather than a member reference, on exactly the terms `CURRENT_MEMBER`
+#: is one: the composed type below is built from it and `ABSENT` is read back out
+#: of it, so a second spelling of `"absent"` anywhere would be a value that could
+#: drift from the one the column actually offers.
+ABSENT_MEMBER: Final[tuple[str, str]] = ("ABSENT", "absent")
+
+#: The verdict for a feedstock that exists and was pushed to within the run's
+#: inactivity threshold of its evidence cut-off.
+MAINTAINED_MEMBER: Final[tuple[str, str]] = ("PRESENT_AND_MAINTAINED", "present_and_maintained")
+
+#: The verdict for a feedstock that exists and whose last push is older than that
+#: threshold.
+INACTIVE_MEMBER: Final[tuple[str, str]] = ("PRESENT_AND_INACTIVE", "present_and_inactive")
+
+#: The verdict for a package with no feedstock and an open staged recipe that
+#: would create one. Distinct from `absent` because the two call for different
+#: work: one is a gap to fill and the other is a review to finish.
+STAGED_MEMBER: Final[tuple[str, str]] = ("STAGED_RECIPE_PENDING", "staged_recipe_pending")
+
+#: The feedstock vocabulary: `core`'s four sentinels plus `CPM-FR-40`'s four
+#: determinate outcomes.
+FeedstockOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "FeedstockOutcome",
+    [ABSENT_MEMBER, MAINTAINED_MEMBER, INACTIVE_MEMBER, STAGED_MEMBER],
+)
+
+#: `FeedstockOutcome`'s own members, by name, read off the composed type itself,
+#: for the reason `_MEMBER_VALUES` above is: the functional enum API makes the
+#: members invisible to a type checker, and reaching them *through* the type is
+#: what makes a drifted sentinel fail at import rather than silently make every
+#: comparison false. A comprehension rather than a literal, which is also what
+#: keeps it out of `tests/unit/django_apps/test_single_ordering_audit.py`'s
+#: reach.
+_FEEDSTOCK_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in FeedstockOutcome}
+
+#: conda-forge has no feedstock for this package, and nothing is queued to make
+#: one.
+ABSENT: Final[str] = _FEEDSTOCK_MEMBER_VALUES["ABSENT"]
+
+#: A feedstock exists and has been pushed to recently enough.
+PRESENT_AND_MAINTAINED: Final[str] = _FEEDSTOCK_MEMBER_VALUES["PRESENT_AND_MAINTAINED"]
+
+#: A feedstock exists and has not.
+PRESENT_AND_INACTIVE: Final[str] = _FEEDSTOCK_MEMBER_VALUES["PRESENT_AND_INACTIVE"]
+
+#: No feedstock, but a staged recipe is open that would create one.
+STAGED_RECIPE_PENDING: Final[str] = _FEEDSTOCK_MEMBER_VALUES["STAGED_RECIPE_PENDING"]
+
+#: Nothing was observed at the cut-off, the observation itself records `unknown`,
+#: or a feedstock exists whose activity the collector could not date.
+#:
+#: Reached through `FeedstockOutcome` rather than through `OutcomeState`, and
+#: named apart from `UNKNOWN` above rather than shared with it. The two carry the
+#: same string -- `verify_sentinels` guarantees it -- but a column's default and a
+#: column's values must be *its own* choices, and a feedstock column defaulting to
+#: a constant read off the currency vocabulary would be the one place this module
+#: took a value from a type the field does not declare.
+FEEDSTOCK_UNKNOWN: Final[str] = _FEEDSTOCK_MEMBER_VALUES["UNKNOWN"]
+
+#: Looking for the feedstock failed.
+FEEDSTOCK_ERROR: Final[str] = _FEEDSTOCK_MEMBER_VALUES["ERROR"]
+
+#: `core`'s generic negative, kept in the vocabulary by construction and never
+#: produced by `FeedstockPresencePass`, which always has the more specific
+#: `absent` or `staged_recipe_pending` to say instead. See the module docstring.
+FEEDSTOCK_NOT_FOUND: Final[str] = _FEEDSTOCK_MEMBER_VALUES["NOT_FOUND"]
+
+#: The feedstock question is not this package's -- a package whose feedstock
+#: mapping resolution recorded as inapplicable.
+FEEDSTOCK_NOT_APPLICABLE: Final[str] = _FEEDSTOCK_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `FeedstockOutcome`'s longest
+#: value is `present_and_maintained`, twenty-two characters; the rest is
+#: headroom. Sized like `CURRENCY_STATE_LENGTH` rather than derived from it: two
+#: vocabularies, two declarations, each argued from its own longest value.
+FEEDSTOCK_STATE_LENGTH: Final[int] = 32
