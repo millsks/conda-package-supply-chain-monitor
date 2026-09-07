@@ -28,10 +28,12 @@
     <!-- Action buttons -->
     <div class="row">
       <div class="col-sm-12">
-        <a class="btn btn-primary" href="{% url 'users:update' %}" role="button">My Info</a>
-        <a class="btn btn-primary"
-           href="{% url 'account_email' %}"
-           role="button">E-Mail</a>
+        {# No `role="button"`: both of these navigate. Telling assistive tech they #}
+        {# are buttons promises activation in place and a Space key an anchor does #}
+        {# not answer, so the native link role is the accurate one. `.btn` is #}
+        {# styling and carries no semantics. #}
+        <a class="btn btn-primary" href="{% url 'users:update' %}">My Info</a>
+        <a class="btn btn-primary" href="{% url 'account_email' %}">E-Mail</a>
         <!-- Your Stuff: Custom user template urls -->
       </div>
     </div>

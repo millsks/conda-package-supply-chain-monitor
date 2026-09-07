@@ -226,7 +226,13 @@ RETRIED_METHODS: Final[frozenset[str]] = frozenset({"GET"})
 #: reach. Both, so a source served over plain HTTP -- an internal mirror, the
 #: local `http.server` the integration tier proves this against -- gets the same
 #: retry policy as an HTTPS one rather than silently getting `urllib3`'s default.
-MOUNTED_PREFIXES: Final[tuple[str, ...]] = ("http://", "https://")
+#:
+#: `NOSONAR` because `python:S5332` reads the `http://` here as a call made over
+#: plain HTTP. It is not one: this is the prefix an adapter is *mounted* against,
+#: and dropping it would not stop a plain-HTTP call, it would leave that call
+#: with no declared retry policy. Which locators may actually be reached is
+#: decided by `ALLOWED_SCHEMES` below and enforced in `_check_locator`.
+MOUNTED_PREFIXES: Final[tuple[str, ...]] = ("http://", "https://")  # NOSONAR
 
 #: The schemes a locator may name. The same two `MOUNTED_PREFIXES` covers, which
 #: is not a coincidence: a scheme with no mounted adapter is a call with no

@@ -104,6 +104,28 @@ class TestUserPages:
         )
         assert response.status_code == HTTPStatus.OK
 
+    def test_the_detail_action_links_present_as_links(self, client: Client, user: User):
+        """Both action controls navigate, so neither may claim the button role.
+
+        `role="button"` on a navigating anchor tells assistive tech the control
+        activates in place and answers a Space key, and an anchor does neither.
+        Asserted on the rendered page rather than on the template text, because
+        what a screen reader is handed is the render.
+
+        Both halves. The links are still there and still styled as buttons -- an
+        assertion that only counted `role="button"` would pass just as happily
+        against a page that had lost the controls altogether.
+        """
+        client.force_login(user)
+        response = client.get(
+            reverse("users:detail", kwargs={"username": user.username}),
+        )
+        body = response.content.decode()
+
+        assert reverse("users:update") in body
+        assert reverse("account_email") in body
+        assert 'role="button"' not in body
+
     def test_update_form_renders(self, client: Client, user: User):
         client.force_login(user)
         response = client.get(reverse("users:update"))
