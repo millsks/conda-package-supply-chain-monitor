@@ -221,6 +221,20 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: `currency_status` to the rollup by **returning** it, never by writing it. The
 #: return is not a write form this scan matches and is not meant to be --
 #: `core/rollup.py` is what writes the column, after `CPM-AD-4`'s gate.
+#
+#: `policies/feedstock.py` -- `CPM-CURRENCY-S07`'s feedstock presence pass, and
+#: the fourth collision of the same kind, on exactly the terms the currency pass's
+#: entry states. `PackageFeedstockPresence` is a per-domain derived table
+#: (`CPM-AD-21`) carrying no `computed_at`, so the registry sweep correctly does
+#: not find it; what collides is the naming convention, because the column that
+#: holds this pass's verdict is named for the verdict it holds.
+#:
+#: One entry, one `create()` keyword, and it too is deliberately *visible*: the
+#: row could have been written through a `defaults` mapping and stayed out of this
+#: table entirely, which is the `**kwargs` dodge `ORM_WRITE_METHODS` names. One
+#: rather than the currency pass's five because this table holds one verdict per
+#: package where that one holds five; a second would fail here until it is
+#: recorded.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
@@ -234,6 +248,9 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
         KEYWORD_FORM.format(name="feedstock_status", method="create"): 1,
         KEYWORD_FORM.format(name="conda_package_status", method="create"): 1,
         KEYWORD_FORM.format(name="overall_status", method="create"): 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/policies/feedstock.py": {
+        KEYWORD_FORM.format(name="presence_status", method="create"): 1,
     },
 }
 

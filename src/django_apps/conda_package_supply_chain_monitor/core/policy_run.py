@@ -296,6 +296,10 @@ def execute_policy_run(
         PolicyRunError: When no cut-off was supplied and the ledger holds none to
             choose. Raised *before* the ledger row is opened: a run that cannot
             read evidence correctly should leave no row claiming it tried.
+        Exception: Whatever a pass's `prepare` raised. Not contained per package
+            -- see `_execute_passes` -- so the ledger row finalizes `failed`, no
+            derived row and no rollup row is written, and the caller is told
+            once rather than once per package.
 
     """
     if evidence_cutoff is None:
@@ -369,6 +373,11 @@ def _execute_passes(
     where "a later pass reads an earlier pass's derived rows for this run" holds
     -- the reads a pass makes are about the package being evaluated.
 
+    **Every pass prepares first, and a preparation failure is not contained.**
+    See the loop below and `core/policy.py`'s `PolicyPass.prepare`: a fault that
+    is every package's is cheaper, more legible and more honest as one failed run
+    than as one failure per package.
+
     Args:
         passes: The registered pass classes, in declared order.
         packages: The packages to evaluate.
@@ -383,6 +392,16 @@ def _execute_passes(
 
     """
     instances = [policy_pass() for policy_pass in passes]
+    # Once per run, before the loop, and **not** contained. `PolicyPass.prepare`
+    # is where a pass establishes what cannot differ between packages -- a rule
+    # set chosen by the run's policy version, say -- and a failure of it is every
+    # package's failure. Catching it per package would produce one traceback and
+    # one failed row per package for a condition knowable before the first one,
+    # and would report an inventory-wide misconfiguration as ten thousand
+    # individual faults. Raised here, the ledger row finalizes `failed`, nothing
+    # is written, and the caller is told once.
+    for policy_pass in instances:
+        policy_pass.prepare(policy_run=run, evidence_cutoff=evidence_cutoff)
     contributions: dict[int, dict[str, str]] = {}
     failed: list[int] = []
     for package in packages:

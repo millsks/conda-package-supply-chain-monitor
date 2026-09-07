@@ -51,6 +51,7 @@ from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
 from conda_package_supply_chain_monitor.identity.models import Package
 from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.passes import A_DOMAIN_STATUS
@@ -226,22 +227,24 @@ def test_the_composed_row_covers_every_column_the_rollup_declares() -> None:
     assert set(row) == (STAMP_COLUMNS | contributable_columns()) - {"package"}
 
 
-def test_the_real_rollups_one_column_already_has_an_owner() -> None:
-    """The honest statement of what this module stands in for, now that a column is real.
+def test_the_real_rollups_columns_already_have_owners() -> None:
+    """The honest statement of what this module stands in for, now that the columns are real.
 
-    `PackageHealth` declares exactly one contributable column since
-    `CPM-CURRENCY-S06` -- `currency_status` -- owned by `CurrencyPass`. The cases
-    above still use a synthetic rollup because they need a column *nobody owns*:
-    the gate, the defaulting and the full-row replace are properties of any
-    contributable column, and measuring them on the one real column would tangle
-    them with a live pass's declaration.
+    `PackageHealth` declares two contributable columns: `currency_status`, added
+    by `CPM-CURRENCY-S06` and owned by `CurrencyPass`, and
+    `feedstock_presence_status`, added by `CPM-CURRENCY-S07` and owned by
+    `FeedstockPresencePass`. The cases above still use a synthetic rollup because
+    they need a column *nobody owns*: the gate, the defaulting and the full-row
+    replace are properties of any contributable column, and measuring them on a
+    real one would tangle them with a live pass's declaration.
 
     The cases above are also no longer the only place the gate is exercised.
-    `tests/integration/django_apps/test_currency_policy.py` drives a real verdict
-    through the orchestration and asserts the `unmapped` package's rollup column
-    reads `unknown` whatever the pass computed.
+    `tests/integration/django_apps/test_currency_policy.py` and
+    `tests/integration/django_apps/test_feedstock_policy.py` each drive a real
+    verdict through the orchestration and assert the `unmapped` package's rollup
+    column reads `unknown` whatever the pass computed.
     """
-    assert contributable_columns() == frozenset({ROLLUP_COLUMN})
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN})
     assert rollup_module.ROLLUP_MODEL is PackageHealth
 
 

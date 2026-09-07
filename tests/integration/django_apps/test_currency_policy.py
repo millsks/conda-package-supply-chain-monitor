@@ -71,15 +71,21 @@ from conda_package_supply_chain_monitor.policies.outcomes import UNKNOWN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
+from tests.passes import A_RECORDED_POLICY_VERSION
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-#: The policy version every case records. `CPM-AD-8` makes the version data an
-#: operator supplies rather than a constant this product ships, so any stable
-#: string does -- what the cases assert is that it reaches the ledger row and the
-#: rollup's per-domain map.
-A_POLICY_VERSION: Final[str] = "cpm-fixture-policy-1"
+#: The policy version every case records.
+#:
+#: It was any stable string until `CPM-CURRENCY-S07`, because `CPM-AD-8` makes the
+#: version data an operator supplies rather than a constant this product ships.
+#: It is now the version the shipped parameter file records, because the second
+#: adopted pass looks its threshold up by the run's version and refuses one the
+#: file does not record -- so a run here at a fixture version would fail every
+#: package, and every case in this module would be measuring that instead of the
+#: currency pass. `tests/passes.py` carries the constant and says why.
+A_POLICY_VERSION: Final[str] = A_RECORDED_POLICY_VERSION
 
 #: The collector name the fixture collection runs carry. Prefixed so it cannot be
 #: confused with a real collector's.

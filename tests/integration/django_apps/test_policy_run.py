@@ -47,6 +47,7 @@ from conda_package_supply_chain_monitor.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
+from tests.passes import A_RECORDED_POLICY_VERSION
 from tests.passes import A_VERDICT
 from tests.passes import FIRST_DOMAIN
 from tests.passes import SECOND_DOMAIN
@@ -71,11 +72,17 @@ if TYPE_CHECKING:
 #: it, and an assertion over an empty list would pass for the wrong reason.
 CAPTURE_CONTROL: Final[str] = "policy-run-capture-control"
 
-#: The policy version every case records. `CPM-AD-8` makes the version data an
-#: operator supplies rather than a constant this product ships, so any stable
-#: string does here -- what the cases assert is that it reaches the ledger row
-#: and the rollup's per-domain map.
-A_POLICY_VERSION: Final[str] = "cpm-fixture-policy-1"
+#: The policy version every case records.
+#:
+#: `CPM-AD-8` makes the version data an operator supplies rather than a constant
+#: this product ships, and until `CPM-CURRENCY-S07` any stable string did here.
+#: It is now the version `policies/data/policy-parameters.toml` records, because
+#: `FeedstockPresencePass` looks its threshold up by the run's version and refuses
+#: one nothing records -- so a run at a fixture version would fail every package
+#: and finalize `failed`, and the cases below about `partial`, about the ordered
+#: read and about the per-package boundary would all be measuring that instead.
+#: `tests/passes.py` carries the constant and says why.
+A_POLICY_VERSION: Final[str] = A_RECORDED_POLICY_VERSION
 
 #: The collector name the fixture collection runs carry. Prefixed so it cannot be
 #: confused with a real collector's the day one exists.

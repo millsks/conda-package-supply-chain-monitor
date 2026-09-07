@@ -99,6 +99,7 @@ __all__ = [
     "CONDA_PACKAGE_PAIR_INDEX",
     "CONDA_PACKAGE_READ_INDEX",
     "COUNTS_PRESENT_CONSTRAINT",
+    "ESTABLISHED_ABSENCE_CONSTRAINT",
     "FEEDSTOCK_FACTS_CONSTRAINT",
     "FEEDSTOCK_READ_INDEX",
     "PYPI_FACTS_CONSTRAINT",
@@ -236,6 +237,7 @@ _FEEDSTOCK_NAME_LENGTH: Final[int] = 160
 #: row that found a feedstock may not also carry one.
 FEEDSTOCK_FACTS_CONSTRAINT: Final[str] = "feedstock_facts_present_exactly_when_observed"
 STAGED_RECIPE_CONSTRAINT: Final[str] = "staged_recipe_only_when_absent"
+ESTABLISHED_ABSENCE_CONSTRAINT: Final[str] = "absence_established_only_on_an_absence"
 FEEDSTOCK_READ_INDEX: Final[str] = "feedstock_pkg_observed"
 
 #: How wide the channel column is. A channel is one path segment a channel host
@@ -928,6 +930,16 @@ class FeedstockSnapshot(AppendOnlyModel):
     stale -- and the difference between "we have not looked" and "we looked and
     conda-forge has nothing" is exactly what `CPM-FR-6` exists to keep.
 
+    **`absence_established` is what makes a `not_found` row readable by a
+    policy.** `not_found` is reachable four ways -- the repository answered
+    absent, the repository could not be read, the queue could not be read, and
+    the queue answered ambiguously or overflowed its page -- and only the first
+    is evidence that there is nothing there. Until `CPM-CURRENCY-S07` the
+    distinction lived in `detail` alone, which is prose; the column says the same
+    thing structurally so a reader outside `collectors/` can tell an established
+    absence from a failure to find out without matching on a sentence. See the
+    field for why a boolean here is not the boolean `CPM-AD-5` bans.
+
     **`staged_recipe_url` is a fact about a package that has no feedstock, and
     the database says so.** AC 2 asks for staged-recipe state "recorded
     separately from an existing feedstock", and `staged_recipe_only_when_absent`
@@ -1029,6 +1041,36 @@ class FeedstockSnapshot(AppendOnlyModel):
     #: nothing, or matched more than one and was refused rather than picked.
     staged_recipe_url = models.CharField(_("staged recipe URL"), max_length=_LOCATOR_LENGTH, blank=True, default="")
 
+    #: Whether this run **established** the absence it records, as opposed to
+    #: failing to find out.
+    #:
+    #: **The column exists because `not_found` is reachable four ways and only
+    #: one of them is evidence of absence.** `collectors/feedstock.py` writes it
+    #: when conda-forge answered that the conventional repository is not there
+    #: *and* the staged-recipes queue answered conclusively; it writes `False`
+    #: when the repository could not be read, when the queue could not be read,
+    #: when the queue held more than one open pull request so none was recorded,
+    #: and when the search overflowed its page so a blank match is not evidence of
+    #: none. Every one of those already produced a distinct `detail`, and `detail`
+    #: is prose: `CPM-CURRENCY-S07`'s policy pass has to tell an established
+    #: absence from an unestablished one to decide whether to report a gap
+    #: somebody should go and fill, and matching on a sentence across an
+    #: application boundary is a coupling that breaks silently on a reword.
+    #:
+    #: **A boolean, and `CPM-AD-5` is not violated by it.** That decision bans a
+    #: boolean *status*: the five-state vocabulary is what `state` above carries,
+    #: and this is not a fifth state or a second axis on one. It is a fact about
+    #: the observation -- did this run finish asking -- of exactly the kind
+    #: `truncated` and `matched` are inside `collectors/feedstock.py`'s own
+    #: `StagedRecipe`, and it has two values because the question has two
+    #: answers.
+    #:
+    #: `False` on every row that is not an absence, which `Meta.constraints`
+    #: makes a database rule: an `ok` row establishes a feedstock's *presence*,
+    #: and a row claiming to have established an absence while naming a feedstock
+    #: would be saying both things at once.
+    absence_established = models.BooleanField(_("absence established"), default=False)
+
     #: What the collector or the base had to say about this observation -- the
     #: sentinel path's reason, why the recipe could not be read, how many
     #: feedstocks the mapping held, or that both a feedstock and a staged recipe
@@ -1100,6 +1142,20 @@ class FeedstockSnapshot(AppendOnlyModel):
             models.CheckConstraint(
                 condition=models.Q(staged_recipe_url="") | models.Q(state=OutcomeState.NOT_FOUND),
                 name=STAGED_RECIPE_CONSTRAINT,
+            ),
+            # An absence can only be established by a row that records one. An
+            # `ok` row says a feedstock exists; an `error` or `not_applicable`
+            # row says nobody found out. A row claiming `absence_established`
+            # beside any of those would be two opposite statements about the same
+            # observation, and a reader deciding whether to report a gap somebody
+            # should fill would have no way to tell which half to believe.
+            #
+            # `state` is NOT NULL and `absence_established` is NOT NULL, so this
+            # expression is always true or false and never the third thing a SQL
+            # CHECK can be.
+            models.CheckConstraint(
+                condition=models.Q(absence_established=False) | models.Q(state=OutcomeState.NOT_FOUND),
+                name=ESTABLISHED_ABSENCE_CONSTRAINT,
             ),
         ]
 

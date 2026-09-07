@@ -604,12 +604,21 @@ class ConventionalAnswer:
             repository that answered "absent"; a sentence beginning
             `UNCHECKED_FEEDSTOCK_DETAIL` for every way of not finding out; and the
             facts' own reason when it answered.
+        established: Whether the repository *answered that it is not there*, as
+            opposed to this run failing to find out. True on exactly one path --
+            a `404` from the conventional repository -- and False on every way of
+            not asking successfully. It says the same thing `detail` does and it
+            says it structurally, which is what lets a reader outside this module
+            tell an absence from a failure to look without matching on a
+            sentence. `False` when `facts` is not None, because a repository that
+            answered established a *presence*.
 
     """
 
     facts: RepositoryFacts | None
     source: str
     detail: str
+    established: bool = False
 
 
 def feedstock_repository(name: str) -> str:
@@ -1689,6 +1698,14 @@ class FeedstockCollector(Collector):
             "recipe_metadata_url": "",
             "last_recipe_activity_at": None,
             "staged_recipe_url": staged.url,
+            # Both halves, structurally, and both are needed. The repository must
+            # have *answered* that it is not there, and the queue must have
+            # answered conclusively -- one match recorded, or none out of a page
+            # that held them all. A blank URL from an overfull page, or from a
+            # queue holding two candidates, establishes nothing about whether a
+            # recipe is already on its way, and `CPM-CURRENCY-S07`'s policy pass
+            # reports the difference as work somebody should go and do.
+            "absence_established": conventional.established and _queue_answered(staged),
             # `conventional.detail` rather than a fixed sentence: it says
             # "the repository is absent" only when the repository said so, and
             # says "nobody could look" otherwise. A row that claimed the first
@@ -1818,7 +1835,17 @@ class FeedstockCollector(Collector):
                 ),
             )
         if not payload.found:
-            return ConventionalAnswer(facts=None, source=locator, detail=ABSENT_FEEDSTOCK_DETAIL)
+            # The one path that *establishes* an absence: conda-forge answered
+            # that the conventional repository is not there. Every other return
+            # in this method leaves `established` at its default, which is what
+            # keeps "could not ask" from being read as "asked, and it is not
+            # there" by anything downstream.
+            return ConventionalAnswer(
+                facts=None,
+                source=locator,
+                detail=ABSENT_FEEDSTOCK_DETAIL,
+                established=True,
+            )
         try:
             facts = repository_facts(payload.body, source=locator, fallback_name=feedstock_repository(name))
         except FeedstockDocumentError as unreadable:
@@ -1994,6 +2021,30 @@ def _reasons(parts: Sequence[str]) -> str:
 
     """
     return "; ".join(part for part in parts if part)
+
+
+def _queue_answered(staged: StagedRecipe) -> bool:
+    """Report whether the staged-recipes search settled what the queue holds.
+
+    The structural half of `_queue_detail` below, which says the same thing in
+    prose. Both are here rather than one derived from the other because a
+    sentence is for a person and a boolean is for a policy pass, and reading the
+    second out of the first is the string matching this pair exists to remove.
+
+    Args:
+        staged: What the search matched.
+
+    Returns:
+        True when exactly one open pull request was recorded, or when none
+        matched on a page that held every result. False when more than one
+        matched -- so none was recorded and which one would create the feedstock
+        is not this collector's to pick -- and False when the search overflowed
+        its page, where a blank match may simply be on a page nobody asked for.
+
+    """
+    if staged.url:
+        return True
+    return staged.matched == 0 and not staged.truncated
 
 
 def _queue_detail(staged: StagedRecipe) -> str:

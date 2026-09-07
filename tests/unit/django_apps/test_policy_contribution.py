@@ -49,6 +49,7 @@ from conda_package_supply_chain_monitor.core.policy import PolicyPassError
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.core.rollup import permitted_values
 from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import FIRST_DOMAIN
 from tests.passes import rollup_with_a_domain_column
@@ -205,15 +206,16 @@ def test_a_column_declaring_no_vocabulary_is_refused_rather_than_waved_through()
         permitted_values("policy_versions")
 
 
-def test_the_real_rollups_one_column_already_has_an_owner() -> None:
-    """The honest statement of what this module stands in for, now that a column is real.
+def test_the_real_rollups_columns_already_have_owners() -> None:
+    """The honest statement of what this module stands in for, now that the columns are real.
 
-    `PackageHealth` declares exactly one contributable column since
-    `CPM-CURRENCY-S06` -- `currency_status` -- and `CurrencyPass` owns it from
-    `django.setup()` onwards. So the refusals here still need a substitute: a
-    fixture pass contributing the real column would collide with the real owner,
-    and each case would be measuring that collision instead of the rule it names.
-    A column nobody owns is what the synthetic rollup supplies.
+    `PackageHealth` declares two contributable columns -- `currency_status`
+    (`CPM-CURRENCY-S06`) and `feedstock_presence_status` (`CPM-CURRENCY-S07`) --
+    and an adopted pass owns each from `django.setup()` onwards. So the refusals
+    here still need a substitute: a fixture pass contributing a real column would
+    collide with its real owner, and each case would be measuring that collision
+    instead of the rule it names. A column nobody owns is what the synthetic
+    rollup supplies.
 
     The end-to-end half is no longer missing, which is the other thing this says:
     `tests/integration/django_apps/test_currency_policy.py` drives a real
@@ -224,6 +226,6 @@ def test_the_real_rollups_one_column_already_has_an_owner() -> None:
     it -- a stamp that had drifted into the contributable set would make every
     refusal in this module about a column a pass is entitled to.
     """
-    assert contributable_columns() == frozenset({ROLLUP_COLUMN})
+    assert contributable_columns() == frozenset({ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN})
     assert rollup_module.ROLLUP_MODEL is PackageHealth
     assert A_STAMP not in contributable_columns()

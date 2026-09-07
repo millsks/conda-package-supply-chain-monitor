@@ -72,6 +72,7 @@ from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockLoc
 from conda_package_supply_chain_monitor.collectors.feedstock import recipe_locator
 from conda_package_supply_chain_monitor.collectors.feedstock import repository_locator
 from conda_package_supply_chain_monitor.collectors.feedstock import staged_recipes_locator
+from conda_package_supply_chain_monitor.collectors.models import ESTABLISHED_ABSENCE_CONSTRAINT
 from conda_package_supply_chain_monitor.collectors.models import FEEDSTOCK_FACTS_CONSTRAINT
 from conda_package_supply_chain_monitor.collectors.models import STAGED_RECIPE_CONSTRAINT
 from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
@@ -611,6 +612,11 @@ def test_a_package_with_a_staged_recipe_and_no_feedstock_records_them_apart(outc
     assert row.recipe_metadata_url == ""
     assert row.last_recipe_activity_at is None
     assert ABSENT_FEEDSTOCK_DETAIL in row.detail
+    # The repository answered absent and the queue answered with exactly one
+    # match, so this run established the absence it recorded -- which is what
+    # lets `CPM-CURRENCY-S07`'s policy read `staged_recipe_pending` from it
+    # rather than `unknown`.
+    assert row.absence_established is True
     assert _run(package).status == RunState.SUCCEEDED.value
 
 
@@ -634,6 +640,7 @@ def test_a_package_with_neither_records_that_both_were_looked_for() -> None:
     assert row.state == OutcomeState.NOT_FOUND.value
     assert row.staged_recipe_url == ""
     assert row.detail == NEITHER_DETAIL
+    assert row.absence_established is True, "both were looked for and neither found, which is an absence"
 
 
 @pytest.mark.django_db
@@ -651,6 +658,10 @@ def test_an_ambiguous_staged_recipe_is_refused_rather_than_picked_and_the_row_sa
     assert row.state == OutcomeState.NOT_FOUND.value
     assert row.staged_recipe_url == ""
     assert f"({TWO_MATCHES} matched)" in row.detail
+    # The repository is absent, but the queue was not settled: two candidates and
+    # neither recorded. A reader that took this for an established absence would
+    # report a gap to fill for a package with two recipes already proposed.
+    assert row.absence_established is False
 
 
 @pytest.mark.django_db
@@ -744,9 +755,13 @@ def test_a_conventional_repository_this_run_could_not_read_is_not_recorded_as_an
     assert row.source == THE_SEARCH_LOCATOR
     if conventional == "absent":
         assert row.detail == NEITHER_DETAIL
+        assert row.absence_established is True
     else:
         assert UNCHECKED_FEEDSTOCK_DETAIL in row.detail
         assert ABSENT_FEEDSTOCK_DETAIL not in row.detail
+        # The structural half of the same claim, and the half a policy can read:
+        # nobody looked successfully, so nothing was established.
+        assert row.absence_established is False
     assert _run(package).status == RunState.SUCCEEDED.value
 
 
@@ -811,6 +826,7 @@ def test_a_staged_recipes_search_that_answers_404_does_not_record_an_absence_of_
     assert row.staged_recipe_url == ""
     assert UNCHECKED_QUEUE_DETAIL in row.detail
     assert ABSENT_FEEDSTOCK_DETAIL not in row.detail
+    assert row.absence_established is False
     assert _run(package).status == RunState.SUCCEEDED.value
 
 
@@ -835,6 +851,10 @@ def test_a_queue_that_overflowed_its_page_does_not_record_an_absence_of_a_staged
     assert row.staged_recipe_url == ""
     assert OVERFULL_QUEUE_DETAIL in row.detail
     assert NO_STAGED_RECIPE_DETAIL not in row.detail
+    # The repository's absence was established and the queue's was not, and the
+    # column records the conjunction: a match may be on a page nobody asked for,
+    # so this row is not evidence that nothing is queued.
+    assert row.absence_established is False
 
 
 # ---------------------------------------------------------------------------
@@ -1512,3 +1532,51 @@ def test_an_absence_row_may_carry_a_staged_recipe_and_a_determinate_row_may_carr
 
     assert _rows(package)[0].feedstock_name == THE_REPOSITORY
     assert _rows(other)[0].staged_recipe_url == A_STAGED_URL
+
+
+@pytest.mark.django_db
+def test_only_a_row_recording_an_absence_may_claim_to_have_established_one() -> None:
+    """`absence_established_only_on_an_absence`, refused by the database rather than named.
+
+    An `ok` row establishes a feedstock's *presence*; an `error` or
+    `not_applicable` row says nobody found out. A row claiming to have
+    established an absence beside any of those is two opposite statements about
+    one observation, and `CPM-CURRENCY-S07`'s policy reads that column to decide
+    whether to report a gap somebody should go and fill.
+
+    The collector cannot produce such a row -- it sets the flag on exactly one
+    branch -- which is why the constraint exists and why asserting it by name
+    would pass against one weakened to `1 = 1`. Built directly, on the terms
+    every other constraint case in this module is.
+    """
+    package = _a_package()
+
+    with pytest.raises(IntegrityError, match=ESTABLISHED_ABSENCE_CONSTRAINT), transaction.atomic():
+        FeedstockSnapshot.objects.create(
+            package=package,
+            observed_at=FIXED_INSTANT,
+            state=OutcomeState.OK.value,
+            feedstock_name=THE_REPOSITORY,
+            absence_established=True,
+        )
+
+
+@pytest.mark.django_db
+def test_an_absence_row_may_claim_to_have_established_one() -> None:
+    """The other side, so the constraint is not one that refuses every row.
+
+    The same row differing only in `state`, which is the column the rule is
+    about. A check written as "refuse every claim" would satisfy the case above
+    and would make the collector's own absence branch unwritable -- which its
+    cases would then report as a failure somewhere else entirely.
+    """
+    package = _a_package()
+
+    written = FeedstockSnapshot.objects.create(
+        package=package,
+        observed_at=FIXED_INSTANT,
+        state=OutcomeState.NOT_FOUND.value,
+        absence_established=True,
+    )
+
+    assert written.pk is not None

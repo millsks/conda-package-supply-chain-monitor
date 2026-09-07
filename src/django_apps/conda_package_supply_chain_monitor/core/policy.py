@@ -153,6 +153,13 @@ class PolicyPass:
     what actually writes them, after `CPM-AD-4`'s gate. A pass never sees a
     confidence and never writes a rollup row.
 
+    **`prepare` is optional and `evaluate` is not.** The first is where a pass
+    establishes what it needs *once per run*, and a failure there fails the run;
+    the second is per package, and a failure there costs one package
+    (`CPM-AD-23`). Which of the two a check belongs in is decided by whether its
+    answer can differ between packages -- see `prepare` for why containing a
+    run-wide fault per package is worse than not containing it.
+
     Attributes:
         name: What this pass is called. It keys the registry, keys the rollup's
             per-domain `policy_versions` map, and appears in every refusal
@@ -168,6 +175,43 @@ class PolicyPass:
     name: ClassVar[str] = ""
     derived_model: ClassVar[type[models.Model] | None] = None
     contributes: ClassVar[tuple[str, ...]] = ()
+
+    def prepare(self, *, policy_run: PolicyRun, evidence_cutoff: datetime) -> None:
+        """Establish whatever this pass needs once, before the per-package loop.
+
+        Called **once per run**, by `core/policy_run.py`, before any package is
+        evaluated and inside the run's ledger row. A pass with no run-wide
+        precondition overrides nothing; the default does nothing and is the
+        common case.
+
+        **Raising here fails the run, and that is the whole point of the hook.**
+        `CPM-AD-23` puts the atomic unit at one package because most faults are
+        one package's -- broken data on that row, a source that answered oddly
+        about it -- and containing them is what makes a run degrade to stale
+        evidence rather than to nothing. A fault that is *every* package's is a
+        different thing, and containing it per package is actively worse: it
+        produces one traceback and one failed row per package, it grows the
+        failed count to the size of the inventory, and it discovers a condition
+        that was knowable before the loop ten thousand times. `CPM-CURRENCY-S07`
+        is the first pass with one -- a policy version the reviewed parameter
+        file does not record -- and this is where it is met.
+
+        The distinction a pass has to make is not subtle: put a check here when
+        the answer cannot differ between packages, and leave it in `evaluate`
+        when it can.
+
+        Args:
+            policy_run: The run about to execute. Its `policy_version` is the
+                usual subject: a run-wide rule set is chosen by it.
+            evidence_cutoff: The instant every pass in this run reads evidence as
+                of (`CPM-AD-21`).
+
+        Raises:
+            Exception: Whatever the pass needs to say. It is not caught: the
+                ledger row finalizes `failed` and the caller is told, before any
+                derived row or any rollup row has been written.
+
+        """
 
     def evaluate(
         self,

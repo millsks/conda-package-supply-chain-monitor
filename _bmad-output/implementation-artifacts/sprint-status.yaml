@@ -78,14 +78,14 @@ development_status:
   epic-identity-retrospective: optional
 
   # CPM-EP-CURRENCY: Where a package sits across every surface
-  epic-currency: in-progress
+  epic-currency: done
   cpm-currency-s01-upstream-release-evidence: done
   cpm-currency-s02-pypi-release-evidence: done
   cpm-currency-s03-feedstock-evidence: done
   cpm-currency-s04-published-conda-package-evidence: done
   cpm-currency-s05-source-failing-never-stops-others: done
   cpm-currency-s06-currency-judged-against-right-authority: done
-  cpm-currency-s07-feedstock-presence-maintenance: ready-for-dev
+  cpm-currency-s07-feedstock-presence-maintenance: done
   epic-currency-retrospective: optional
 
   # CPM-EP-SECURITY: Vulnerability, KEV and licence exposure
