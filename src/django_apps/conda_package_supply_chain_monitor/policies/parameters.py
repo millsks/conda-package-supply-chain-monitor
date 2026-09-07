@@ -12,6 +12,14 @@ names a per-package risk level and the PRD seeds no scale for it, so the
 pass. See `RISK_ORDER_KEY` and `PARAMETER_KEYS` for why that key is optional in
 the file, and what a run at a version that omits it derives instead.
 
+`CPM-SECURITY-S05` added the third, and it is the one that ships **empty**.
+`CPM-FR-18` gives licence compliance to a versioned policy, and *which licences
+are allowed* is PRD Open Question 2 -- a decision nobody has taken and one this
+component was told not to take. So `RULES_KEY` records a rule set that names no
+licence, every package with a licence reaches `manual_review`, and `allowed` is
+unreachable until review writes a rule that says so. See `RULES_KEY` for the
+schema and `_license_rules` for every fault it refuses.
+
 **Why a file rather than a setting or a database table.** `CPM-AD-14` makes
 reviewed reference data in the repository this product's one governed shape for
 exactly this, and `collectors/data/` is the precedent, down to shipping inside
@@ -77,16 +85,28 @@ from typing import Final
 
 from django.core.exceptions import ImproperlyConfigured
 
+from conda_package_supply_chain_monitor.collectors.spdx import OPERATORS
+from conda_package_supply_chain_monitor.collectors.spdx import SPELLINGS
+from conda_package_supply_chain_monitor.policies.outcomes import RULE_DISPOSITIONS
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = [
     "INACTIVITY_DAYS_KEY",
     "MAX_INACTIVITY_DAYS",
+    "MAX_LICENSE_EXPRESSION_CHARACTERS",
     "MAX_RISK_LEVEL_CHARACTERS",
+    "NORMALIZABLE_IDENTIFIERS",
+    "NORMALIZABLE_OPERATORS",
     "PARAMETERS_FILENAME",
     "RISK_ORDER_KEY",
+    "RULES_KEY",
+    "RULE_DISPOSITION_KEY",
+    "RULE_EXPRESSION_KEY",
+    "RULE_KEYS",
     "VERSIONS_TABLE",
+    "LicenseRule",
     "PolicyParameterError",
     "PolicyParameters",
     "forget_recorded_parameters",
@@ -136,6 +156,121 @@ INACTIVITY_DAYS_KEY: Final[str] = "feedstock_inactivity_days"
 #: read but not summed.
 RISK_ORDER_KEY: Final[str] = "vulnerability_risk_order"
 
+#: `CPM-FR-18`'s licence parameter: the rules a version applies, each naming one
+#: normalized SPDX expression and what this product does about it.
+#:
+#: **The key ships recording an empty list, and that is the decision rather than
+#: a placeholder.** `CPM-FR-18` gives licence compliance to a versioned policy,
+#: and PRD Open Question 2 -- *which licences are allowed* -- is unanswered and
+#: named by the PRD as blocking `CPM-EP-SECURITY`. So what ships is the
+#: mechanism: a schema a reviewer can fill in without a deployment, filled in
+#: with nothing. A run at such a version routes every package whose licence was
+#: established to `manual_review`, which is the correct answer to "no policy has
+#: been decided" and is exactly what `CPM-SECURITY-S03`'s AC 2 already promised.
+#:
+#: This differs from `RISK_ORDER_KEY`, which shipped a *provisional* order. There
+#: the PRD named a risk level and simply seeded no thresholds, so a value marked
+#: as provisional in the file was a reviewable list rather than a claim about any
+#: package. Here the PRD names the decision itself as open, and a provisional
+#: allow list would be this component deciding a compliance question it was told
+#: not to decide -- and deciding it in the one direction (`allowed`) that looks
+#: like good news and is least likely to be questioned.
+#:
+#: The shape, one table per rule:
+#:
+#: ```toml
+#: license_rules = [
+#:   { expression = "MIT", disposition = "allowed" },
+#: ]
+#: ```
+#:
+#: A list of tables rather than a mapping of expression to disposition, because a
+#: TOML mapping key cannot carry an SPDX expression containing spaces without
+#: quoting rules a reviewer has to know, and because a rule is a thing this
+#: schema will grow fields on (a note, a review date) where a bare value is not.
+RULES_KEY: Final[str] = "license_rules"
+
+#: The rule field naming the normalized SPDX expression it is about.
+#:
+#: `expression` rather than `license`, and the name is the honest one: what a
+#: rule matches is `license_findings.normalized_license`, which is an SPDX
+#: *expression* and may be compound (`MIT OR Apache-2.0`). A rule about a
+#: compound expression names it whole -- `policies/licence.py` matches whole, and
+#: takes a conjunction apart only to *withhold* a permission, never to grant one.
+#:
+#: The value is refused unless `collectors/spdx.py` could actually normalize some
+#: stated licence to it: see `_unreachable_expression_fault`. A rule naming
+#: `GPL-3.0` matches nothing this product can ever store.
+RULE_EXPRESSION_KEY: Final[str] = "expression"
+
+#: The rule field naming what this product does about that expression, over
+#: `policies/outcomes.py`'s `RULE_DISPOSITIONS`.
+RULE_DISPOSITION_KEY: Final[str] = "disposition"
+
+#: Every key one rule's table may declare, and exactly the keys it must. Both
+#: halves are required: a rule missing either names nothing or decides nothing,
+#: and an extra key is a reviewer who believes they supplied a rule field this
+#: contract reads.
+#:
+#: **Exact, so a key this contract has not grown yet refuses the file.** That is
+#: not in tension with `RULES_KEY`'s list-of-tables shape, which is chosen for a
+#: schema that *will* grow fields: growing one means adding it here in the same
+#: commit, and until then `note = "..."` is a reviewer who believes they recorded
+#: a note something reads. `PARAMETER_KEYS` refuses an undefined version key on
+#: exactly the same terms one level up, and the alternative -- accepting and
+#: ignoring keys this contract does not define -- is the silently dropped edit
+#: both refusals exist to prevent. The cost is stated plainly rather than
+#: discovered: adding a field to the schema is a code change and not only a file
+#: change, and a file written against a newer schema than the deployed wheel
+#: fails the whole file rather than one rule.
+RULE_KEYS: Final[frozenset[str]] = frozenset({RULE_EXPRESSION_KEY, RULE_DISPOSITION_KEY})
+
+#: Every SPDX identifier `collectors/spdx.py` can put in `normalized_license`,
+#: case-folded for comparison.
+#:
+#: **Read off that module's own table rather than listed**, which is the whole
+#: point: what a rule has to be able to match is exactly what the normalizer
+#: produces, and a second list here would drift from it by one identifier and
+#: start refusing rules that would have matched. `SPELLINGS` maps every
+#: recognised *spelling* to an identifier, and `normalize` returns the
+#: identifier, so the reachable operands are its **values** -- `mit license` is a
+#: key of it and is not a value, and a rule naming it could never match a stored
+#: expression.
+#:
+#: Importing from a collector closes no cycle: `collectors/spdx.py` is a leaf
+#: that imports `django.db.models` and the standard library and nothing else, and
+#: this module already reaches across to a sibling for `RULE_DISPOSITIONS` for
+#: exactly this kind of gate.
+#:
+#: This is not a licence policy and states no disposition. It is the alphabet the
+#: normalizer writes in, and every identifier in it is as forbiddable as it is
+#: allowable.
+NORMALIZABLE_IDENTIFIERS: Final[frozenset[str]] = frozenset(identifier.casefold() for identifier in SPELLINGS.values())
+
+#: The operators a normalized expression may join its operands with, case-folded.
+#:
+#: Folded even though `collectors/spdx.py` recognises them in upper case only,
+#: because the *rule* comparison in `policies/licence.py` folds both sides: a
+#: rule spelled `mit or apache-2.0` does match the stored `MIT OR Apache-2.0`, so
+#: refusing it here would refuse a rule that works.
+NORMALIZABLE_OPERATORS: Final[frozenset[str]] = frozenset(operator.casefold() for operator in OPERATORS)
+
+#: How many distinct operators a normalized expression joins its operands with:
+#: one. `collectors/spdx.py` refuses a mixed expression outright, so a rule naming
+#: one could never match. Named rather than spelled at the comparison, where a
+#: bare `1` reads as an arbitrary bound.
+_ONE_OPERATOR: Final[int] = 1
+
+#: The longest expression a rule may name, which is also how wide the column
+#: recording a matched rule is (`policies/models.py` reads this name for it).
+#:
+#: The number is `license_findings.normalized_license`'s own width, and it is
+#: that number because a rule that could not be *matched* against a stored
+#: expression is a rule nothing will ever apply -- and a matched rule the derived
+#: column could not hold would be truncated into an audit trail nobody wrote.
+#: Reconciled against the evidence column by a case rather than by this comment.
+MAX_LICENSE_EXPRESSION_CHARACTERS: Final[int] = 2048
+
 #: Every key a version's table may declare. The set is what makes an
 #: unrecognised key a refusal rather than a silently dropped edit.
 #:
@@ -156,7 +291,21 @@ RISK_ORDER_KEY: Final[str] = "vulnerability_risk_order"
 #: ever carried a vulnerability verdict. A *malformed* order is a different thing
 #: and is still refused, here, at the read: it is an operator error in a file
 #: somebody can edit rather than a historical artifact.
-PARAMETER_KEYS: Final[frozenset[str]] = frozenset({INACTIVITY_DAYS_KEY, RISK_ORDER_KEY})
+#:
+#: `RULES_KEY` is optional on the same terms and for the same two reasons, plus
+#: one of its own. A version recorded before `CPM-SECURITY-S05` cannot carry it
+#: and must stay replayable; refusing would take that version's other three
+#: domains' rows down with it, one package at a time, and finalize the run
+#: `failed`. And a version that records the key as an **empty list** means the
+#: same thing as one that omits it -- no rule names any licence -- so both parse
+#: to an empty rule set and the pass derives `manual_review` for every package
+#: whose licence was established, saying on the row that no rule set was
+#: recorded. That is deliberately unlike `RISK_ORDER_KEY`, which refuses an empty
+#: list: an empty severity order would produce a blank risk level for the whole
+#: inventory, indistinguishable from sources that state no severities, whereas an
+#: empty rule set produces a distinct, self-describing verdict and is the state
+#: this component ships in. A *malformed* rule set is still refused here.
+PARAMETER_KEYS: Final[frozenset[str]] = frozenset({INACTIVITY_DAYS_KEY, RISK_ORDER_KEY, RULES_KEY})
 
 #: The longest a recorded severity label may be, which is also how wide the
 #: column that stores one is (`policies/models.py` reads this name for it).
@@ -203,6 +352,33 @@ class PolicyParameterError(ImproperlyConfigured):
 
 
 @dataclass(frozen=True, slots=True)
+class LicenseRule:
+    """One recorded statement about one normalized licence expression.
+
+    Frozen, on exactly the terms `PolicyParameters` is: a rule that could be
+    edited after it was read would make "this run applied this version's rules" a
+    claim nothing supports -- and the one field a mutation would reach first is
+    the disposition, which is the difference between `manual_review` and
+    `allowed`.
+
+    Attributes:
+        expression: The normalized SPDX expression this rule is about, recorded
+            **exactly as the reviewer wrote it**. Not case-folded here: the
+            comparison in `policies/licence.py` folds both sides, and what a
+            derived row stores as its matched rule is this spelling, so a
+            reviewer reading a report sees the string they put in the file.
+        disposition: What this product does about that expression, one of
+            `policies/outcomes.py`'s `RULE_DISPOSITIONS`. The read below refuses
+            anything else, which is what makes `allowed` reachable only from a
+            file that says `allowed`.
+
+    """
+
+    expression: str
+    disposition: str
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyParameters:
     """The parameter set one policy version applies.
 
@@ -224,12 +400,23 @@ class PolicyParameters:
             for `CPM-FR-22`'s replay, and it is the *vulnerability pass* that
             refuses, per package, naming the parameter. Defaulted so a version
             that predates the parameter constructs exactly as it always did.
+        license_rules: `CPM-FR-18`'s rules, in the order the file states them,
+            or empty where this version records none. **Empty rather than
+            `None`, and there is exactly one un-ruled state rather than two.** A
+            version that predates the key and a version that records `[]` mean
+            the same thing -- no rule names any licence -- and the licence pass
+            derives `manual_review` for every package with an established licence
+            either way, saying so on the row. `vulnerability_risk_order` keeps a
+            `None` because its empty list is *refused*, which makes `None`
+            unambiguous there; here an empty list is the shipped state, so a
+            second spelling of it would be a distinction no verdict reads.
 
     """
 
     version: str
     feedstock_inactivity: timedelta
     vulnerability_risk_order: tuple[str, ...] | None = None
+    license_rules: tuple[LicenseRule, ...] = ()
 
 
 def _parameters_directory(module: str) -> Path:
@@ -349,8 +536,9 @@ def parameters_from(text: str, *, source: Path | str) -> dict[str, PolicyParamet
         PolicyParameterError: When the text is not TOML; when it declares a key
             outside `VERSIONS_TABLE`; when `VERSIONS_TABLE` is absent, is not a
             table, or is empty; when a version's entry is not a table or declares
-            an unrecognised key; or when its threshold is missing, is not a whole
-            number of days, or is not positive.
+            an unrecognised key; when its threshold is missing, is not a whole
+            number of days, or is not positive; when its severity order is
+            malformed; or when its licence rule set is.
 
     """
     try:
@@ -476,7 +664,253 @@ def _parameters(entry: object, *, version: str, source: Path | str) -> PolicyPar
         version=version,
         feedstock_inactivity=_interval(entry.get(INACTIVITY_DAYS_KEY), version=version, source=source),
         vulnerability_risk_order=_risk_order(entry.get(RISK_ORDER_KEY), version=version, source=source),
+        license_rules=_license_rules(entry.get(RULES_KEY), version=version, source=source),
     )
+
+
+def _license_rules(rules: object, *, version: str, source: Path | str) -> tuple[LicenseRule, ...]:
+    """Refuse a rule set nobody could apply, and return the rules it records.
+
+    Args:
+        rules: Whatever the file recorded, or `None` where it recorded nothing.
+        version: The version being read, for the message.
+        source: What to call the file in a refusal.
+
+    Returns:
+        The rules in the order the file states them, or `()` where this version
+        records none. `()` is not a refusal and is the shipped state: PRD Open
+        Question 2 is unanswered, so no version records a rule, and every package
+        whose licence was established reaches `manual_review`. An **empty list**
+        returns the same `()` as an absent key -- see `PolicyParameters` for why
+        there is one un-ruled state here and not two.
+
+    Raises:
+        PolicyParameterError: When the value is not a list; when an entry is not
+            a table or does not declare exactly `RULE_KEYS`; when an expression
+            is not a string, is blank, carries surrounding whitespace, is longer
+            than `MAX_LICENSE_EXPRESSION_CHARACTERS`, or names something
+            `collectors/spdx.py` can never produce; when a disposition is not one
+            of `RULE_DISPOSITIONS`; or when two rules name the same expression.
+            Each of those is a reviewer who believes they recorded a compliance
+            decision. The unreachable expression is the one whose absence an
+            operator could not detect -- see `_unreachable_expression_fault`. The
+            duplicate is refused whether or not the two agree, because an
+            expression named twice is ranked in two places at once and which rule
+            a package reaches would depend on where a reader stopped counting --
+            and the shape the story's matrix names, one rule allowing what
+            another forbids, is the one where that matters most.
+
+    """
+    if rules is None:
+        return ()
+    if not isinstance(rules, list):
+        message = (
+            f"the policy parameters at {source} record {RULES_KEY}={rules!r} for version {version!r}, which is "
+            f"{type(rules).__name__} rather than a list of rules. CPM-FR-18's licence outcome is drawn from "
+            f"rules a reviewer reads one per line; a value of another shape is refused rather than coerced, "
+            f"because a rule set nobody meant is a compliance verdict about every package."
+        )
+        raise PolicyParameterError(message)
+
+    # Sorted by the rule's *position* rather than by the rendered clause, which is
+    # the same order a reviewer reads the file in. Sorting the strings put `rule
+    # 10` before `rule 2`: deterministic, so nothing replayed differently, and
+    # still an order nobody could follow down a twelve-rule list.
+    faults = [
+        f"rule {position} ({fault})"
+        for position, rule in enumerate(rules)
+        if (fault := _license_rule_fault(rule)) is not None
+    ]
+    if faults:
+        message = (
+            f"the policy parameters at {source} record {RULES_KEY} entries for version {version!r} that cannot "
+            f"be applied: {', '.join(faults)}. Every rule is a table declaring exactly {sorted(RULE_KEYS)}, "
+            f"whose {RULE_EXPRESSION_KEY} is a non-blank expression of at most "
+            f"{MAX_LICENSE_EXPRESSION_CHARACTERS} characters that collectors/spdx.py can actually normalize a "
+            f"stated licence to, and whose {RULE_DISPOSITION_KEY} is one of {sorted(RULE_DISPOSITIONS)} "
+            f"(CPM-AD-5, CPM-AD-24). manual_review is deliberately not a disposition: it is what a licence no "
+            f"rule names already reaches."
+        )
+        raise PolicyParameterError(message)
+
+    recorded = [
+        LicenseRule(expression=rule[RULE_EXPRESSION_KEY], disposition=rule[RULE_DISPOSITION_KEY]) for rule in rules
+    ]
+    # One pass over the rules keyed on the folded expression, rather than a
+    # `count()` per element and a `set()` rebuilt inside the comprehension that
+    # reads it. The behaviour is identical -- a duplicate is refused either way --
+    # and the shape is the one a rule set of any size can be read with.
+    by_expression: dict[str, list[LicenseRule]] = {}
+    for rule in recorded:
+        by_expression.setdefault(rule.expression.casefold(), []).append(rule)
+    repeated = sorted(expression for expression, named_by in by_expression.items() if len(named_by) > 1)
+    if repeated:
+        named = sorted(
+            f"{rule.expression!r} -> {rule.disposition}"
+            for expression in repeated
+            for rule in by_expression[expression]
+        )
+        message = (
+            f"the policy parameters at {source} record {RULES_KEY} for version {version!r} naming the "
+            f"expression(s) {repeated} more than once: {', '.join(named)}. The match is case-insensitive, so "
+            f"two spellings of one expression are one licence -- and a licence one rule allows while another "
+            f"forbids it has no verdict at all, only whichever rule a reader stopped at. Refused rather than "
+            f"resolved: which of two compliance decisions stands is a reviewer's to state, not this "
+            f"component's to guess."
+        )
+        raise PolicyParameterError(message)
+    return tuple(recorded)
+
+
+def _license_rule_fault(rule: object) -> str | None:
+    """Return why one recorded rule cannot be applied, or `None`.
+
+    Separated from the refusal above so every fault a *rule set* can carry is
+    reported at once, on exactly the terms `_risk_label_fault` is separated: a
+    reviewer correcting one entry at a time, told about one entry at a time,
+    edits the file four times to learn it had four mistakes.
+
+    Args:
+        rule: One entry of the recorded rule set.
+
+    Returns:
+        A short clause naming the fault, or `None` where the rule is usable.
+
+    """
+    if not isinstance(rule, dict):
+        return f"{type(rule).__name__} rather than a table"
+    declared = set(rule)
+    if declared != RULE_KEYS:
+        missing = sorted(RULE_KEYS - declared)
+        extra = sorted(declared - RULE_KEYS)
+        return f"declares {sorted(declared)} rather than {sorted(RULE_KEYS)}; missing {missing}, unrecognised {extra}"
+    return _rule_expression_fault(rule[RULE_EXPRESSION_KEY]) or _rule_disposition_fault(rule[RULE_DISPOSITION_KEY])
+
+
+def _rule_expression_fault(expression: object) -> str | None:
+    """Return why one rule's expression cannot be matched, or `None`.
+
+    A separate function from the disposition's rather than one long chain, for
+    the reason `_risk_label_fault` is separate from `_risk_order`: the two are
+    about different fields with different rules, and a single function holding
+    both is one a reader has to scan to find out which half they are in.
+
+    Args:
+        expression: Whatever the rule recorded under `RULE_EXPRESSION_KEY`.
+
+    Returns:
+        A short clause naming the fault, or `None` where the expression is
+        usable. Deliberately **not** case-checked, unlike a severity label: SPDX
+        identifiers are mixed case and a reviewer writes them as SPDX spells
+        them, so `policies/licence.py` folds both sides of the comparison instead
+        of this contract demanding a lowercase file no SPDX reader would
+        recognise.
+
+        The content **is** checked, in `_unreachable_expression_fault`, and that
+        is a correction to an earlier draft of this function which explicitly
+        declined to. A rule naming something the normalizer cannot produce is
+        inert for ever, with no refusal and no log line, and that is the one
+        failure an operator cannot detect from the outside: the deny half of a
+        licence policy would simply do nothing.
+
+    """
+    if not isinstance(expression, str):
+        return f"{RULE_EXPRESSION_KEY} is {type(expression).__name__} rather than a string"
+    if not expression.strip():
+        return f"{RULE_EXPRESSION_KEY} names nothing"
+    if expression != expression.strip():
+        return f"{RULE_EXPRESSION_KEY} carries surrounding whitespace"
+    if len(expression) > MAX_LICENSE_EXPRESSION_CHARACTERS:
+        return (
+            f"{RULE_EXPRESSION_KEY} is longer than the {MAX_LICENSE_EXPRESSION_CHARACTERS} characters a "
+            f"normalized expression can be"
+        )
+    return _unreachable_expression_fault(expression)
+
+
+def _unreachable_expression_fault(expression: str) -> str | None:
+    """Return why no evidence row could ever carry this expression, or `None`.
+
+    **The refusal an operator is least able to detect the absence of.**
+    `normalized_license` is never free text: `collectors/spdx.py` writes an
+    identifier from its own table, or two or more of them joined by single spaces
+    and one repeated operator, or nothing at all. A rule naming anything else
+    matches no row this product can write, ever -- so it forbids nothing, permits
+    nothing and restricts nothing, silently and permanently, and every affected
+    package reads `manual_review`, which is indistinguishable from "no rule
+    covers this". The deny half of a licence policy would fail with no refusal
+    and no log line.
+
+    The spelling most likely to be written is the one this refuses first.
+    `GPL-3.0`, `GPLv3`, `AGPL-3.0` and `LGPL-2.1` are **not** recognised
+    spellings: `CPM-SECURITY-S03` removed them deliberately, because each names a
+    version without an `-only`/`-or-later` disposition and is therefore two
+    licences. A reviewer who writes `{ expression = "GPL-3.0", disposition =
+    "forbidden" }` has to be told, not accommodated -- accommodating it would be
+    this component guessing which of two licences was meant, in the file whose
+    whole purpose is that it does not.
+
+    Checked case-insensitively on both halves, matching `policies/licence.py`'s
+    comparison exactly: a rule the pass *would* match must not be refused here,
+    and one it could never match must not be recorded.
+
+    Args:
+        expression: The rule's expression, already known to be a non-blank,
+            trimmed string of a length a stored expression can hold.
+
+    Returns:
+        A short clause naming what is unreachable, or `None` where
+        `collectors/spdx.py` can produce this expression.
+
+    """
+    tokens = expression.split(" ")
+    if len(tokens) % 2 == 0:
+        # An expression alternates operand, operator, operand, so it has an odd
+        # number of tokens: one on its own, or three or more.
+        # An even count is a dangling operator or a multi-token operand, and
+        # reading it as either would pair an operand with whatever followed it.
+        return (
+            f"{RULE_EXPRESSION_KEY} is {expression!r}, which is not the shape of a normalized expression: "
+            f"collectors/spdx.py writes one identifier, or two or more joined by single spaces and one "
+            f"repeated operator"
+        )
+    unrecognised = sorted({token for token in tokens[0::2] if token.casefold() not in NORMALIZABLE_IDENTIFIERS})
+    if unrecognised:
+        return (
+            f"{RULE_EXPRESSION_KEY} is {expression!r}, whose operand(s) {unrecognised} name nothing "
+            f"collectors/spdx.py normalizes to, so no license_findings row can ever carry them and the rule "
+            f"would be inert. Abbreviations of the GNU family are deliberately absent: each names a version "
+            f"without an -only/-or-later disposition and is therefore two licences"
+        )
+    operators = {token.casefold() for token in tokens[1::2]}
+    if not operators <= NORMALIZABLE_OPERATORS or len(operators) > _ONE_OPERATOR:
+        return (
+            f"{RULE_EXPRESSION_KEY} is {expression!r}, which joins its operands with {sorted(operators)} rather "
+            f"than with one repeated operator from {sorted(NORMALIZABLE_OPERATORS)}. collectors/spdx.py refuses "
+            f"a mixed or unrecognised expression outright, so no stored expression is spelled this way"
+        )
+    return None
+
+
+def _rule_disposition_fault(disposition: object) -> str | None:
+    """Return why one rule's disposition cannot be applied, or `None`.
+
+    Args:
+        disposition: Whatever the rule recorded under `RULE_DISPOSITION_KEY`.
+
+    Returns:
+        A short clause naming the fault, or `None` where it is one of
+        `RULE_DISPOSITIONS`. `manual_review` is refused here like any other
+        non-member and it is the plausible mistake, because it *is* a real
+        outcome -- and a rule stating it would be a rule saying what a licence no
+        rule names already says.
+
+    """
+    if not isinstance(disposition, str):
+        return f"{RULE_DISPOSITION_KEY} is {type(disposition).__name__} rather than a string"
+    if disposition not in RULE_DISPOSITIONS:
+        return f"{RULE_DISPOSITION_KEY} is {disposition!r}, which is not one of {sorted(RULE_DISPOSITIONS)}"
+    return None
 
 
 def _risk_order(labels: object, *, version: str, source: Path | str) -> tuple[str, ...] | None:

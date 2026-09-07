@@ -46,6 +46,9 @@ from conda_package_supply_chain_monitor.policies import parameters as parameters
 from conda_package_supply_chain_monitor.policies.parameters import INACTIVITY_DAYS_KEY
 from conda_package_supply_chain_monitor.policies.parameters import PARAMETERS_FILENAME
 from conda_package_supply_chain_monitor.policies.parameters import RISK_ORDER_KEY
+from conda_package_supply_chain_monitor.policies.parameters import RULE_DISPOSITION_KEY
+from conda_package_supply_chain_monitor.policies.parameters import RULE_EXPRESSION_KEY
+from conda_package_supply_chain_monitor.policies.parameters import RULES_KEY
 from conda_package_supply_chain_monitor.policies.parameters import VERSIONS_TABLE
 from conda_package_supply_chain_monitor.policies.parameters import forget_recorded_parameters
 
@@ -57,7 +60,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-__all__ = ["A_FIXTURE_RISK_ORDER", "parameter_document", "recorded_policy_parameters"]
+__all__ = ["A_FIXTURE_RISK_ORDER", "license_rule_array", "parameter_document", "recorded_policy_parameters"]
 
 #: The severity order a substituted file records unless a case says otherwise.
 #:
@@ -75,7 +78,39 @@ __all__ = ["A_FIXTURE_RISK_ORDER", "parameter_document", "recorded_policy_parame
 A_FIXTURE_RISK_ORDER: Final[tuple[str, ...]] = ("severe", "moderate", "mild")
 
 
-def parameter_document(inactivity_days: Mapping[str, int], *, risk_order: Sequence[str] | None = None) -> str:
+def license_rule_array(rules: Sequence[tuple[str, str]]) -> str:
+    """Render one version's `license_rules` value as TOML.
+
+    Separated from `parameter_document` so the modules that render their own
+    documents -- `tests/integration/django_apps/test_licence_policy.py` needs
+    several versions with several different rule sets -- spell the array one way
+    rather than two.
+
+    Args:
+        rules: `(expression, disposition)` pairs, in the order the file should
+            state them.
+
+    Returns:
+        A TOML array of inline tables. `json.dumps` for each string, on exactly
+        the terms `parameter_document` states: a TOML basic string escapes the way
+        a JSON string does, and an expression carrying a quote -- which nothing
+        forbids and which a refusal case may want -- would otherwise produce a
+        document the parser rejects for the wrong reason.
+
+    """
+    entries = ", ".join(
+        f"{{ {RULE_EXPRESSION_KEY} = {json.dumps(expression)}, {RULE_DISPOSITION_KEY} = {json.dumps(disposition)} }}"
+        for expression, disposition in rules
+    )
+    return f"[{entries}]"
+
+
+def parameter_document(
+    inactivity_days: Mapping[str, int],
+    *,
+    risk_order: Sequence[str] | None = None,
+    license_rules: Sequence[tuple[str, str]] | None = None,
+) -> str:
     """Render a parameter file recording one parameter set per named policy version.
 
     Written by rendering TOML rather than by calling `tomllib` in reverse,
@@ -92,12 +127,20 @@ def parameter_document(inactivity_days: Mapping[str, int], *, risk_order: Sequen
             `CPM-SECURITY-S04` cannot carry it and must stay replayable -- so the
             document a case gets by asking for nothing is the document a version
             that predates the parameter really has.
+        license_rules: The `(expression, disposition)` rules to record for every
+            version, or `None` to record no `license_rules` key at all. `None` is
+            the default and is also what every shipped version means: PRD Open
+            Question 2 is unanswered, so no version records a rule, an absent key
+            and an empty list mean the same thing, and every package with an
+            established licence reaches `manual_review`. A case wanting the key
+            present and empty passes `()`.
 
     Returns:
         The file's text.
 
     """
     ranked = "" if risk_order is None else f"{RISK_ORDER_KEY} = {json.dumps(list(risk_order))}\n"
+    ruled = "" if license_rules is None else f"{RULES_KEY} = {license_rule_array(license_rules)}\n"
     return "".join(
         # `json.dumps` for the key rather than surrounding quotes. A TOML basic
         # string escapes the way a JSON string does, and a version containing a
@@ -110,7 +153,7 @@ def parameter_document(inactivity_days: Mapping[str, int], *, risk_order: Sequen
         # `json.dumps` again for the severity list, and for the same reason plus
         # one: a TOML array of basic strings is spelled exactly as a JSON array
         # of strings, so the one call renders both correctly.
-        f"[{VERSIONS_TABLE}.{json.dumps(version)}]\n{INACTIVITY_DAYS_KEY} = {days}\n{ranked}\n"
+        f"[{VERSIONS_TABLE}.{json.dumps(version)}]\n{INACTIVITY_DAYS_KEY} = {days}\n{ranked}{ruled}\n"
         for version, days in inactivity_days.items()
     )
 
@@ -122,6 +165,7 @@ def recorded_policy_parameters(
     inactivity_days: Mapping[str, int],
     *,
     risk_order: Sequence[str] | None = A_FIXTURE_RISK_ORDER,
+    license_rules: Sequence[tuple[str, str]] | None = None,
 ) -> Iterator[Path]:
     """Point the parameter reader at a file recording exactly these versions.
 
@@ -147,6 +191,12 @@ def recorded_policy_parameters(
             substitutes the file a *real policy run* will read, and
             `VulnerabilityPass` fails every package at a version recording no
             order. A case that wants that refusal passes `None` and says so.
+        license_rules: The licence rules to record for every version. Defaults to
+            `None` -- no key at all -- which is `parameter_document`'s default and
+            is also the shipped state: `LicensePass` derives `manual_review` for
+            every package with an established licence at such a version and
+            refuses nothing, so no run in the suite needs one. A case about a
+            rule's own verdict passes its rules and says so.
 
     Yields:
         The substituted file's path, so a case can assert against it or corrupt
@@ -154,7 +204,10 @@ def recorded_policy_parameters(
 
     """
     path = directory / PARAMETERS_FILENAME
-    path.write_text(parameter_document(inactivity_days, risk_order=risk_order), encoding="utf-8")
+    path.write_text(
+        parameter_document(inactivity_days, risk_order=risk_order, license_rules=license_rules),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(parameters_module, "parameters_file", lambda: path)
     forget_recorded_parameters()
     try:

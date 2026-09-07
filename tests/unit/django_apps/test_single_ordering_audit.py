@@ -509,15 +509,27 @@ def _recorded_key(path: Path) -> str:
 #: orders by name and by contents instead, which is the assertion this table would
 #: have made if it could see them.
 #:
+#: **`CPM-SECURITY-S05` added a fourth, and it is invisible for the same
+#: reason.** `LICENSE_PRECEDENCE` ranks `forbidden`, `restricted`, `unknown`,
+#: `manual_review` and `allowed` -- exactly one `OutcomeState` member reference,
+#: because `PackageLicenseOutcome`'s other three sentinels are members by
+#: construction that the licence pass never produces and the reduction therefore
+#: never meets. So the detector still finds one declaration in that file and
+#: means it, and `tests/unit/django_apps/test_licence_policy.py` pins this order
+#: by name and by contents -- including the two ends the story turns on:
+#: `forbidden` leads it because disagreement never resolves upward, and `allowed`
+#: is last because a reduction must never reach it while any channel said
+#: anything else.
+#:
 #: **The residual, stated rather than left to be found.** This table names one of
-#: the three orders that file declares, and the file is excluded from
-#: `SUBJECT_MODULES` wholesale -- so a *fourth* order added there is caught by
+#: the four orders that file declares, and the file is excluded from
+#: `SUBJECT_MODULES` wholesale -- so a *fifth* order added there is caught by
 #: nothing in this module. `test_every_recorded_ordering_still_declares_the_order_it_records`'s
-#: `len(declared) == 1` sees only what the detector sees, and a fourth order over
+#: `len(declared) == 1` sees only what the detector sees, and a fifth order over
 #: a vocabulary with fewer than two sentinels would be invisible to it exactly as
-#: the two above are. The check that would catch one is a case in the domain's own
+#: the three above are. The check that would catch one is a case in the domain's own
 #: suite, pinning that domain's orders by name and contents, which is what the two
-#: `CPM-SECURITY-S04` orders have. Widening the table to hold several names per
+#: `CPM-SECURITY-S04` orders and the `CPM-SECURITY-S05` one have. Widening the table to hold several names per
 #: module would not close it either: the names would still have to be maintained
 #: by hand, and the alternative -- reshaping `policies/outcomes.py` so the
 #: detector could see all three -- is shaping code around a detector, which this

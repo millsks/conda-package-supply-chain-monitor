@@ -253,6 +253,23 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: `policies/outcomes.py`, not a dodge of this table: the column it produces is
 #: still `editable=False`, and the write that fills it is in the same visible
 #: `create()` call as the one recorded here.
+#
+#: `policies/licence.py` -- `CPM-SECURITY-S05`'s licence pass, and the sixth
+#: collision of the same kind, on exactly the terms the three passes above state.
+#: `PackageLicense` is a per-domain derived table (`CPM-AD-21`) carrying no
+#: `computed_at`, so the registry sweep correctly does not find it; what collides
+#: is the naming convention, because the column holding this pass's verdict is
+#: named for the verdict it holds.
+#:
+#: One entry, one `create()` keyword, and it is `license_outcome` rather than a
+#: `_status` name because `CPM-FR-18` and `collectors/outcomes.py` both call this
+#: an outcome -- the convention above recognises both suffixes, so the choice
+#: bought no exemption and was made for readability alone. The row's other
+#: written column, `matched_rule`, is deliberately outside the convention: it
+#: holds the *identifier of the rule* that produced the verdict rather than a
+#: verdict, the way `authority_order_source` holds a provenance. It is
+#: `editable=False` regardless, and it is written in the same visible `create()`
+#: call as the one recorded here.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
@@ -272,6 +289,9 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     },
     "django_apps/conda_package_supply_chain_monitor/policies/vulnerability.py": {
         KEYWORD_FORM.format(name="vulnerability_status", method="create"): 1,
+    },
+    "django_apps/conda_package_supply_chain_monitor/policies/licence.py": {
+        KEYWORD_FORM.format(name="license_outcome", method="create"): 1,
     },
 }
 

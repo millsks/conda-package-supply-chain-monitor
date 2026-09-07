@@ -1,8 +1,9 @@
 """The policy verdict vocabularies, in a leaf module that imports one thing.
 
-Four vocabularies live here: `CurrencyOutcome` (`CPM-CURRENCY-S06`),
-`FeedstockOutcome` (`CPM-CURRENCY-S07`), and `CPM-SECURITY-S04`'s
-`PackageVulnerabilityOutcome` and `KevMembership`. They share this module for one
+Five vocabularies live here: `CurrencyOutcome` (`CPM-CURRENCY-S06`),
+`FeedstockOutcome` (`CPM-CURRENCY-S07`), `CPM-SECURITY-S04`'s
+`PackageVulnerabilityOutcome` and `KevMembership`, and `CPM-SECURITY-S05`'s
+`PackageLicenseOutcome`. They share this module for one
 reason and it is the same reason none of them is beside its own pass -- the
 import cycle argued immediately below -- and they share nothing else. None is
 derived from another and none ranks against another.
@@ -86,6 +87,16 @@ because for this domain it always has the more specific answer. Which of the fou
 sentinels a given pass can produce is a property of the pass, not of the
 vocabulary.
 
+**`PackageLicenseOutcome` is the one whose *best* value is the interesting
+one.** Every other vocabulary here can be reached by absence -- nothing observed,
+nothing matched, nothing recorded -- and the value absence reaches is always one
+of `core`'s sentinels, which claim nothing. `allowed` is the exception: it is a
+claim that a compliance rule named this licence and permitted it, so it must be
+reachable *only* by a rule that says so. `LICENSE_PRECEDENCE` ranks it last, the
+pass produces it from a rule's own disposition and from nothing else, and
+`policies/models.py` puts a database check constraint behind it so a row claiming
+it while naming no rule is refused rather than merely avoided.
+
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
 carries the `CPM-` prefix.
@@ -111,6 +122,8 @@ __all__ = [
     "ABSENT_MEMBER",
     "ADVISORIES_MATCHED",
     "ADVISORIES_MATCHED_MEMBER",
+    "ALLOWED",
+    "ALLOWED_MEMBER",
     "BEHIND",
     "BEHIND_MEMBER",
     "CURRENCY_PRECEDENCE",
@@ -123,19 +136,32 @@ __all__ = [
     "FEEDSTOCK_NOT_FOUND",
     "FEEDSTOCK_STATE_LENGTH",
     "FEEDSTOCK_UNKNOWN",
+    "FORBIDDEN",
+    "FORBIDDEN_MEMBER",
     "INACTIVE_MEMBER",
     "KEV_LISTED",
     "KEV_MEMBERSHIP_LENGTH",
     "KEV_MEMBERSHIP_PRECEDENCE",
     "KEV_NOT_ESTABLISHED",
     "KEV_NOT_LISTED",
+    "LICENSE_PRECEDENCE",
+    "LICENSE_STATE_LENGTH",
+    "LICENSE_STATUS_ERROR",
+    "LICENSE_STATUS_NOT_APPLICABLE",
+    "LICENSE_STATUS_NOT_FOUND",
+    "LICENSE_STATUS_UNKNOWN",
     "MAINTAINED_MEMBER",
+    "MANUAL_REVIEW",
+    "MANUAL_REVIEW_MEMBER",
     "NOT_APPLICABLE",
     "NOT_FOUND",
     "NO_ADVISORY_MATCHED",
     "NO_ADVISORY_MATCHED_MEMBER",
     "PRESENT_AND_INACTIVE",
     "PRESENT_AND_MAINTAINED",
+    "RESTRICTED",
+    "RESTRICTED_MEMBER",
+    "RULE_DISPOSITIONS",
     "STAGED_MEMBER",
     "STAGED_RECIPE_PENDING",
     "UNKNOWN",
@@ -148,9 +174,11 @@ __all__ = [
     "CurrencyOutcome",
     "FeedstockOutcome",
     "KevMembership",
+    "PackageLicenseOutcome",
     "PackageVulnerabilityOutcome",
     "worst_currency",
     "worst_kev_membership",
+    "worst_license",
     "worst_vulnerability",
 ]
 
@@ -765,3 +793,270 @@ def worst_kev_membership(memberships: Iterable[str]) -> str:
     if not ranked:
         return KEV_NOT_ESTABLISHED
     return KEV_MEMBERSHIP_PRECEDENCE[min(ranked)]
+
+
+# ---------------------------------------------------------------------------
+# `CPM-FR-18`'s licence compliance vocabulary.
+#
+# A fifth vocabulary, and the one whose central rule is about a single value:
+# `allowed` is never a default and never an absence. See the module docstring,
+# and `LICENSE_PRECEDENCE` below for where that shows up in the ranking.
+#
+# **Its order is invisible to `tests/unit/django_apps/test_single_ordering_audit.py`**
+# for the reason `VULNERABILITY_PRECEDENCE`'s is: that detector reads a literal
+# holding *two or more* `OutcomeState` member references, and this one ranks
+# exactly one sentinel. That is a property of the vocabulary rather than of how
+# the tuple is spelled -- there is no second sentinel this reduction can meet --
+# so the order is pinned by name and by contents in
+# `tests/unit/django_apps/test_licence_policy.py` instead, and recorded in that
+# audit's own table in prose.
+# ---------------------------------------------------------------------------
+
+#: The verdict for a licence a rule names and permits, declared once as the
+#: `(member name, value)` pair `outcome_type` takes.
+#:
+#: A pair rather than a member reference, on exactly the terms `CURRENT_MEMBER`
+#: is one: the composed type below is built from it and `ALLOWED` is read back
+#: out of it, so a second spelling of `"allowed"` anywhere would be a value that
+#: could drift from the one the column actually offers.
+#:
+#: **This is the one value in this repository that must never be reached by
+#: absence.** `CPM-SECURITY-S03`'s AC 2 already promised that an unrecognised
+#: licence "records `unknown` and routes to manual review, never `allowed`", and
+#: `CPM-SM-2` measures this product on zero findings presenting an unknown as
+#: clean. Nothing derives it from a missing rule set, an unmatched expression, a
+#: blank expression or a sentinel evidence row: it comes from a rule whose
+#: recorded disposition is this string, and `policies/models.py` requires the row
+#: to name that rule.
+ALLOWED_MEMBER: Final[tuple[str, str]] = ("ALLOWED", "allowed")
+
+#: The verdict for a licence a rule names and permits subject to conditions --
+#: attribution, source disclosure, a notice file. Determinate and adverse: a
+#: reviewer has work to do, and the row names the rule that says so.
+RESTRICTED_MEMBER: Final[tuple[str, str]] = ("RESTRICTED", "restricted")
+
+#: The verdict for a licence a rule names and refuses. The worst thing this
+#: vocabulary can say, and the only one that is a decision rather than a
+#: question.
+FORBIDDEN_MEMBER: Final[tuple[str, str]] = ("FORBIDDEN", "forbidden")
+
+#: The verdict for a licence this run *established* and no rule names.
+#:
+#: **Distinct from `unknown`, and the distinction is the whole reason both
+#: exist.** `unknown` means the licence itself was never established -- the
+#: channel stated none, stated one this product will not normalize, or could not
+#: be read -- or no monitored channel serves the package at all.
+#: `manual_review` means the licence is
+#: known and this product has no rule for it, which includes the shipped state in
+#: which no rule set has been recorded at all. Collapsing them would hide which
+#: of the two a reviewer is being asked to fix: one is a gap in the *evidence*
+#: and the other is a gap in the *policy*.
+MANUAL_REVIEW_MEMBER: Final[tuple[str, str]] = ("MANUAL_REVIEW", "manual_review")
+
+#: The per-package licence vocabulary: `core`'s four sentinels plus
+#: `CPM-FR-18`'s four determinate outcomes.
+#:
+#: Named `PackageLicenseOutcome` and not `LicenseOutcome`, because
+#: `collectors/outcomes.py` already owns that name for what a *finding* records.
+#: The two are different vocabularies about different subjects -- one row per
+#: channel there, one value per package here -- and a shared name would make
+#: "which of them does this column hold" a question about imports. It is the same
+#: split `PackageVulnerabilityOutcome` makes one domain over.
+#:
+#: `CPM-FR-18` names five outcomes and this type carries eight values, which is
+#: not a disagreement: the five are `allowed`, `restricted`, `forbidden`,
+#: `unknown` and `manual_review`, and `unknown` arrives as one of the four
+#: sentinels `outcome_type` supplies by construction. `error`, `not_found` and
+#: `not_applicable` come with it and this pass produces none of them, on exactly
+#: the terms `FEEDSTOCK_NOT_FOUND` is a member `FeedstockPresencePass` never
+#: produces.
+PackageLicenseOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "PackageLicenseOutcome",
+    [ALLOWED_MEMBER, RESTRICTED_MEMBER, FORBIDDEN_MEMBER, MANUAL_REVIEW_MEMBER],
+)
+
+#: `PackageLicenseOutcome`'s own members, by name, read off the composed type
+#: itself, for the reason `_MEMBER_VALUES` above is: the functional enum API
+#: makes the members invisible to a type checker, and reaching them *through* the
+#: type is what makes a drifted sentinel fail at import rather than silently make
+#: every comparison false. A comprehension rather than a literal, which is also
+#: what keeps it out of `tests/unit/django_apps/test_single_ordering_audit.py`'s
+#: reach.
+_LICENSE_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in PackageLicenseOutcome}
+
+#: A recorded rule names this package's licence and permits it. Reachable no
+#: other way.
+ALLOWED: Final[str] = _LICENSE_MEMBER_VALUES["ALLOWED"]
+
+#: A recorded rule names it and permits it subject to conditions.
+RESTRICTED: Final[str] = _LICENSE_MEMBER_VALUES["RESTRICTED"]
+
+#: A recorded rule names it and refuses it.
+FORBIDDEN: Final[str] = _LICENSE_MEMBER_VALUES["FORBIDDEN"]
+
+#: The licence is established and no recorded rule names it -- including because
+#: the run's policy version records no rule set at all, which is the state this
+#: component ships in while PRD Open Question 2 is unanswered.
+MANUAL_REVIEW: Final[str] = _LICENSE_MEMBER_VALUES["MANUAL_REVIEW"]
+
+#: The licence itself was never established: no evidence at the cut-off, a
+#: channel that stated none, one that stated something this product will not
+#: normalize, one that could not be read, or a sweep in which no monitored
+#: channel serves the package at all. A *single* channel that does not serve it
+#: is not one of these: `policies/licence.py` leaves that channel out of the
+#: reduction, because an absence from one channel has not disagreed with what
+#: another channel stated.
+#:
+#: Reached through `PackageLicenseOutcome` rather than through `OutcomeState`, and
+#: named apart from the three `UNKNOWN` constants above rather than shared with
+#: any of them. They carry the same string -- `verify_sentinels` guarantees it --
+#: but a column's default and a column's values must be *its own* choices, and a
+#: licence column taking a constant off the currency vocabulary would be the one
+#: place this module took a value from a type the field does not declare.
+LICENSE_STATUS_UNKNOWN: Final[str] = _LICENSE_MEMBER_VALUES["UNKNOWN"]
+
+#: `core`'s "the look failed", carried in the vocabulary by construction and
+#: produced by nothing.
+#:
+#: **The pass folds an errored finding into `unknown` deliberately**, and
+#: `policies/licence.py` argues it: at the finding level `error` says how the run
+#: failed, and at the *package* level all it says is that this run established no
+#: licence for the package -- which is what `unknown` means. The distinction is
+#: not lost, because the row references the finding that carries it and says so
+#: in its own `detail`.
+LICENSE_STATUS_ERROR: Final[str] = _LICENSE_MEMBER_VALUES["ERROR"]
+
+#: `core`'s informative negative, carried by construction and produced by
+#: nothing, on the same terms. On `license_findings` it means a monitored channel
+#: does not serve the package at all, which is an absence from that channel
+#: rather than a package with no licence.
+LICENSE_STATUS_NOT_FOUND: Final[str] = _LICENSE_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", carried by construction and
+#: produced by nothing: every package a monitored channel could serve is licensed
+#: under something, and `license_findings` refuses a row carrying this value
+#: outright. Named so the reduction below can refuse it by name rather than by
+#: silence.
+LICENSE_STATUS_NOT_APPLICABLE: Final[str] = _LICENSE_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `PackageLicenseOutcome`'s
+#: longest value is `not_applicable`, fourteen characters, and its longest
+#: determinate value is `manual_review`, thirteen; the rest is headroom. Sized
+#: like `CURRENCY_STATE_LENGTH` rather than derived from it: five vocabularies,
+#: five declarations, each argued from its own longest value.
+LICENSE_STATE_LENGTH: Final[int] = 32
+
+#: The three dispositions a recorded rule may state, and therefore the three
+#: outcomes reachable only through one.
+#:
+#: **Not an order.** It is the set of verdicts a reviewer may write in
+#: `policies/data/policy-parameters.toml`, read by `policies/parameters.py` to
+#: refuse anything else and by `policies/models.py` to require the rule behind
+#: such a row. `LICENSE_PRECEDENCE` below is where the ranking lives, and these
+#: three are not adjacent in it. A tuple rather than three literals inside those
+#: two readers, because a second spelling of the set is a constraint that stops
+#: matching what the file accepts. It holds `PackageLicenseOutcome` values and no
+#: `OutcomeState` members, so it is not the shape
+#: `tests/unit/django_apps/test_single_ordering_audit.py` reads.
+#:
+#: `manual_review` is deliberately absent: it is what "no rule names this
+#: licence" produces, so a rule stating it would be a rule saying nothing. So is
+#: every sentinel, for the stronger reason that a rule cannot make a licence
+#: un-established.
+RULE_DISPOSITIONS: Final[tuple[str, ...]] = (ALLOWED, RESTRICTED, FORBIDDEN)
+
+#: How the verdicts several channels support rank when they are reduced to one
+#: package outcome. Worst first, and only five of the eight values are ranked.
+#:
+#: **Why only five.** `policies/licence.py` produces exactly these: the three a
+#: rule can state, the review item a known licence with no rule reaches, and the
+#: un-established state. `error`, `not_found` and `not_applicable` are members by
+#: construction and are never reached -- the first two are folded into `unknown`
+#: where they arrive, and the third is refused by `license_findings` outright.
+#: Ranking a value no reduction can meet would be data no function reads, which
+#: is the objection `FeedstockOutcome`'s missing order records.
+#:
+#: **Why the ranks are what they are.**
+#:
+#: * `forbidden` first, because it is the only established refusal here and the
+#:   one an operator acts on. A package one channel says is forbidden must not
+#:   report anything milder because a second channel says something else --
+#:   "disagreement never resolves upward" is this story's own words for it.
+#: * `restricted` second, above the two questions. It is an *established* adverse
+#:   finding, on exactly the terms `CURRENCY_PRECEDENCE` puts `behind` above its
+#:   un-observed states: a question nobody has answered must not mask a condition
+#:   the rules actually stated.
+#: * `unknown` third and `manual_review` fourth, in `core`'s own relative order
+#:   and for `core`'s own reason: an un-established state hides risk, while a
+#:   known licence awaiting a rule is a question whose subject is at least known.
+#:   The two never collapse into each other -- they are separate ranks of separate
+#:   values, and a package reading `unknown` beside a determinate channel says so
+#:   in its `detail`.
+#: * `allowed` last, because it is the only verdict that claims nothing is wrong,
+#:   and because a reduction must never reach it while any other channel had
+#:   something to say.
+#:
+#: The one sentinel is written as an `OutcomeState` member on purpose, on the
+#: terms `CURRENCY_PRECEDENCE` states: it is the same string
+#: `LICENSE_STATUS_UNKNOWN` carries, and spelling it this way is what makes the
+#: rank *legible* as a sentinel rather than as one more domain token.
+LICENSE_PRECEDENCE: Final[tuple[str, ...]] = tuple(
+    # `str()` for the reason `CURRENCY_PRECEDENCE` gives: the sentinel is written
+    # as an `OutcomeState` member and Django renders a `Choices` member as its
+    # value, so the tuple is the plain strings the column holds.
+    str(verdict)
+    for verdict in (FORBIDDEN, RESTRICTED, OutcomeState.UNKNOWN, MANUAL_REVIEW, ALLOWED)
+)
+
+#: Rank by value, so a caller may pass either this vocabulary's own strings or
+#: `OutcomeState`'s -- which are the same strings for the sentinel.
+_LICENSE_RANK: Final[dict[str, int]] = {value: index for index, value in enumerate(LICENSE_PRECEDENCE)}
+
+
+def worst_license(verdicts: Iterable[str]) -> str:
+    """Reduce several channels' licence verdicts to the one outcome for the package.
+
+    **The reduction can never reach `allowed` unless every verdict it was given
+    is `allowed`**, because `allowed` is last in the order and `min` takes the
+    worst rank. That is the story's central property expressed as arithmetic
+    rather than as a branch: there is no input to this function that produces
+    `allowed` from an absence, because an absence is not a verdict at all and the
+    empty case answers `unknown`.
+
+    Args:
+        verdicts: The per-finding verdicts, as `PackageLicenseOutcome` values.
+
+    Returns:
+        The worst verdict among them, by `LICENSE_PRECEDENCE`, and
+        `core.outcomes.EMPTY_AGGREGATE`'s value -- `unknown` -- for no verdicts
+        at all. The empty case is reachable and is a matrix row of its own: a
+        package with no licence evidence at the cut-off has nothing to reduce,
+        and the answer is `unknown` rather than clean and emphatically rather
+        than `allowed`. Stated here rather than left to whatever `min()` over an
+        empty sequence happens to do.
+
+    Raises:
+        OutcomeVocabularyError: When a verdict has no rank. That is every value
+            this pass never produces -- `error`, `not_found`, `not_applicable` --
+            and every string from outside the vocabulary entirely. Refused rather
+            than treated as determinate, on exactly the terms
+            `core.outcomes.aggregate` refuses one: ranking an unrecognised value
+            beside `allowed` would be the `CPM-FR-6` fold arrived at by silence,
+            on the one column a compliance reviewer reads first.
+
+    """
+    ranked: list[int] = []
+    for verdict in verdicts:
+        rank = _LICENSE_RANK.get(verdict)
+        if rank is None:
+            message = (
+                f"{verdict!r} has no rank in the licence precedence order. The ranked values are "
+                f"{sorted(_LICENSE_RANK)}; every other member of PackageLicenseOutcome is carried by "
+                f"construction and produced by nothing, so a verdict outside the five needs its rank decided by "
+                f"the story that starts producing it, not inferred here."
+            )
+            raise OutcomeVocabularyError(message)
+        ranked.append(rank)
+    if not ranked:
+        return EMPTY_AGGREGATE.value
+    return LICENSE_PRECEDENCE[min(ranked)]

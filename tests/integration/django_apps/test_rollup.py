@@ -61,6 +61,7 @@ from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as 
 from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
 from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
 from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
@@ -244,6 +245,7 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
             CURRENCY_POLICY_NAME: A_POLICY_VERSION,
             FEEDSTOCK_POLICY_NAME: A_POLICY_VERSION,
             VULNERABILITY_POLICY_NAME: A_POLICY_VERSION,
+            LICENCE_POLICY_NAME: A_POLICY_VERSION,
             FIRST_DOMAIN: A_POLICY_VERSION,
         }
 
@@ -276,6 +278,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
         CURRENCY_POLICY_NAME: A_POLICY_VERSION,
         FEEDSTOCK_POLICY_NAME: A_POLICY_VERSION,
         VULNERABILITY_POLICY_NAME: A_POLICY_VERSION,
+        LICENCE_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }

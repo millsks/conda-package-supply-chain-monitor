@@ -2440,3 +2440,212 @@ rows. The reasoning and the consequences are exactly `package_currency`'s and
 `package_feedstock_presence`'s, above: there is no retention path, deleting old
 runs would have to delete these rows first, and no story currently claims it.
 Size the database accordingly, or run the policy less often than you collect.
+
+## The licence policy: nothing is allowed, and that is the shipped answer
+
+`CPM-SECURITY-S05` adds the fourth policy pass. Like the three before it, it runs
+inside the orchestrating policy run rather than on a schedule of its own, makes
+no outbound call of any kind, and reads only the evidence a collector has already
+written — here `license_findings`. It answers `CPM-FR-18`: what does this product
+say about the licence a monitored channel states for one package.
+
+**Read this section before you read a licence report.** Out of the box, **no
+package will ever read `allowed`**, and every package whose licence was
+established will read `manual_review`. That is not a broken pass and it is not a
+misconfiguration you can correct with a setting. It is the correct answer to a
+question nobody has answered yet, and the rest of this section is about what to
+do with it.
+
+**It writes no rollup column.** `CPM-AD-21` says no pass writes `package_health`,
+and the rollup offers no column for this domain. Nothing here changes
+`package_health` except the `policy_versions` map, which gains a `licence` entry
+because the pass ran.
+
+### The verdicts
+
+Each package gets one row in `package_license` per policy run. The vocabulary is
+`core`'s four sentinels plus four of its own:
+
+| Outcome | What it means | What to do about it |
+|---|---|---|
+| `allowed` | A recorded rule names this licence and permits it. **Reachable no other way.** | Nothing. |
+| `restricted` | A recorded rule names it and permits it subject to conditions. | Read the rule, and the obligations it stands for. |
+| `forbidden` | A recorded rule names it and refuses it. | The finding the row references says which channel stated it. |
+| `manual_review` | The licence **is** known and no recorded rule names it — including because the run's version records no rule set at all, which is the shipped state. | Read the row's `detail`: it says whether no policy exists yet or an existing policy does not cover this licence. Those are different jobs. |
+| `unknown` | The licence itself was **never established**: no evidence at the cut-off; **or** the channel stated none; **or** it stated one this product will not normalize without guessing; **or** the channel could not be read; **or** no monitored channel serves the package at all. A *single* channel answering `not_found` beside one that stated a licence does **not** produce this — that channel is left out of the reduction. | Read the row's `detail` and its referenced finding — every case but the first says which it was, in words, and the `detail` names every kind of nothing the sweep met rather than only the referenced row's. |
+| `error`, `not_found`, `not_applicable` | Reserved. This pass never produces them. | — |
+
+**`manual_review` and `unknown` are two facts and never one value.** One is a gap
+in the *policy* and the other is a gap in the *evidence*, and they are fixed by
+different people. A dashboard that merges them into "needs attention" is throwing
+away the only thing that says which queue a package belongs in.
+
+**`unknown` is not "no restrictions".** A channel that states no licence, or one
+this product declines to guess at, has told you nothing — and on a licence table
+that is the reading that costs money.
+
+### `allowed` is never a default and never an absence
+
+This is the property the whole pass is built around, and it is held in three
+independent places rather than one:
+
+1. **In the pass.** `policies/licence.py` returns a rule's own recorded
+   disposition. There is no branch in it that spells `allowed`; the string comes
+   out of the reviewed file.
+2. **In the reduction.** `allowed` is last in the precedence order and the
+   reduction takes the *worst* rank, so a package several channels disagree about
+   cannot read `allowed` while any of them said anything else. Disagreement never
+   resolves upward.
+3. **In the database.** `package_license` carries a check constraint requiring an
+   `allowed` row to name the rule that produced it. A hand-written `INSERT` that
+   went round the pass entirely is refused by PostgreSQL.
+
+Every other outcome is reachable by something not happening. `allowed` is the one
+that must be reached by a positive statement, and it is the one whose appearance
+in error would be least likely to be questioned, because it looks like good news.
+
+### The rule set is versioned data, and it ships empty
+
+The rules live in the same reviewed file the inactivity threshold and the
+severity order do, `policies/data/policy-parameters.toml`, which ships inside the
+wheel and is changed **by pull request**:
+
+```toml
+[versions."<policy version>"]
+license_rules = [
+  { expression = "MIT", disposition = "allowed" },
+  { expression = "GPL-3.0-only", disposition = "forbidden" },
+  { expression = "MPL-2.0", disposition = "restricted" },
+]
+```
+
+`expression` is a normalized SPDX expression exactly as
+`license_findings.normalized_license` stores it, spelled as SPDX spells it; the
+match case-folds both sides. `disposition` is one of `allowed`, `restricted`, `forbidden` — and
+never `manual_review`, which is what a licence no rule names already reaches.
+
+**A compound expression is matched whole, and `AND` is decomposed only to
+restrict.** `MIT OR Apache-2.0` is one expression, and deciding which of two
+differently-ruled licences a package took is a compliance judgement rather than a
+string operation. A rule naming `MIT` does not reach it, so it reads
+`manual_review` — for a disjunction that *is* the conservative direction, because
+the permission is withheld. A rule that should cover it names it in full.
+
+A conjunction is different. `MIT AND GPL-3.0-only` binds both sets of obligations
+at once, so a rule forbidding `GPL-3.0-only` forbids the compound — left matched
+whole only, it would read `manual_review`, which ranks *below* `forbidden` and
+below `unknown`, and a deny rule would be silently weakened by a conjunction. So
+where no rule names a conjunction whole, a rule naming one of its operands
+`forbidden` or `restricted` decides it, the least permissive one winning, and the
+row's `detail` names the operand and says what happened.
+
+**Decomposition never runs in the permissive direction.** A rule allowing one
+operand does not allow the conjunction: `allowed` still requires a rule naming
+the whole expression. A rule naming an expression `collectors/spdx.py` can never
+produce — `GPL-3.0`, `GPLv3`, `Apache-2.0 WITH LLVM-exception`, anything
+parenthesised — is refused when the file is read, because such a rule would be
+permanently inert and every package it was meant to cover would read
+`manual_review` with nothing saying why.
+
+**Every shipped version records no rule.** `CPM-FR-18`'s content — which licences
+are allowed — is PRD Open Question 2, which the PRD names as unanswered and as
+blocking this epic, so `CPM-SECURITY-S05` shipped the mechanism and the schema
+with no allow entries and no deny entries. The newest shipped entry,
+`2026.09.2`, declares `license_rules = []` so an operator can see the key and
+copy the entry; the older entries predate it entirely. All three mean the same
+thing and produce the same rows.
+
+**This is deliberately unlike the severity order, which ships provisional.**
+There the PRD named a risk level and simply seeded no thresholds, so a starting
+point marked as one in the file is a reviewable list. Here the PRD names the
+decision itself as open, and a "conservative starting point" would be this
+component deciding a compliance question it was told not to decide.
+
+### Seeding the rule set once Open Question 2 is answered
+
+This is the one operational task this section exists for. In order:
+
+1. **Decide the policy.** Which SPDX expressions your organization allows, which
+   it forbids, and which it permits subject to conditions. This component has no
+   opinion and will not acquire one.
+2. **Add a new `[versions."..."]` entry** to
+   `policies/data/policy-parameters.toml` — **never edit an existing one**. Copy
+   `2026.09.2`'s `feedstock_inactivity_days` and `vulnerability_risk_order`
+   forward unless review is changing those too, and fill in `license_rules`. A
+   run recorded while the rule set was empty must keep replaying to
+   `manual_review` (`CPM-FR-22`), and it only can while that version's entry
+   still says what it said.
+3. **Write the expressions as SPDX spells them**, and write compound expressions
+   in full. Check what `license_findings.normalized_license` actually holds for
+   your inventory first — that column is the left-hand side of every comparison.
+4. **Ship the artifact.** The file is read once per process, on purpose, so a
+   change takes effect at the next process start.
+5. **Enqueue a policy run at the new version.** Nothing re-derives on its own,
+   and no evidence is re-collected: the same `license_findings` rows are read
+   again as of the new run's cut-off and reduced under the new rules.
+6. **Diff the two runs.** Both versions' rows survive, each recording the version
+   that produced it, which is what `CPM-FR-22`'s replay is a comparison of.
+
+The refusals you may meet at step 4 are in `policies/data/README.md`. The ones
+worth knowing before you write the entry: a rule that is not a table declaring
+exactly `expression` and `disposition` is refused; a disposition outside the
+three is refused; and **two rules naming the same expression are refused whether
+or not they agree**, because a licence one rule allows while another forbids it
+has no verdict at all, only whichever rule a reader stopped at. Every fault in
+the set is reported at once.
+
+**A version that records no rule set does not fail anything.** The pass derives
+`manual_review` for every package with an established licence, says so on the
+row, and every other domain's row for that package still commits. That is not a
+courtesy: `CPM-AD-23` puts one *package* in a transaction rather than one pass, so
+a refusal here would roll back that package's currency, feedstock and
+vulnerability rows too — and, the condition holding for every package, would
+finalize the run `failed` and break the replay of every run recorded before this
+pass existed.
+
+**A run at a version the file does not record at all fails outright**, before any
+package, exactly as the other three passes' own missing parameters do.
+
+### Where the result lands
+
+| Table | What it holds |
+|---|---|
+| `package_license` | One row per package **per run**: the outcome, the matched rule's expression (blank where no rule decided it), the policy version and evidence cut-off it was computed under, a `detail` for the shapes the columns do not explain, and a foreign key to the exact licence finding the verdict rests on. |
+| `package_health` | **Nothing.** This pass contributes no rollup column. Its name appears in `policy_versions` because it ran. |
+
+`package_license` copies the policy version and the cut-off onto every row, where
+`package_currency` and `package_feedstock_presence` copy neither — for the reason
+`package_vulnerability` does: the outcome is meaningless without the rule set that
+produced it, and the same expression may read `manual_review` at one version and
+`forbidden` at the next.
+
+**One reference where several channels may have spoken.** The row names the
+channel whose verdict it carries; the rest of that sweep is one query away on
+`license_findings` filtered by the package and the row's `evidence_cutoff`. Where
+the channels disagreed, the row's `detail` says so and names the expressions, so
+the single verdict is never the only sign that there were several.
+
+### What a run costs
+
+This pass issues **three queries per package** for a package with evidence — two
+because "which sweep is current at the cut-off" and "which rows belong to it" are
+two questions, plus the insert of the derived row — on top of the currency pass's
+five, the feedstock pass's two and the vulnerability pass's five. A package with
+no evidence at all costs two, because the read stops at the first query when
+there is no sweep to fetch. Looking the rule set up costs no query at all: it is
+a memoized read of a file, established once per run.
+
+Reading a *sweep* rather than a single row is what makes this a reduction:
+`license_findings` holds one row per monitored channel, and reading only the
+newest row would reduce four channels to whichever the database happened to
+return — which on this table is the difference between seeing a disagreement and
+not knowing there was one.
+
+### `package_license` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, with **every
+relation `PROTECT`** — to the package, to the policy run, and to the evidence row.
+The reasoning and the consequences are exactly the three sibling tables', above:
+there is no retention path, deleting old runs would have to delete these rows
+first, and no story currently claims it. Size the database accordingly, or run
+the policy less often than you collect.
