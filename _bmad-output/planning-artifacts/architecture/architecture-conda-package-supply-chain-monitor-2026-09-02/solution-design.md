@@ -404,6 +404,7 @@ graph LR
   EV --> SEC
   CUR --> SEC
   CUR --> PRI[CPM-EP-PRIORITY]
+  SEC --> REN[CPM-EP-RENAME<br/>no behaviour]
   SEC --> PRI
   PRI --> APP[CPM-EP-APP]
   APP --> NL[CPM-EP-NL<br/>spike-gated]
@@ -413,6 +414,9 @@ graph LR
 build the append-only base and the run ledger first, or every collector invents its own.
 `CPM-EP-APP` sits behind `CPM-EP-PRIORITY` because the queues rank by bucket and score,
 and there is nothing to rank until priority exists.
+`CPM-EP-RENAME` depends on nothing and blocks nothing; the edge from `CPM-EP-SECURITY`
+records a scheduling choice, not a technical one. It is sequenced there because its cost
+is textual and grows with every story written, while its risk does not fall by waiting.
 
 ---
 
