@@ -4,18 +4,18 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04`,
-`CPM-SECURITY-S01` and `CPM-SECURITY-S02` -- the six surface tables beside it:
-upstream releases, PyPI releases, conda-forge feedstocks, published conda
-packages, advisory matches and KEV cross-references.
+against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` and
+`CPM-SECURITY-S01` through `CPM-SECURITY-S03` -- the seven surface tables beside
+it: upstream releases, PyPI releases, conda-forge feedstocks, published conda
+packages, advisory matches, KEV cross-references and licence findings.
 
-**One module, seven tables, and no shared columns beyond the ones every evidence
+**One module, eight tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
 `source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`,
-`conda_package_snapshots`, `vulnerability_findings` and `kev_findings` are written
-by seven collectors that share nothing but the log. They live
-together because Django auto-imports `<app>.models` and no other module, so a
+`conda_package_snapshots`, `vulnerability_findings`, `kev_findings` and
+`license_findings` are written by eight collectors that share nothing but the log.
+They live together because Django auto-imports `<app>.models` and no other module, so a
 model declared elsewhere in this application is registered only by whatever
 happens to import it -- which is a table that exists on a developer's machine and
 not in a migration.
@@ -103,12 +103,16 @@ from django.utils.translation import gettext_lazy as _
 from conda_package_supply_chain_monitor.collectors.match_confidence import MatchConfidence
 from conda_package_supply_chain_monitor.collectors.outcomes import KEV_NOT_APPLICABLE
 from conda_package_supply_chain_monitor.collectors.outcomes import KEV_UNKNOWN
+from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_NOT_APPLICABLE
 from conda_package_supply_chain_monitor.collectors.outcomes import LISTED
 from conda_package_supply_chain_monitor.collectors.outcomes import MATCHED
+from conda_package_supply_chain_monitor.collectors.outcomes import NORMALIZED
 from conda_package_supply_chain_monitor.collectors.outcomes import NOT_LISTED
 from conda_package_supply_chain_monitor.collectors.outcomes import VULNERABILITY_NOT_APPLICABLE
 from conda_package_supply_chain_monitor.collectors.outcomes import KevOutcome
+from conda_package_supply_chain_monitor.collectors.outcomes import LicenseOutcome
 from conda_package_supply_chain_monitor.collectors.outcomes import VulnerabilityOutcome
+from conda_package_supply_chain_monitor.collectors.spdx import DetectionMethod
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.models import AppendOnlyError
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
@@ -130,6 +134,10 @@ __all__ = [
     "KEV_APPLICABILITY_CONSTRAINT",
     "KEV_FACTS_CONSTRAINT",
     "KEV_READ_INDEX",
+    "LICENSE_APPLICABILITY_CONSTRAINT",
+    "LICENSE_CHANNEL_CONSTRAINT",
+    "LICENSE_FACTS_CONSTRAINT",
+    "LICENSE_READ_INDEX",
     "PYPI_FACTS_CONSTRAINT",
     "PYPI_READ_INDEX",
     "RELEASE_FACTS_CONSTRAINT",
@@ -145,6 +153,7 @@ __all__ = [
     "InventoryReadError",
     "InventorySnapshot",
     "KevFinding",
+    "LicenseFinding",
     "PyPIReleaseSnapshot",
     "SourceReleaseSnapshot",
     "VulnerabilityFinding",
@@ -434,6 +443,75 @@ VULNERABILITY_READ_INDEX: Final[str] = "vuln_finding_pkg_observed"
 KEV_FACTS_CONSTRAINT: Final[str] = "kev_facts_present_exactly_when_cross_referenced"
 KEV_APPLICABILITY_CONSTRAINT: Final[str] = "kev_applies_to_every_package"
 KEV_READ_INDEX: Final[str] = "kev_finding_pkg_observed"
+
+#: How wide the raw-licence column is.
+#:
+#: A licence string is whatever a channel's artifact metadata states, which is a
+#: value a recipe author typed rather than an identifier a registry issued: `MIT`,
+#: `Apache License, Version 2.0`, `LGPL-2.1-or-later AND MIT`, and occasionally a
+#: whole sentence pointing at a file. So it is sized as an identifier rather than
+#: as a name -- 512, the same order of magnitude the sibling locators take -- and a
+#: value wider than it is **refused where it enters** rather than truncated, which
+#: `CPM-SECURITY-S03`'s matrix states in as many words: a truncated licence is a
+#: different licence, and one written permanently into a row nothing may correct.
+_RAW_LICENSE_LENGTH: Final[int] = 512
+
+#: How wide the normalized-expression column is, and it is deliberately four times
+#: the raw column rather than equal to it.
+#:
+#: **Normalization expands.** `bsd-3` is five characters and `BSD-3-Clause` is
+#: twelve; an expression of such operands grows by the same factor throughout. A
+#: normalized column merely equal to the raw one would therefore leave a band of
+#: perfectly storable raw values whose *expression* can never be recorded -- and
+#: the refusal would fire on those packages on every run for ever. That is the trap
+#: `_FEEDSTOCK_NAME_LENGTH` records, reached by the same route: a column sized
+#: against a value rather than against the value it is composed from. Four times is
+#: comfortably above the widest expansion `collectors/spdx.py`'s table can produce,
+#: and `tests/unit/django_apps/test_license.py` asserts the *relation* against that
+#: table rather than the number -- so a spelling added with a longer identifier
+#: fails there rather than at an insert.
+_NORMALIZED_LICENSE_LENGTH: Final[int] = 2048
+
+#: How wide the detection-method column is. `DetectionMethod`'s longest value is
+#: `recognised-spelling`, nineteen characters, and the rest is headroom -- the same
+#: shape `_MATCH_CONFIDENCE_LENGTH` has and for the same reason.
+_DETECTION_METHOD_LENGTH: Final[int] = 32
+
+#: The names of the three constraints `license_findings` carries, and the read
+#: index its freshness query needs, declared on the terms every name above is: the
+#: model declares them and the cases that assert the database refuses a violation
+#: name them too.
+#:
+#: Three constraints and **no unique constraint of any kind** (`CPM-AD-2`): two
+#: observations of one package's licence on one channel are two rows, and a
+#: re-observation must insert.
+#:
+#: The first is **deliberately asymmetric**, and the asymmetry is the whole of
+#: `CPM-FR-13`'s AC 1. It requires the normalized expression and the detection
+#: method on a determinate row and forbids them on every other -- and it says
+#: nothing whatever about `raw_license`, which is permitted on every row there is.
+#: A row that failed to normalize *must* be able to carry the raw string: that is
+#: what makes it a review item somebody can act on rather than an absence of
+#: information, and a constraint that tidied it away would delete the evidence AC 1
+#: exists to record.
+#:
+#: The second is the sibling security tables' rule, reached for the same reason:
+#: `not_applicable` arrives in `LicenseOutcome` by construction and every package a
+#: monitored channel could serve is licensed under something, so nothing may ever
+#: write it here.
+#:
+#: The third is `conda_package_snapshots`' rule, reached because this table
+#: observes the same *set* of surfaces: every row names the channel it is about,
+#: sentinel rows included, because a row that could not say which channel stated a
+#: licence would have merged the channels that disagree -- and channels disagreeing
+#: is a fact this story exists to record rather than resolve.
+#:
+#: Django caps an index name at 30 characters, which is why it does not spell out
+#: `license_finding` twice.
+LICENSE_FACTS_CONSTRAINT: Final[str] = "license_facts_present_exactly_when_normalized"
+LICENSE_APPLICABILITY_CONSTRAINT: Final[str] = "license_applies_to_every_package"
+LICENSE_CHANNEL_CONSTRAINT: Final[str] = "license_names_the_channel_it_is_about"
+LICENSE_READ_INDEX: Final[str] = "license_finding_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -2073,3 +2151,221 @@ class KevFinding(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{derives} for {scope}: {self.state} at {when}"
+
+
+class LicenseFinding(AppendOnlyModel):
+    """One channel's statement of one package's licence, raw and normalized. Table `license_findings`.
+
+    PRD Appendix A.2 names this table and `CPM-FR-13` is where its facts come
+    from: the licence a monitored channel states, the SPDX expression this product
+    normalized it to, and the method that did it.
+
+    **The raw string and the normalized expression sit side by side, and that is
+    the whole of AC 1.** A compliance reviewer's question is "what did
+    normalization do before I trust its result", and it is only answerable if both
+    columns survive. It matters most on the rows that *failed*: an `unknown` row
+    carrying the raw string is a review item somebody can act on, while an
+    `unknown` row carrying nothing is an absence of information.
+
+    **So the constraint is deliberately asymmetric.**
+    `license_facts_present_exactly_when_normalized` requires the expression and
+    the method on a determinate row and forbids them everywhere else, and says
+    nothing at all about `raw_license` -- which is permitted on every row there is.
+    See `LICENSE_FACTS_CONSTRAINT`.
+
+    **The raw value is recorded verbatim, exactly as the source stated it.**
+    Stripped of surrounding whitespace and refused if it is wider than its column
+    or carries a control character -- and otherwise untouched. Nothing here
+    lower-cases it, expands it, or rewrites it toward the identifier it was
+    normalized to: the two columns are only worth having if one of them is the
+    source's own words.
+
+    **`unknown` is what an unrecognised licence records, and never a permissive
+    value.** `CPM-SECURITY-S03`'s AC 2 says so in as many words -- "records
+    `unknown` and routes to manual review, never `allowed`" -- and `CPM-SM-2`
+    measures this product on zero findings presenting an unknown as clean. Two
+    things reach it and `detail` says which: the channel stated no licence at all,
+    or it stated something `collectors/spdx.py` will not normalize without
+    guessing.
+
+    **There is no compliance verdict on this table and no column for one.** PRD
+    Appendix A.2 lists a policy result here; a collector may not compute a derived
+    status (`CPM-AD-8`) and a policy pass writes only its own per-domain derived
+    table (`CPM-AD-21`), so no component this architecture permits could write that
+    column. `CPM-SECURITY-S05` owns the licence policy and will write its own
+    table. `CPM-SECURITY-S03`'s Spec Change Log records the column as not-taken
+    rather than smuggled onto an evidence row.
+
+    **The determinate value is `normalized` and emphatically not `ok`.** On a
+    licence table `ok` reads as "this licence is fine", which is exactly the
+    verdict the paragraph above says nothing here may reach -- and `CPM-AD-24`
+    carries a state's value verbatim onto every read surface while `core`'s single
+    precedence order ranks `ok` best of five. `collectors/outcomes.py` composes the
+    vocabulary and argues the choice at length.
+
+    **`channel` is required of every row, sentinel rows included.** Several
+    monitored channels may state different licences for one package, and each
+    states its own: one row per channel, never merged into a verdict, on the terms
+    `CondaPackageSnapshot` keeps its pairs apart. Disagreement is a fact to record.
+
+    **Nothing here is compared, ranked or resolved.** Which of two disagreeing
+    channels is right, and whether either licence is acceptable, are judgements
+    this collector does not make.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="license_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from -- the channel's own package
+    #: document. Recorded on the row for the reason `CondaPackageSnapshot.source`
+    #: is: a run reads one locator per channel and writes one row per channel, so
+    #: `source` is what ties each row to the answer it came from rather than to
+    #: the one the run happened to start with.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the observation concluded, over `LicenseOutcome` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here, and
+    #: `collectors/outcomes.py` for why the determinate value is not `ok`.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=LicenseOutcome.choices)
+
+    #: The channel this row is about, as the operator declared it and lower-cased.
+    #: Required of every row -- see `Meta.constraints`.
+    channel = models.CharField(_("channel"), max_length=_CHANNEL_LENGTH)
+
+    #: The licence exactly as the channel stated it, on **every** row that has one
+    #: -- including the rows normalization refused. Blank means the source stated
+    #: none, or that no answer was read at all; `detail` says which.
+    raw_license = models.CharField(_("raw license"), max_length=_RAW_LICENSE_LENGTH, blank=True, default="")
+
+    #: The SPDX expression the raw string was normalized to. Present exactly on a
+    #: determinate row -- see `Meta.constraints`. Blank means missing (PRD Appendix
+    #: A.1) and never "no restrictions".
+    normalized_license = models.CharField(
+        _("normalized license"),
+        max_length=_NORMALIZED_LICENSE_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: How the expression was established, over `DetectionMethod`. Present exactly
+    #: on a determinate row, for the reason the expression is: a normalized value
+    #: nobody can say how this product arrived at is the half of `CPM-SM-2` that
+    #: makes a finding argue-able.
+    detection_method = models.CharField(
+        _("detection method"),
+        max_length=_DETECTION_METHOD_LENGTH,
+        choices=DetectionMethod.choices,
+        blank=True,
+        default="",
+    )
+
+    #: What the collector or the base had to say about this observation -- that the
+    #: channel stated no licence, that it stated one this product will not normalize
+    #: without guessing and which part of it stopped, or why one channel's answer
+    #: could not be read while another's was.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_licensefinding` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one package's licence on one channel are two rows, and
+        idempotency is the run ledger's property rather than this table's. Here
+        the tuple that looks unique -- `(package, channel, raw_license)` -- is
+        exactly the tuple a re-observation repeats, every day, for as long as the
+        channel keeps stating the same licence.
+        """
+
+        db_table = "license_findings"
+        verbose_name = _("license finding")
+        verbose_name_plural = _("license findings")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `KEV_READ_INDEX` states. One index rather than the two
+            # `conda_package_snapshots` carries: this table grows once per
+            # *channel* rather than once per `channel x platform`, and no read
+            # this story adds is per channel -- a reviewer's question is about a
+            # package and the channels are what one answer holds.
+            models.Index(fields=["package", "-observed_at"], name=LICENSE_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and it is deliberately asymmetric -- see
+            # LICENSE_FACTS_CONSTRAINT and the class docstring.
+            #
+            # A determinate row is a *normalization*, and CPM-FR-13 fixes what one
+            # says: the SPDX expression, and the method that produced it. A row
+            # missing either is a normalized licence nobody can check.
+            #
+            # A row that is not determinate and carries an expression or a method
+            # is claiming a normalization the run never performed: on the `unknown`
+            # row that is an SPDX expression underneath a statement that the
+            # licence was not recognised, and on an `error` or `not_found` row it
+            # is a fact about a channel that never answered.
+            #
+            # `raw_license` appears in neither half, and that is the load-bearing
+            # omission: the raw string is permitted on every row, because an
+            # `unknown` row carrying it is the review item AC 2 asks for.
+            #
+            # `state` is NOT NULL and every column tested here is NOT NULL, so
+            # this expression is always true or false and never the third thing a
+            # SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=NORMALIZED) & ~models.Q(normalized_license="") & ~models.Q(detection_method=""))
+                    | (~models.Q(state=NORMALIZED) & models.Q(normalized_license="", detection_method=""))
+                ),
+                name=LICENSE_FACTS_CONSTRAINT,
+            ),
+            # The one value this vocabulary carries and this table may not hold, on
+            # the terms `KEV_APPLICABILITY_CONSTRAINT` states: it arrives in
+            # `LicenseOutcome` by construction because `outcome_type` supplies all
+            # four sentinels and refuses a type that drops one, and every package a
+            # monitored channel could serve is licensed under something.
+            # `LicenseCollector` refuses it at `sentinel_evidence` and
+            # `inapplicability` never answers a reason, but both of those are one
+            # writer's rules; this is the table's, and it holds against every
+            # writer this product ever grows.
+            models.CheckConstraint(
+                condition=~models.Q(state=LICENSE_NOT_APPLICABLE),
+                name=LICENSE_APPLICABILITY_CONSTRAINT,
+            ),
+            # Every row names the channel it is about, including the sentinel rows
+            # the base writes -- the half a convention would have missed. A blank
+            # channel is a row that has merged every monitored channel into one,
+            # which is precisely the merge this table exists to prevent: two
+            # channels stating different licences are two facts.
+            models.CheckConstraint(
+                condition=~models.Q(channel=""),
+                name=LICENSE_CHANNEL_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the licence as stated, the channel, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `package_id` rather than off `package`
+            for the reason `KevFinding.__str__` gives: the related object of an
+            unsaved instance raises, and a `__str__` that raises breaks a debugger
+            and a traceback alike.
+
+        """
+        stated = self.raw_license or "(no license stated)"
+        where = self.channel or "(no channel)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{stated} on {where} for {scope}: {self.state} at {when}"

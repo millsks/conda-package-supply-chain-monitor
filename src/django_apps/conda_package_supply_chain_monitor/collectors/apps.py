@@ -119,7 +119,11 @@ class CollectorsConfig(AppConfig):
         the question `CPM-AD-29` will not have answered by import order.
 
         **Neither security source is declared here, and the absence is the
-        declaration.** `collectors/advisories.py` opens the one-slot seam for
+        declaration.** There are two of them rather than three:
+        `CPM-SECURITY-S03`'s licence collector needs no adapter at all, because it
+        reads the channels an operator has already declared, so the seams below are
+        the whole of what this epic leaves undeclared.
+        `collectors/advisories.py` opens the one-slot seam for
         `CPM-FR-11`'s vulnerability collector and `collectors/kev.py` opens a
         second one for `CPM-FR-12`'s KEV collector, and this hook deliberately
         makes neither call: which advisory and KEV sources are licensed for use is
@@ -204,6 +208,7 @@ class CollectorsConfig(AppConfig):
             FeedstockCollector,
         )
         from conda_package_supply_chain_monitor.collectors.kev import KevCollector  # noqa: PLC0415 - see above
+        from conda_package_supply_chain_monitor.collectors.license import LicenseCollector  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.collectors.pypi_release import (  # noqa: PLC0415 - see above
             PyPIReleaseCollector,
         )
@@ -243,6 +248,7 @@ class CollectorsConfig(AppConfig):
             CondaPackageCollector,
             VulnerabilityCollector,
             KevCollector,
+            LicenseCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)

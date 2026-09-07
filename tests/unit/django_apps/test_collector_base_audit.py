@@ -343,12 +343,22 @@ THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chai
 #: where a reader most needs to see that the *write* path is still the base's
 #: alone and that no transaction, no socket and no second writer came with it.
 THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/kev.py"
+
+#: `CPM-SECURITY-S03`'s collector, and the seventh remote reader. Named for the
+#: reasons the first six are, and for one more: it reads the *same document* a
+#: shipped collector already reads, for a different fact -- so it is the module
+#: where a reader most needs to see that it asks the source itself rather than
+#: reaching into `conda_package_snapshots` for a licence that is already sitting
+#: there. `CPM-AD-7` forbids that read and this collector does not take it, which
+#: `MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE` holds it to by name.
+THE_LICENSE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/license.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
     THE_FEEDSTOCK_COLLECTOR,
     THE_INGESTION_COLLECTOR,
     THE_KEV_COLLECTOR,
+    THE_LICENSE_COLLECTOR,
     THE_LIMITER,
     THE_PYPI_COLLECTOR,
     THE_RELEASE_COLLECTOR,

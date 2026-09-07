@@ -994,6 +994,12 @@ the build string and the build number — by asking `api.anaconda.org` for one
 package document per channel. It sends **no credential**, and its declared
 allowance is **thirty requests a minute**.
 
+**A second collector reads the same host and the same declaration.**
+`CPM-SECURITY-S03`'s licence collector asks for the same package document, for a
+different fact, with its own allowance and its own daily sweep offset two hours
+from this one — see "The licence collector reads the channels you already
+declared" below. Size what you ask of `api.anaconda.org` for both.
+
 **It ships monitoring nothing, and that is the intended behaviour rather than a
 gap.** Two settings decide what it observes:
 
@@ -1413,8 +1419,9 @@ for an answer.
 **The declared allowance is thirty requests a minute, and you will need to raise
 it** — the same arithmetic the advisory source's section gives, and it applies
 twice: the base charges four requests per package, which is 7.5 packages a minute
-and about 22 hours for `CPM-NFR-1`'s ten thousand. The two security sweeps fire on
-the same tick and each spends its own allowance against its own source.
+and about 22 hours for `CPM-NFR-1`'s ten thousand. The vulnerability and KEV sweeps
+run on the same day -- the KEV one an hour behind -- and each spends its own
+allowance against its own source.
 
 **This collector reads the vulnerability collector's evidence table**, which is the
 one place in this product where a collector reads a table it does not write. It is
@@ -1438,12 +1445,160 @@ At most 2,000 cross-references are recorded for one package in one collection; a
 package with more current advisories than that records `error` rather than a
 partial answer.
 
+## The licence collector reads the channels you already declared, and refuses to guess
+
+`cpm.collect.license` asks each monitored conda channel what licence it states for
+a package and records **two columns side by side**: the raw string exactly as the
+channel stated it, and the SPDX expression this product normalized it to
+(`CPM-FR-13`). Beside them it records the *method* — how the expression was
+arrived at — and the channel the answer came from.
+
+**It needs no source declaration of its own.** Unlike the two security collectors
+above it, this one has no adapter slot: a licence is stated by the channels
+`CPM_MONITORED_CHANNELS` already names (see the published-package section above),
+and it reads that same declaration. It ships observing nothing for exactly the
+reason the published-package collector does — the setting is empty until you
+declare it — and starts observing on the next tick once you do.
+`CPM_MONITORED_PLATFORMS` is **not** read: a licence is a property of the package
+a channel serves rather than of a build, so there is one row per channel and no
+platform column.
+
+**It asks the source itself rather than reading the published-package table.**
+The document it reads is the same `https://api.anaconda.org/package/<channel>/<name>`
+the published-package collector reads, for a different fact. A collector never
+reads another collector's evidence table, so this is a **second call to the same
+host** rather than a shared read. Practically: the two sweeps each spend their own
+allowance against `api.anaconda.org`, and the licence dispatch is offset by two
+hours so they do not spend them at the same instant.
+
+**Read the five answers apart:**
+
+| The row says | What it means | Raw column | Normalized column |
+|---|---|---|---|
+| `normalized` | this channel stated a licence this product recognises, and the expression beside it is what that licence is in SPDX | the channel's own words | the SPDX expression, with `detection_method` naming how |
+| `unknown` | one of four things, and `detail` says which: the channel stated **no** licence at all; the document carried no `license` field at all; the channel stated one this product will not normalize without guessing; or it stated one carrying a line break or a tab, which this product will not read as an identifier | the channel's own words, whenever it stated any | always blank |
+| `not_found` | this channel does not serve the package at all — an absence from *this channel*, not a package with no licence | blank | blank |
+| `error` | the look failed: the channel raised, the allowance was spent, or the document could not be read | blank | blank |
+| `not_applicable` | never written; the table refuses it outright | — | — |
+
+**There is no compliance verdict on this table and there is no column for one.**
+Nothing here says a licence is allowed, denied, permissive or acceptable. Whether
+a licence is acceptable is a policy question over a rule set that is versioned
+data, and no such policy exists yet. An `unknown` row is **not** a problem with the
+package — it is a review item, and it is the row a licence review queue will
+select when one exists.
+
+**Normalization is data, and it refuses what it does not recognise.** The
+recognised set lives in `collectors/spdx.py` as a readable table of identifiers and
+the other spellings each one is written under — `MIT`, `mit`, `The MIT License`;
+`Apache 2.0`, `Apache License, Version 2.0`; `BSD-3`, `new bsd`. Matching on a
+*licence name* is case-insensitive and collapses runs of spaces. Two or more
+recognised licences joined by a single `AND` or a single `OR` — in upper case, which
+is what SPDX mandates — are normalized operand by operand into one expression on one
+row; `MIT OR Apache-2.0` is a single statement about a single package and is never
+split into two rows.
+
+What it deliberately does **not** recognise is as important:
+
+- **The bare family names.** `BSD`, `GPL`, `LGPL`, `Apache`, `Other`, `Public
+  Domain`, `See LICENSE file`. `BSD` alone is two-clause or three-clause and the
+  difference is whether an advertising clause binds; `GPL` names no version and no
+  `-only`/`-or-later` disposition. Every one of these is really stated on conda
+  channels, and every one of them is a review item rather than a licence.
+- **A version with no disposition** — `GPL-2.0`, `GPLv3`, `LGPL-2.1`, `AGPL-3.0`.
+  These state a version and still say nothing about whether the grant is that
+  version *only* or that version *or later*, which is the whole of the difference
+  between a licence a downstream may relicense forward and one it may not. The
+  recognised GNU entries are the current unambiguous spellings — `GPL-3.0-only`,
+  `GPL-3.0-or-later`, and the same pair for `GPL-2.0`, `LGPL-2.1`, `LGPL-3.0` and
+  `AGPL-3.0` — and nothing else.
+- **Abbreviations that name two licences** — `psf` is `Python-2.0` (the CPython
+  licence, which is what a conda channel almost always means) or `PSF-2.0`, and both
+  identifiers are recognised under their own names. `freebsd` is `BSD-2-Clause-Views`
+  rather than `BSD-2-Clause` and carries an extra clause, so it is a review item
+  rather than an alias for a licence with one fewer obligation.
+- **Lower-case operators** — `MIT or Apache-2.0`, `MIT and Apache-2.0`. SPDX mandates
+  upper case, a conda `license` field is prose at least as often as an expression,
+  and prose "A and B" usually offers a *choice* while SPDX `AND` binds both sets of
+  obligations at once. `MIT OR Apache-2.0` is recognised.
+- **Parenthesised expressions** — `(MIT OR Apache-2.0) AND BSD-3-Clause` — because
+  their meaning depends on a precedence this product would have to invent.
+- **Mixed operators in one flat expression** — `MIT OR Apache-2.0 AND BSD-3-Clause` —
+  for the same reason and no weaker one: it needs the same precedence, without the
+  punctuation that announces it.
+- **`WITH`** — `Apache-2.0 WITH LLVM-exception` — because the right operand is an
+  *exception* identifier from a separate SPDX list this product does not carry.
+- **Multi-token operands inside an expression** — `Apache 2.0 OR MIT` — because
+  deciding where the first operand ends is a guess. `Apache-2.0 OR MIT` states the
+  same thing unambiguously and is recognised.
+- **A licence stated across two lines** — anything carrying a newline, a tab or
+  another control character. PostgreSQL stores these perfectly well, so they are
+  recorded verbatim as `unknown` review items rather than refused: refusing one would
+  fail the whole package's run, write `error` rows for every *other* channel without
+  asking them, and throw away the string a reviewer needs.
+
+All of these record `unknown` with the raw string preserved and the tokens that
+stopped it named in `detail`. **Extending the recognised set is a change to
+`RECOGNISED_LICENSES` in `collectors/spdx.py` plus a test case** — a table a
+reviewer reads rather than a chain of branches — and each addition is a decision
+that one spelling means exactly one identifier.
+
+**The raw string is recorded verbatim on every row that has one**, including the
+rows normalization refused. That is the whole point of the pair of columns: a
+reviewer compares them to judge what normalization did, and it matters most on the
+rows that failed — an `unknown` row carrying the raw string is something somebody
+can act on, while one carrying nothing is an absence of information. The table's
+constraint is deliberately asymmetric to permit this: the expression and the
+method are required on a `normalized` row and forbidden elsewhere, and the raw
+column is permitted everywhere.
+
+**Values are refused rather than truncated, and the refused set is narrow.** What
+fails the run for that package with an `error` row is a licence wider than the
+512-character column, one carrying a NUL byte, or one carrying a lone UTF-16
+surrogate — the last two because PostgreSQL's driver rejects them from inside itself,
+past every guard, so an unrefused one writes no row at all and repeats daily. A
+truncated licence is a *different* licence, and this table is append-only. Everything
+else a channel can state is recorded: a newline, a tab or another control character
+makes the row a `unknown` review item carrying the raw string verbatim, not a failed
+run.
+
+**Channels are never merged.** Two monitored channels stating different licences
+for one package are two rows, each naming its own channel and its own locator.
+Which of them is right is not a question this collector answers. A channel that
+fails is an `error` row for that channel beside the rows the channels that
+answered earned; a channel that does not serve the package is a `not_found` row
+beside them.
+
+**What it costs, and what the allowance actually counts.** One call per monitored
+channel per package per day, each retried once. The declared allowance is thirty
+requests a minute — but read the next sentence before you size anything against it.
+
+**Only the first channel's call is charged, and only the first channel's response is
+cacheable.** The limiter is acquired once per collection, before the first channel,
+and charged `1 + retries` = **2**; the calls for channels two onward are issued
+afterwards and are not counted. So at the declared thirty a minute the limiter
+permits **15 packages a minute**, and `CPM-NFR-1`'s ten thousand packages take about
+**11 hours** — it does fit inside a day, with little room spare. The *real* outbound
+load is higher than the charge: with four channels declared, one collection sends up
+to **8 requests** to `api.anaconda.org` and is charged for 2. The same asymmetry
+applies to the response cache: the declared seven-day TTL covers the base's one call,
+so channels after the first carry no validator and re-transfer their whole document
+every run. Both are recorded as deferred defects on `CPM-CURRENCY-S04` and
+`CPM-SECURITY-S03`; the arithmetic is settled by the story that first sweeps at
+volume.
+
+Raise the allowance against what `api.anaconda.org` actually tolerates — remembering
+that the real send rate is up to four times the charged one, and that the
+published-package sweep is asking the same host on the same day. At most four
+channels may be declared, because every one of them is a retried call inside a task
+the platform kills at sixty seconds.
+
 ## The full-inventory sweep: what beat fires, and what it does not do
 
-**Seven collectors are registered and six of them are swept one package at a
-time.** The seventh is inventory ingestion, which reads one document naming many
+**Eight collectors are registered and seven of them are swept one package at a
+time.** The eighth is inventory ingestion, which reads one document naming many
 packages and is deliberately absent from the schedule below; every count in this
-section is the six unless it says otherwise. What runs those six across the
+section is the seven unless it says otherwise. What runs those seven across the
 whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 `django_celery_beat` once per collector at the cadence that collector declares
 (`CPM-NFR-1`, `CPM-FR-15`).
@@ -1452,9 +1607,9 @@ whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 packages it can be asked about, and enqueues one ordinary per-package collection
 task for each — `cpm.collect.source_release`, `cpm.collect.pypi_release`,
 `cpm.collect.feedstock`, `cpm.collect.conda_package`,
-`cpm.collect.vulnerability` or `cpm.collect.kev`, exactly the tasks a manual
-recollection uses. It makes no outbound call, writes no evidence and holds no
-transaction. Every guarantee described in the six sections above therefore holds
+`cpm.collect.vulnerability`, `cpm.collect.kev` or `cpm.collect.license`, exactly
+the tasks a manual recollection uses. It makes no outbound call, writes no evidence
+and holds no transaction. Every guarantee described in the seven sections above therefore holds
 unchanged under a sweep: one package per task, one package per ledger row, one
 package per transaction (`CPM-AD-23`).
 
@@ -1488,11 +1643,11 @@ row only for whether the work was offered.
 
 `config/settings/base.py` declares one `CELERY_BEAT_SCHEDULE` entry per
 per-package collector, and `django_celery_beat`'s `DatabaseScheduler` seeds its
-tables from it. **What that does not buy you is changing one of these four
+tables from it. **What that does not buy you is changing one of these seven
 intervals without a deploy**: the scheduler rewrites every entry it finds in
 settings on each beat start, so a value edited in the admin lives only until beat
 restarts. Cadence-as-data is what lets a *later*, unrelated schedule live in the
-tables; these four are the declaration, and changing one is a pull request.
+tables; these seven are the declaration, and changing one is a pull request.
 
 Each collector separately declares the cadence its freshness target was derived
 from. **If the two disagree, the component refuses to start**, naming both
@@ -1519,19 +1674,24 @@ The shipped pairs are:
 | `feedstock` | weekly |
 | `conda_package` | daily |
 | `vulnerability` | daily |
-| `kev` | daily |
+| `kev` | daily, offset one hour |
+| `license` | daily, offset two hours |
 
-Four of the five daily entries fire together, from one instant, and that is
+The daily entries that carry no offset fire together, from one instant, and that is
 accepted rather than overlooked: a dispatch enqueues and returns, so what lands at
-once is four cheap tasks rather than four inventories of I/O, and the collections
-they enqueue are paced by each collector's own rate limiter.
+once is a handful of cheap tasks rather than a handful of inventories of I/O, and
+the collections they enqueue are paced by each collector's own rate limiter.
 
-**The KEV entry is deliberately offset by an hour**, because it cross-references
-what the vulnerability collector wrote: firing them from one instant means a KEV
-run reads the previous day's advisories. The offset is a `countdown` on the entry
-rather than a different interval or a crontab, because the start-up reconciliation
-compares an entry's interval with its collector's declared cadence and cannot read
-a crontab as one.
+**Two entries carry an offset, and for different reasons.** The KEV entry is
+offset by an hour because it cross-references what the vulnerability collector
+wrote: firing them from one instant means a KEV run reads the previous day's
+advisories. The licence entry is offset by two hours because it reads
+`api.anaconda.org` — the same host the published-package sweep reads, on the same
+tick, spending a separate allowance. The two offsets are deliberately different:
+two entries sharing a phase would fire together again and buy nothing. Each offset
+is a `countdown` on the entry rather than a different interval or a crontab,
+because the start-up reconciliation compares an entry's interval with its
+collector's declared cadence and cannot read a crontab as one.
 
 **It reduces the window and does not close it.** At `CPM-NFR-1`'s ten thousand
 packages the vulnerability sweep spends most of a day inside its own rate limit, so
@@ -1558,6 +1718,7 @@ has reached the mapping it reads, so a dispatch offers:
 | `conda_package` | every package — **or none at all, until you declare channels and platforms** |
 | `vulnerability` | **every package** — or none at all, until you declare an advisory source |
 | `kev` | **every package** — or none at all, until you declare a KEV source |
+| `license` | **every package** — or none at all, until you declare channels |
 
 A package a collector would refuse is never enqueued, so its ledger does not fill
 with `failed` runs for every package nobody has resolved. **Until a resolver
@@ -1574,12 +1735,14 @@ dispatch records one `succeeded` row saying so, and the component says it once a
 day. Declare `CPM_MONITORED_CHANNELS` and `CPM_MONITORED_PLATFORMS` and the sweep
 starts observing on the next tick.
 
-**The two security sweeps select nothing until their own sources are declared**,
-on the same terms and for a sharper reason: with no source, every enqueued task
-raises *before* the ledger opens, so an undeclared component would leave ten
-thousand tasks a day with no record at all that they ran. They are two separate
-declarations: declaring an advisory source does not declare a KEV source, and
-withdrawing either leaves the other collecting.
+**The vulnerability and KEV sweeps select nothing until their own sources are
+declared**, on the same terms and for a sharper reason: with no source, every
+enqueued task raises *before* the ledger opens, so an undeclared component would
+leave ten thousand tasks a day with no record at all that they ran. They are two
+separate declarations: declaring an advisory source does not declare a KEV source,
+and withdrawing either leaves the other collecting. The licence sweep is quiet for
+a different reason -- it declares no source at all, and selects nothing until
+`CPM_MONITORED_CHANNELS` is declared, exactly as the published-package sweep does.
 
 **Once a source is declared it offers every package** — including packages whose
 `primary_purl` names no version and packages with no package URL at all. That is
@@ -1634,7 +1797,7 @@ line** under `sweep.package_refused`, carrying the collector, the task and the
 `package_id`. That is the recovery path: filter the logs for that event and that
 collector to get the packages the sweep did not offer.
 
-**Rate limits are per collector and are not yet a sweep rate.** Each of the five
+**Rate limits are per collector and are not yet a sweep rate.** Each of the seven
 declares its own allowance, and at `1 + retries` per collection none of them
 sweeps ten thousand packages inside its declared cadence today. The dispatch does
 not change that arithmetic: it enqueues the work, and the per-collector limiter
