@@ -118,6 +118,21 @@ class CollectorsConfig(AppConfig):
         refused, because "which file is this component's inventory" is exactly
         the question `CPM-AD-29` will not have answered by import order.
 
+        **No advisory source is declared here, and the absence is the
+        declaration.** `collectors/advisories.py` opens the same one-slot seam
+        for `CPM-FR-11`'s vulnerability collector, and this hook deliberately
+        makes no `declare_advisory_source` call: which advisory sources are
+        licensed for use is PRD Open Question 1, it explicitly blocks
+        `CPM-EP-SECURITY`, and a source chosen by default would produce security
+        findings about an organisation's packages that the organisation never
+        agreed to act on. Nothing is refused at boot over it either -- unlike the
+        watchlist path and the monitored channels below, an undeclared advisory
+        source is the *shipped* state rather than a settings module that dropped
+        an assignment, so a component that refused to start over it would refuse
+        to start as designed. What it costs instead is a collector whose sweep
+        selects nothing and whose task refuses by name, which
+        `docs/deployment.md` tells an operator to expect.
+
         **The two refusals about what a collector *declares* are made here, and
         here is the only place they can be made.** `CPM-AD-28`'s freshness
         refusal and `CPM-AD-20`'s cadence reconciliation both sweep the registry,
@@ -199,6 +214,9 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.collectors.tasks import (  # noqa: PLC0415 - see above
             declared_inventory_adapter,
         )
+        from conda_package_supply_chain_monitor.collectors.vulnerability import (  # noqa: PLC0415 - see above
+            VulnerabilityCollector,
+        )
         from conda_package_supply_chain_monitor.collectors.watchlist import (  # noqa: PLC0415 - see above
             WatchlistAdapter,
         )
@@ -215,6 +233,7 @@ class CollectorsConfig(AppConfig):
             PyPIReleaseCollector,
             FeedstockCollector,
             CondaPackageCollector,
+            VulnerabilityCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)

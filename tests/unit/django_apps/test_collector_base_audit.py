@@ -328,6 +328,14 @@ THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chai
 #: (`CPM-AD-27`) -- and takes none. A scan that stopped reaching it would report a
 #: clean repository over the one module here that collects nothing.
 THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/sweep.py"
+
+#: `CPM-SECURITY-S01`'s collector, and the fifth remote reader. Named for the
+#: reasons the first four are, and for one more: it is the first collector whose
+#: *source* is a declared adapter rather than a host it knows
+#: (`CPM-AD-29`), so nothing in it names a URL to be tempted by -- which makes it
+#: the module where a reader most needs to see that the seam is the transport's
+#: and not a second one this collector opened for itself.
+THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/vulnerability.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_package_supply_chain_monitor/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
@@ -339,6 +347,7 @@ THE_NEW_MODULES: Final[tuple[str, ...]] = (
     THE_RESPONSE_CACHE,
     THE_SWEEP_DISPATCH,
     THE_TRANSPORT,
+    THE_VULNERABILITY_COLLECTOR,
 )
 
 # Synthetic modules the detectors are measured against. Source text parsed here

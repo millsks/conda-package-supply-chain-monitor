@@ -4,16 +4,16 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` -- the
-four surface tables beside it: upstream releases, PyPI releases, conda-forge
-feedstocks and published conda packages.
+against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` and
+`CPM-SECURITY-S01` -- the five surface tables beside it: upstream releases, PyPI
+releases, conda-forge feedstocks, published conda packages and advisory matches.
 
-**One module, five tables, and no shared columns beyond the ones every evidence
+**One module, six tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
-`source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots` and
-`conda_package_snapshots` are written by five collectors that share nothing but
-the log, and none reads another's. They live
+`source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`,
+`conda_package_snapshots` and `vulnerability_findings` are written by six
+collectors that share nothing but the log, and none reads another's. They live
 together because Django auto-imports `<app>.models` and no other module, so a
 model declared elsewhere in this application is registered only by whatever
 happens to import it -- which is a table that exists on a developer's machine and
@@ -85,6 +85,10 @@ from typing import Final
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from conda_package_supply_chain_monitor.collectors.match_confidence import MatchConfidence
+from conda_package_supply_chain_monitor.collectors.outcomes import MATCHED
+from conda_package_supply_chain_monitor.collectors.outcomes import VULNERABILITY_NOT_APPLICABLE
+from conda_package_supply_chain_monitor.collectors.outcomes import VulnerabilityOutcome
 from conda_package_supply_chain_monitor.core.clock import is_aware
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
@@ -109,12 +113,16 @@ __all__ = [
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
     "STAGED_RECIPE_CONSTRAINT",
+    "VULNERABILITY_APPLICABILITY_CONSTRAINT",
+    "VULNERABILITY_FACTS_CONSTRAINT",
+    "VULNERABILITY_READ_INDEX",
     "CondaPackageSnapshot",
     "FeedstockSnapshot",
     "InventoryReadError",
     "InventorySnapshot",
     "PyPIReleaseSnapshot",
     "SourceReleaseSnapshot",
+    "VulnerabilityFinding",
     "snapshot_as_of",
 ]
 
@@ -286,6 +294,101 @@ CONDA_PACKAGE_READ_INDEX: Final[str] = "conda_pkg_pkg_observed"
 #: `channels x platforms` times faster than any sibling, so the scan is the one
 #: that degrades first and worst.
 CONDA_PACKAGE_PAIR_INDEX: Final[str] = "conda_pkg_pair_observed"
+
+#: How wide the advisory identifier column is.
+#:
+#: An advisory identifier is a key some catalogue issued -- `CVE-2024-23334`,
+#: `GHSA-5h86-8mv2-jq9f`, `PYSEC-2022-42969`, `RUSTSEC-2021-0079` -- so it is
+#: sized like an identifier rather than like a name, and 128 is an order of
+#: magnitude above every scheme in use. Which catalogues those are is PRD Open
+#: Question 1 and is not decided here, which is exactly why the bound is generous
+#: rather than fitted to one scheme's shape.
+_ADVISORY_ID_LENGTH: Final[int] = 128
+
+#: How wide the severity column is.
+#:
+#: **Sized against the widest thing a source calls a severity, measured rather
+#: than guessed.** `CPM-FR-11` records "severity as the source stated it" and this
+#: product ranks nothing (`CPM-AD-8`), so what lands here is whatever the source
+#: said: a word (`high`, `MODERATE`), a number (`7.5`), or a whole CVSS vector
+#: string.
+#:
+#: The measured worst case is a **CVSS v4.0 vector with every optional metric
+#: present**, which the specification's own metric list makes 176 characters --
+#: the four Base groups, the Threat metric, the four Environmental
+#: Confidentiality/Integrity/Availability requirements, the eleven Modified Base
+#: metrics and the six Supplemental metrics, each an abbreviation, a colon, a
+#: value and a slash. 256 is that with room for a longer scheme identifier or a
+#: vector a later revision extends.
+#:
+#: **The number moved because 128 was a permanent failure rather than a tight
+#: fit.** A source stating a full v4.0 vector was refused, and this collector
+#: refuses the *document* rather than the field -- so one such advisory discarded
+#: every other finding for that package, on every run, for ever. That is the
+#: blast radius the story's `deferred:` entry records, and it is why a width here
+#: is measured against the worst thing a real source states rather than against
+#: the common one.
+_SEVERITY_LENGTH: Final[int] = 256
+
+#: How wide each of the two range columns is.
+#:
+#: A range is an expression the advisory source wrote in its ecosystem's own
+#: grammar, and the two shapes it takes are orders of magnitude apart. A
+#: *constraint* is short -- `>=1.0.5,<3.9.2`, `< 2.4.0 || >= 3.0.0, < 3.1.2` --
+#: while an **enumerated list of affected versions** is one entry per release, and
+#: advisories against long-lived packages routinely enumerate scores of them:
+#: a hundred entries at eight characters and a separator is nine hundred
+#: characters before any prefix.
+#:
+#: 1024 is measured against that enumeration rather than against the constraint
+#: form, for the reason `_SEVERITY_LENGTH` is measured against a full CVSS vector:
+#: a width that fits the common shape and refuses the uncommon one does not
+#: truncate a value, it discards every finding in the document that carried it,
+#: on every run.
+#:
+#: Its own constant rather than `_VERSION_LENGTH` reused: a version is one
+#: project's tag and a range is another project's expression *over* those tags,
+#: and one of them changing is not a reason to move the other.
+_RANGE_LENGTH: Final[int] = 1024
+
+#: How wide the match-confidence column is. `MatchConfidence`'s longest value is
+#: `exact-version`, thirteen characters, and the rest is headroom -- the same
+#: shape `_STATE_LENGTH` has and for the same reason.
+_MATCH_CONFIDENCE_LENGTH: Final[int] = 32
+
+#: How wide *this* table's locator column is, and it is wider than every
+#: sibling's on purpose.
+#:
+#: The locator a vulnerability run names is a fixed scheme prefix followed by the
+#: package's whole `primary_purl` -- the identity the adapter is asked about --
+#: and `identity/models.py` sizes that column at 512. A locator column merely
+#: equal to the siblings' 512 would therefore leave a band of perfectly storable
+#: purls whose locator can never be recorded, and the refusal would fire on every
+#: run of those packages for ever. That is the trap `_FEEDSTOCK_NAME_LENGTH`
+#: records, reached by the same route: a column sized against the value rather
+#: than against the value it is *composed from*. 768 is 512 plus the prefix with
+#: room to spare, and `tests/unit/django_apps/test_vulnerability.py` asserts the
+#: relation rather than the number.
+_ADVISORY_LOCATOR_LENGTH: Final[int] = 768
+
+#: The name of the constraint that makes the advisory facts present exactly where
+#: they are true, and the read index the freshness query needs, on the terms every
+#: name above is declared: the model declares them and the cases that assert the
+#: database refuses a violation name them too.
+#:
+#: There are **two** constraints and no unique constraint of any kind
+#: (`CPM-AD-2`): two observations of one advisory are two rows, and a
+#: re-observation must insert. The second constraint is this table's own --
+#: `not_applicable` is a value the vocabulary carries by construction and this
+#: table may never hold, because an advisory question applies to every package --
+#: and it is here rather than only in the collector's `sentinel_evidence` because
+#: a rule enforced in one writer is a convention, while a rule the table enforces
+#: holds against every writer this product ever grows. The index does not spell
+#: out `vulnerability_finding` for the same 30-character reason the siblings' do
+#: not spell out their tables.
+VULNERABILITY_FACTS_CONSTRAINT: Final[str] = "vulnerability_facts_present_exactly_when_matched"
+VULNERABILITY_APPLICABILITY_CONSTRAINT: Final[str] = "vulnerability_applies_to_every_package"
+VULNERABILITY_READ_INDEX: Final[str] = "vuln_finding_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -1377,3 +1480,260 @@ class CondaPackageSnapshot(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{version} on {where} for {scope}: {self.state} at {when}"
+
+
+class VulnerabilityFinding(AppendOnlyModel):
+    """One advisory match, or one statement that nothing was matched. Table `vulnerability_findings`.
+
+    PRD Appendix A.2 gives this table "Advisory ID, affected and fixed ranges,
+    severity, matched version, source, match confidence", and `CPM-FR-11` is
+    where they come from: "every finding records advisory ID, severity, affected
+    range, fixed range, matched version, source, and match confidence", and "a
+    package the collector could not match records `unknown`, never clean".
+
+    **One row per matched advisory, and never one row for several.** Three
+    advisories about one package at one version are three rows, each carrying its
+    own identifier and its own ranges, because a reviewer's question is about one
+    advisory at a time -- is *this* finding real, is it fixed, is it ours -- and a
+    row standing for several could not answer it for any of them.
+
+    **A package nothing matched still gets a row, and it carries `unknown`.**
+    That is `CPM-SM-2` ("zero findings present an unknown as clean") made
+    structural rather than intended: a package with no row reads as unobserved,
+    which `core/freshness.py` reports as `unknown` and which then ages into
+    stale, and there would be nothing anywhere distinguishing "we read the source
+    and it matched nothing" from "nobody looked". `unknown` rather than
+    `not_found` is the whole of the difference: `not_found` is an informative
+    negative -- we looked, and the thing is not there -- which for advisories
+    reads as *clean*, and neither this collector nor its source is in a position
+    to say that. What the row does say is what happened, in `detail`.
+
+    **Presence is `state`, over `VulnerabilityOutcome`, and never a boolean**
+    (`CPM-AD-5`). `matched` is one advisory this run matched; `unknown` is a run
+    that established nothing about this package's exposure; `error` is a look that
+    failed; `not_found` is the advisory source reporting that the locator itself
+    does not exist, which is a misconfigured or withdrawn endpoint rather than a
+    clean package. The column is called `state` rather than `*_status` for the
+    reason `SourceReleaseSnapshot.state` is.
+
+    **The determinate value is `matched` and emphatically not `ok`**, and this is
+    the one place in this product where that distinction is load-bearing. On every
+    sibling table a determinate row is a surface answering normally; here it is an
+    advisory *against this package*. `core`'s single precedence order ranks `ok`
+    best of five and `CPM-AD-24` carries a state's value verbatim onto every read
+    surface, so a table using `ok` would render exactly the vulnerable packages as
+    the clean ones and rank a matched advisory above a package nothing matched.
+    `collectors/outcomes.py` composes the vocabulary that fixes it and argues the
+    choice at length.
+
+    **Nothing here is ranked, normalised or compared.** `severity` is the string
+    the source stated, `affected_range` and `fixed_range` are the expressions the
+    source wrote in its own ecosystem's grammar, and `match_confidence` is the
+    source's own claim about how it matched. Every verdict over them is
+    `CPM-FR-17`'s policy pass (`CPM-AD-8`), which is `CPM-SECURITY-S04`; a
+    collector that ranked a severity would be writing a derived status into a row
+    nothing may correct, and one that evaluated a range would be inventing
+    version semantics for an ecosystem it does not own.
+
+    **`matched_version` is on the row because everything it could be read back
+    from is mutable.** `Package.primary_purl` is corrected by resolution and
+    every published version moves, so a finding that named no version would be a
+    permanent claim whose subject changes underneath it -- and "does this apply to
+    the version we actually ship" is the entire question this story exists to
+    answer.
+
+    **`fixed_range` and `severity` may be blank on a determinate row**, on the
+    terms `SourceReleaseSnapshot` does not require a date of one: a real advisory
+    with no fix published yet has no fixed range, and a source that states no
+    severity has not stated one. Blank means *missing* (PRD Appendix A.1), it is
+    never inferred, and `detail` names **each** blank the source left --
+    `collectors/vulnerability.py` writes one clause per absent fact, so a reader
+    is never left to work out which of the two a blank column is. `advisory_id`,
+    `affected_range`, `matched_version` and `match_confidence` are required of a
+    determinate row by `Meta.constraints`, because a finding missing any of them
+    cannot say which advisory it is, what it applies to, what it was checked
+    against, or how surely.
+
+    **`PROTECT`, and it is required rather than preferred**
+    (`EVIDENCE.02-AUDIT-001`), on the terms `InventorySnapshot.package` states.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="vulnerability_findings",
+        verbose_name=_("package"),
+    )
+
+    #: Where this observation came from -- the locator the declared advisory
+    #: source adapter recorded for the answer it gave, or the locator this run
+    #: asked about where no answer was read. It is the `source` `CPM-FR-11`
+    #: requires of every finding, and it is what makes the source pluggable
+    #: without the policy layer learning which one is active (`CPM-AD-29`): a
+    #: policy reads this column like any other evidence's.
+    source = models.CharField(_("source"), max_length=_ADVISORY_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the lookup concluded, over `VulnerabilityOutcome` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here, and
+    #: `collectors/outcomes.py` for why the determinate value is `matched`.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=VulnerabilityOutcome.choices)
+
+    #: The advisory's own identifier, exactly as the source spelled it. Required
+    #: of a determinate row and blank on every other -- see `Meta.constraints`.
+    advisory_id = models.CharField(_("advisory id"), max_length=_ADVISORY_ID_LENGTH, blank=True, default="")
+
+    #: The severity as the source stated it, unranked and unnormalised. May be
+    #: blank on a determinate row, which means the source stated none.
+    severity = models.CharField(_("severity"), max_length=_SEVERITY_LENGTH, blank=True, default="")
+
+    #: The versions the source says the advisory affects, as the source expressed
+    #: them. Required of a determinate row: a finding that cannot say what it
+    #: applies to cannot be judged against anything.
+    affected_range = models.CharField(_("affected range"), max_length=_RANGE_LENGTH, blank=True, default="")
+
+    #: The versions the source says carry the fix, as the source expressed them.
+    #: Blank means the source stated none -- an advisory with no published fix is
+    #: an ordinary state, and `detail` says which case this is.
+    fixed_range = models.CharField(_("fixed range"), max_length=_RANGE_LENGTH, blank=True, default="")
+
+    #: The version this run asked the source about, taken from the package's
+    #: identity at the moment of the observation. Required of a determinate row --
+    #: see the class docstring for why it is stored rather than re-derived.
+    matched_version = models.CharField(_("matched version"), max_length=_VERSION_LENGTH, blank=True, default="")
+
+    #: How the source says it matched that version -- see
+    #: `collectors/match_confidence.py`, and note that it is emphatically not the
+    #: package-identity `confidence` `CPM-AD-4` governs. Required of a determinate
+    #: row and blank on every other.
+    #:
+    #: **It is the source's claim about its own work, and nothing on this row
+    #: corroborates it.** The row records the version *this product* asked about
+    #: (`matched_version`) and the certainty the source asserted, and it does not
+    #: carry what the source actually compared -- so an adapter that matched on
+    #: name alone and stated `exact-version` produces a row indistinguishable from
+    #: one that did the work. That is a property of a pluggable source and is why
+    #: `CPM-FR-17`'s policy pass must *weigh* this column rather than trust it.
+    match_confidence = models.CharField(
+        _("match confidence"),
+        max_length=_MATCH_CONFIDENCE_LENGTH,
+        choices=MatchConfidence.choices,
+        blank=True,
+        default="",
+    )
+
+    #: What the collector or the base had to say about this observation -- that
+    #: the source was read and matched nothing, that it could not identify the
+    #: package, that this package's identity names no version to match against, or
+    #: that the source stated no fix.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_vulnerabilityfinding` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        observations of one advisory about one package are two rows, and
+        idempotency is the run ledger's property rather than this table's. Here
+        the tuple that looks unique -- `(package, advisory_id, matched_version)`
+        -- is exactly the tuple a re-observation repeats, and a constraint over it
+        would turn every second daily run into an `IntegrityError`.
+        """
+
+        db_table = "vulnerability_findings"
+        verbose_name = _("vulnerability finding")
+        verbose_name_plural = _("vulnerability findings")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `RELEASE_READ_INDEX` states.
+            models.Index(fields=["package", "-observed_at"], name=VULNERABILITY_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and every conjunct is load bearing.
+            #
+            # A determinate row is a *finding*, and CPM-FR-11 fixes what a
+            # finding says: which advisory, what it affects, what version was
+            # checked, and how surely. A row missing any of the four is a finding
+            # that cannot be acted on or argued with -- and a row missing
+            # `match_confidence` in particular is the one CPM-SM-2 measures,
+            # because it presents a match whose certainty nobody stated.
+            #
+            # A row that is *not* determinate and carries any advisory fact is
+            # claiming to have matched something the run never matched: on the
+            # `unknown` row that is a finding underneath a statement that nothing
+            # was found out, and on an `error` or `not_found` row it is a fact
+            # about a source that never answered.
+            #
+            # `severity` and `fixed_range` are absent from the determinate half on
+            # purpose -- see the class docstring -- and present in the other half,
+            # because a row that established nothing may state neither.
+            #
+            # `state` is NOT NULL and every column tested here is NOT NULL, so
+            # this expression is always true or false and never the third thing a
+            # SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(state=MATCHED)
+                        & ~models.Q(advisory_id="")
+                        & ~models.Q(affected_range="")
+                        & ~models.Q(matched_version="")
+                        & ~models.Q(match_confidence="")
+                    )
+                    | (
+                        ~models.Q(state=MATCHED)
+                        & models.Q(
+                            advisory_id="",
+                            severity="",
+                            affected_range="",
+                            fixed_range="",
+                            matched_version="",
+                            match_confidence="",
+                        )
+                    )
+                ),
+                name=VULNERABILITY_FACTS_CONSTRAINT,
+            ),
+            # The one value this vocabulary carries and this table may not hold.
+            #
+            # `not_applicable` arrives in `VulnerabilityOutcome` by construction --
+            # `outcome_type` supplies all four sentinels and refuses a type that
+            # drops one -- and an advisory question applies to every package, so
+            # nothing may ever write it here. `VulnerabilityCollector` refuses it
+            # at `sentinel_evidence` and `inapplicability` never answers a reason,
+            # but both of those are one writer's rules; this is the table's, and
+            # it holds against every writer this product grows. A row carrying it
+            # would say the question was never about this package, which is a
+            # claim no advisory source and no collector is in a position to make.
+            #
+            # `state` is NOT NULL, so this expression is always true or false and
+            # never the third thing a SQL CHECK can be.
+            models.CheckConstraint(
+                condition=~models.Q(state=VULNERABILITY_NOT_APPLICABLE),
+                name=VULNERABILITY_APPLICABILITY_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the advisory, the version it was matched against, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `package_id` rather than off `package`
+            for the reason `SourceReleaseSnapshot.__str__` gives: the related
+            object of an unsaved instance raises, and a `__str__` that raises
+            breaks a debugger and a traceback alike.
+
+        """
+        advisory = self.advisory_id or "(no advisory matched)"
+        against = self.matched_version or "(no version)"
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{advisory} against {against} for {scope}: {self.state} at {when}"

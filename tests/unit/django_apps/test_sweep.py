@@ -4,11 +4,13 @@ Everything about `collectors/sweep.py` that is decidable with no database, no
 broker and no clock. The dispatch itself opens a run-ledger row, so every case
 that *runs* one is in `tests/integration/django_apps/test_sweep.py`; what is here
 is the arithmetic and the shapes -- the derived task name, the chunking, the
-declared constants, the four collectors' cadences, and the three places one name
-is spelled in two modules and has to agree.
+declared constants, the five swept collectors' cadences, and the three places one
+name is spelled in two modules and has to agree. "Swept" is the five that declare
+a cadence and a selection; the sixth registered collector, inventory ingestion, is
+run-scoped and a dispatch refuses it by name.
 
-**The four collectors' selections are asserted here as queries rather than as
-results.** `selectable_packages` answers with a lazy queryset, and a queryset's
+**The five swept collectors' selections are asserted here as queries rather than
+as results.** `selectable_packages` answers with a lazy queryset, and a queryset's
 `model` and its `query` are readable without a database -- which is what lets the
 unit tier pin *which table each collector selects from and on what condition*,
 where the integration tier pins which packages come back. Both matter and neither
@@ -32,6 +34,7 @@ from typing import Final
 
 import pytest
 from celery.schedules import crontab
+from django.db.models import QuerySet
 from django.test import override_settings
 
 from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
@@ -66,9 +69,13 @@ from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_CONDA_PA
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_FEEDSTOCK_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_SOURCE_RELEASE_TASK_NAME
+from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_VULNERABILITY_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
 from conda_package_supply_chain_monitor.collectors.tasks import collect_sweep
+from conda_package_supply_chain_monitor.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
+from conda_package_supply_chain_monitor.collectors.vulnerability import VULNERABILITY_CADENCE
+from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
 from conda_package_supply_chain_monitor.core.collection import NO_CADENCE
 from conda_package_supply_chain_monitor.core.collection import Collector
 from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
@@ -101,16 +108,17 @@ SWEEP_MODULE: Final[Path] = (
     / "sweep.py"
 )
 
-#: The four per-package collectors and the cadence each declares, as one table
-#: the cases below parametrize over. A tuple of pairs rather than four cases,
+#: The five per-package collectors and the cadence each declares, as one table
+#: the cases below parametrize over. A tuple of triples rather than five cases,
 #: because every one of the assertions is the same sentence about a different
-#: collector and writing it out four times is how three of them stop being
+#: collector and writing it out five times is how four of them stop being
 #: updated.
 PER_PACKAGE_COLLECTORS: Final[tuple[tuple[type[Collector], str, timedelta], ...]] = (
     (SourceReleaseCollector, SOURCE_RELEASE_NAME, SOURCE_RELEASE_CADENCE),
     (PyPIReleaseCollector, PYPI_RELEASE_NAME, PYPI_RELEASE_CADENCE),
     (FeedstockCollector, FEEDSTOCK_NAME, FEEDSTOCK_CADENCE),
     (CondaPackageCollector, CONDA_PACKAGE_NAME, CONDA_PACKAGE_CADENCE),
+    (VulnerabilityCollector, VULNERABILITY_NAME, VULNERABILITY_CADENCE),
 )
 
 #: The calls a dispatch may not make, and each is a different rule.
@@ -181,6 +189,7 @@ def test_the_dispatch_task_takes_its_collector_under_the_keyword_the_module_name
         (PyPIReleaseCollector, COLLECT_PYPI_RELEASE_TASK_NAME),
         (FeedstockCollector, COLLECT_FEEDSTOCK_TASK_NAME),
         (CondaPackageCollector, COLLECT_CONDA_PACKAGE_TASK_NAME),
+        (VulnerabilityCollector, COLLECT_VULNERABILITY_TASK_NAME),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )
@@ -520,16 +529,36 @@ def test_every_per_package_selection_is_lazy_rather_than_a_list(
 
     A `selectable_packages` that returned `list(queryset)` would satisfy every
     behavioural case in the integration suite and would put ten thousand primary
-    keys in memory before the first task was enqueued. The queryset's result cache
-    being empty is what says the query has not run.
+    keys in memory before the first task was enqueued. Nothing having been read
+    yet is the property, and it is asserted for both shapes a lazy selection
+    takes.
+
+    **Four of the five answer with a queryset and one may answer with a
+    generator.** `CPM-SECURITY-S01`'s collector returns an empty *generator* when
+    no advisory source is declared, so that the warning naming the missing source
+    is emitted where a dispatch draws the selection rather than where a start-up
+    reconciliation merely asks whether there is one. A generator is at least as
+    lazy as a queryset -- it has read nothing and holds nothing -- so what is
+    asserted is the shared property first, and the queryset's own empty result
+    cache where there is a queryset to ask.
     """
     assert cadence > NO_CADENCE
     assert collector.name == name
 
     selection = collector.selectable_packages()
 
-    assert selection._result_cache is None  # noqa: SLF001 - the private cache is the property under test
-    assert selection.query.values_select or selection.query.default_cols is False
+    assert not isinstance(selection, (list, tuple, set, frozenset)), (
+        f"{collector.__name__} answers with a materialised {type(selection).__name__}, which reads the whole "
+        f"inventory before the first task is enqueued"
+    )
+    if isinstance(selection, QuerySet):
+        assert selection._result_cache is None  # noqa: SLF001 - the private cache is the property under test
+        assert selection.query.values_select or selection.query.default_cols is False
+    else:
+        assert iter(selection) is selection, (
+            f"{collector.__name__} answers with a {type(selection).__name__}, which is neither a queryset nor an "
+            f"iterator, so collectors/sweep.py refuses it"
+        )
 
 
 # ---------------------------------------------------------------------------

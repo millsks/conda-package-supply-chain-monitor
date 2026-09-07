@@ -1014,7 +1014,7 @@ def several_sentinels_collector_class(*, declared_model: type[AppendOnlyModel]) 
                 `source_for`, deliberately: this hook is called from paths that
                 are already recording a failure, where anything that raises
                 replaces the reason being recorded -- and `source_for` is exactly
-                the kind of method that raises, in three of the four real
+                the kind of method that raises, in four of the five swept real
                 collectors. A fixture the next collector copies should not model
                 the call it must not make.
 

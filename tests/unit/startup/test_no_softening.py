@@ -264,7 +264,7 @@ def _refuse_a_cadence_the_schedule_disagrees_with(monkeypatch: pytest.MonkeyPatc
     case asserting a *refusal* would refuse every case that ran after it.
 
     Replacing the registry is also what keeps this case about condition 11 alone.
-    The four real collectors are registered in this process and the shipped
+    The six real collectors are registered in this process and the shipped
     schedule reconciles with them, so leaving either in place would leave this
     builder constructing its state on top of a state that is already correct --
     which is harmless here and would stop being so the moment the shipped pair

@@ -1150,7 +1150,8 @@ def test_a_sentinel_row_about_another_package_is_written_as_the_base_was_handed_
     attributed to a package this run never looked at.
 
     Pinned as a characterisation rather than as a refusal: adding a fourth check
-    is a change to the base's contract for all five collectors, and this case is
+    is a change to the base's contract for all six registered collectors, and this
+    case is
     what a story making that change would delete.
     """
     built = foreign_package_sentinel_collector_class(declared_model=fixture_evidence_model())
