@@ -2,6 +2,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<script>
+/* Applied before paint so a stored choice never flashes the other theme. */
+(function(){
+  var KEY="cpm-ui-mockups-theme", root=document.documentElement, saved=null;
+  try{saved=window.localStorage.getItem(KEY);}catch(err){saved=null;}
+  if(saved!=="light"&&saved!=="dark")saved="auto";
+  root.__cpmTheme=saved;
+  if(saved==="auto")root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme",saved);
+})();
+</script>
 <style>
 /* ── tokens ─────────────────────────────────────────────────────────────── */
 :root{
@@ -113,6 +125,29 @@ p{margin:0}
 .wrap{max-width:1240px;margin:0 auto;padding:0 28px}
 .doc{display:flex;flex-direction:column;gap:0}
 
+/* theme switch */
+.theme-bar{display:flex;justify-content:flex-end;padding-bottom:22px}
+.theme-switch{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);
+  font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.theme-segs{display:inline-flex;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface-2);overflow:hidden}
+.theme-segs input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.theme-segs label{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;cursor:pointer;
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink-2);
+  border-left:1px solid var(--line);transition:background .12s,color .12s}
+.theme-segs label:first-of-type{border-left:0}
+.theme-segs label:hover{background:var(--surface-3);color:var(--ink)}
+.theme-segs input:checked+label{background:var(--accent);border-color:var(--accent);
+  color:#fff;font-weight:600}
+:root[data-theme="dark"] .theme-segs input:checked+label{color:#08171c}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .theme-segs input:checked+label{color:#08171c}
+}
+.theme-segs input:focus-visible+label{outline:2px solid var(--accent);outline-offset:-2px}
+.theme-segs svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round}
+
 /* masthead */
 .masthead{background:var(--surface);border-bottom:1px solid var(--line);padding:44px 0 34px}
 .mast-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:56px;align-items:end}
@@ -188,8 +223,10 @@ h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;flex:none}
 .brand .glyph{width:20px;height:20px;border-radius:3px;background:var(--accent);
   display:grid;place-items:center;color:#fff;font-family:var(--mono);font-size:10px;font-weight:600}
-:root[data-theme="dark"] .brand .glyph,
-:root:not([data-theme="light"]) .brand .glyph{color:#08171c}
+:root[data-theme="dark"] .brand .glyph{color:#08171c}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .brand .glyph{color:#08171c}
+}
 .app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
 .app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
   color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
@@ -210,8 +247,10 @@ h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
   border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:default;
   display:inline-flex;align-items:center;gap:6px;font-weight:500}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-:root[data-theme="dark"] .btn.primary,
-:root:not([data-theme="light"]) .btn.primary{color:#08171c}
+:root[data-theme="dark"] .btn.primary{color:#08171c}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .btn.primary{color:#08171c}
+}
 .btn.ghost{background:transparent}
 .btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,transparent);color:var(--crit)}
 .btn.sm{font-size:11.5px;padding:4px 9px}
@@ -305,8 +344,10 @@ h3{font-size:19px;font-weight:600;letter-spacing:-.01em}
 .pagenums a{min-width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
   border-radius:3px;text-decoration:none;color:var(--ink-2);font-family:var(--mono);font-size:11.5px}
 .pagenums a.on{background:var(--accent);border-color:var(--accent);color:#fff}
-:root[data-theme="dark"] .pagenums a.on,
-:root:not([data-theme="light"]) .pagenums a.on{color:#08171c}
+:root[data-theme="dark"] .pagenums a.on{color:#08171c}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .pagenums a.on{color:#08171c}
+}
 
 /* cards + panels inside the app */
 .cards{display:grid;gap:12px;margin-top:14px}
@@ -438,6 +479,28 @@ footer.pagefoot p{max-width:70ch}
 
 <!-- ══ masthead ══════════════════════════════════════════════════════════ -->
 <header class="masthead">
+  <div class="wrap theme-bar">
+    <div class="theme-switch">
+      <span id="theme-switch-label">Theme</span>
+      <div class="theme-segs" role="radiogroup" aria-labelledby="theme-switch-label">
+        <input type="radio" name="cpm-theme" id="cpm-theme-light" value="light">
+        <label for="cpm-theme-light">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.4v2.3M12 19.3v2.3M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.4 12h2.3M19.3 12h2.3M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/></svg>
+          Light
+        </label>
+        <input type="radio" name="cpm-theme" id="cpm-theme-auto" value="auto" checked>
+        <label for="cpm-theme-auto">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><path d="M12 3.4v17.2a8.6 8.6 0 0 0 0-17.2z" fill="currentColor" stroke="none"/></svg>
+          Auto
+        </label>
+        <input type="radio" name="cpm-theme" id="cpm-theme-dark" value="dark">
+        <label for="cpm-theme-dark">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 14.5A8.6 8.6 0 0 1 9.5 3.6a8.6 8.6 0 1 0 10.9 10.9z"/></svg>
+          Dark
+        </label>
+      </div>
+    </div>
+  </div>
   <div class="wrap mast-grid">
     <div>
       <div class="eyebrow">Conda Package Supply Chain Monitor · v1</div>
@@ -483,6 +546,25 @@ footer.pagefoot p{max-width:70ch}
     </nav>
   </div>
 </header>
+
+<script>
+/* Reflects the stored choice in the control, then keeps the two in step. */
+(function(){
+  var KEY="cpm-ui-mockups-theme", root=document.documentElement;
+  var current=root.__cpmTheme==="light"||root.__cpmTheme==="dark"?root.__cpmTheme:"auto";
+  var chosen=document.getElementById("cpm-theme-"+current);
+  if(chosen)chosen.checked=true;
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="cpm-theme"]'),function(input){
+    input.addEventListener("change",function(){
+      if(!input.checked)return;
+      if(input.value==="auto")root.removeAttribute("data-theme");
+      else root.setAttribute("data-theme",input.value);
+      root.__cpmTheme=input.value;
+      try{window.localStorage.setItem(KEY,input.value);}catch(err){/* private mode: choice is per-page-load only */}
+    });
+  });
+})();
+</script>
 
 <!-- ══ diagram 1 ═════════════════════════════════════════════════════════ -->
 <section class="band" id="flow">
