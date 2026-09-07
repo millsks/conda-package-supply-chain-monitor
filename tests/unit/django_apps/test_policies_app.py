@@ -42,6 +42,7 @@ from django.conf import settings
 
 from conda_package_supply_chain_monitor.core.policy import column_owners
 from conda_package_supply_chain_monitor.core.policy import pass_registrations
+from conda_package_supply_chain_monitor.core.policy import registered_passes
 from conda_package_supply_chain_monitor.core.rollup import contributable_columns
 from conda_package_supply_chain_monitor.policies.apps import PoliciesConfig
 from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME
@@ -52,6 +53,8 @@ from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN 
 from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
 from conda_package_supply_chain_monitor.policies.parameters import parameters_directory
 from conda_package_supply_chain_monitor.policies.parameters import parameters_file
+from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
 from tests.passes import ADOPTED_PASS_NAMES
 
 #: This repository's root, four levels up from `tests/unit/django_apps/`.
@@ -102,6 +105,7 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
     "models.py",
     "outcomes.py",
     "parameters.py",
+    "vulnerability.py",
 )
 
 #: The surfaces this story does not build, in both shapes each can take. A
@@ -137,6 +141,7 @@ EXPECTED_DATA_FILES: Final[tuple[str, ...]] = ("README.md", "policy-parameters.t
 EXPECTED_MIGRATIONS: Final[tuple[str, ...]] = (
     "0001_package_currency.py",
     "0002_package_feedstock_presence.py",
+    "0003_package_vulnerability.py",
 )
 
 
@@ -245,7 +250,27 @@ def test_the_ready_hook_adopted_this_applications_passes() -> None:
     """
     assert pass_registrations().get(POLICY_NAME) is CurrencyPass
     assert pass_registrations().get(FEEDSTOCK_POLICY_NAME) is FeedstockPresencePass
+    assert pass_registrations().get(VULNERABILITY_POLICY_NAME) is VulnerabilityPass
     assert set(ADOPTED_PASS_NAMES) <= set(pass_registrations())
+
+
+def test_the_passes_were_adopted_in_the_order_the_hook_declares() -> None:
+    """`ready()` argues its ordering at length, so the ordering is asserted.
+
+    `core/policy.py` keeps *registration* order where the collector registry sorts
+    by name, because `CPM-AD-21` lets a later pass read an earlier pass's derived
+    rows for the same run -- and `policies/apps.py` spends four paragraphs saying
+    which order it chose and why the vulnerability pass is last. Every other
+    assertion about the roster sorts or takes a set, so reordering that tuple
+    failed nothing anywhere: the reasoning was a claim about a decision no case
+    could tell had been made.
+
+    Removal is caught elsewhere. This is the other half, and it is the half the
+    docstring is actually about.
+    """
+    adopted = [policy_pass.name for policy_pass in registered_passes()]
+
+    assert [name for name in adopted if name in set(ADOPTED_PASS_NAMES)] == list(ADOPTED_PASS_NAMES)
 
 
 def test_the_adopted_pass_owns_the_rollup_column_it_declares() -> None:

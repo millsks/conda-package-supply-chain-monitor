@@ -6,6 +6,12 @@ data*. This module is the mechanism: a delimited, reviewed file shipped inside
 the wheel, mapping a policy version to the parameters a run at that version
 applies, read through one contract that refuses rather than repairs.
 
+`CPM-SECURITY-S04` added the second parameter on the same terms: `CPM-FR-17`
+names a per-package risk level and the PRD seeds no scale for it, so the
+*severity order* it is drawn from is recorded here rather than written into a
+pass. See `RISK_ORDER_KEY` and `PARAMETER_KEYS` for why that key is optional in
+the file, and what a run at a version that omits it derives instead.
+
 **Why a file rather than a setting or a database table.** `CPM-AD-14` makes
 reviewed reference data in the repository this product's one governed shape for
 exactly this, and `collectors/data/` is the precedent, down to shipping inside
@@ -77,7 +83,9 @@ if TYPE_CHECKING:
 __all__ = [
     "INACTIVITY_DAYS_KEY",
     "MAX_INACTIVITY_DAYS",
+    "MAX_RISK_LEVEL_CHARACTERS",
     "PARAMETERS_FILENAME",
+    "RISK_ORDER_KEY",
     "VERSIONS_TABLE",
     "PolicyParameterError",
     "PolicyParameters",
@@ -109,9 +117,56 @@ VERSIONS_TABLE: Final[str] = "versions"
 #: downstream carries a unit in a name.
 INACTIVITY_DAYS_KEY: Final[str] = "feedstock_inactivity_days"
 
-#: Every key a version's table may declare. One today; the set is what makes an
+#: `CPM-FR-17`'s risk-level parameter: the severities a version ranks, worst
+#: first, exactly as a source states them.
+#:
+#: **The key names an order rather than a scale, and that is the whole of what
+#: this component decides.** `CPM-FR-17` asks for a per-package risk level and
+#: the PRD seeds no thresholds for it, so inventing a severity taxonomy in code
+#: is the one thing `CPM-SECURITY-S04`'s `Block If` forbids outright. What ships
+#: instead is the mechanism: the *file* states which severity labels this
+#: product recognises and in which order, review changes them without a
+#: deployment, and `policies/vulnerability.py` applies whatever the run's version
+#: records. A version that ranks nothing has no rule for that pass to apply, so
+#: its rows carry no risk level and say so.
+#:
+#: A list of strings rather than a mapping of label to number, because a number
+#: is an invitation to average two of them and `CPM-FR-17`'s single hazard is a
+#: severity score that averages a known-exploited advisory away. An order can be
+#: read but not summed.
+RISK_ORDER_KEY: Final[str] = "vulnerability_risk_order"
+
+#: Every key a version's table may declare. The set is what makes an
 #: unrecognised key a refusal rather than a silently dropped edit.
-PARAMETER_KEYS: Final[frozenset[str]] = frozenset({INACTIVITY_DAYS_KEY})
+#:
+#: **Neither key is required of every version, and neither is required of every
+#: *run*.** `feedstock_inactivity_days` is refused when absent because
+#: `CPM-CURRENCY-S07` shipped with it and every recorded version carries it.
+#: `RISK_ORDER_KEY` arrived later, so a version recorded before it exists cannot
+#: carry it and must stay readable -- `CPM-FR-22`'s replay is only possible while
+#: an old entry still says what it said. So an entry without it parses and
+#: records `None`, and the vulnerability pass derives its status and its KEV
+#: membership normally, leaves the risk level blank, and says on the row that the
+#: version records no order. It does **not** refuse: `core/policy_run.py` puts
+#: one *package* in a transaction rather than one pass, so a refusal there would
+#: roll that package's currency and feedstock rows back too -- and, the condition
+#: being version-wide, would fail every package and finalize the run `failed`.
+#: That would break the currency and feedstock replay of every run recorded at
+#: such a version while protecting no vulnerability replay, because no run at one
+#: ever carried a vulnerability verdict. A *malformed* order is a different thing
+#: and is still refused, here, at the read: it is an operator error in a file
+#: somebody can edit rather than a historical artifact.
+PARAMETER_KEYS: Final[frozenset[str]] = frozenset({INACTIVITY_DAYS_KEY, RISK_ORDER_KEY})
+
+#: The longest a recorded severity label may be, which is also how wide the
+#: column that stores one is (`policies/models.py` reads this name for it).
+#:
+#: One number rather than two, because the bound and the column are the same
+#: fact: a label the file records but the column cannot hold would be truncated
+#: into a risk level nobody wrote. Refused at the read so the message names the
+#: file and the version, rather than surfacing as a database error about a
+#: `varchar` several frames from the entry a reviewer has to correct.
+MAX_RISK_LEVEL_CHARACTERS: Final[int] = 32
 
 #: The reviewed file's name.
 PARAMETERS_FILENAME: Final[str] = "policy-parameters.toml"
@@ -162,11 +217,19 @@ class PolicyParameters:
         feedstock_inactivity: How long a feedstock may go without a push before
             `CPM-FR-40`'s policy calls it inactive. A `timedelta`, positive by
             construction -- the read below refuses anything else.
+        vulnerability_risk_order: The severity labels `CPM-FR-17`'s risk level is
+            drawn from, worst first, or `None` where this version records none.
+            `None` is a real, ordinary state and not a failure of the file: a
+            version recorded before this parameter existed has to stay readable
+            for `CPM-FR-22`'s replay, and it is the *vulnerability pass* that
+            refuses, per package, naming the parameter. Defaulted so a version
+            that predates the parameter constructs exactly as it always did.
 
     """
 
     version: str
     feedstock_inactivity: timedelta
+    vulnerability_risk_order: tuple[str, ...] | None = None
 
 
 def _parameters_directory(module: str) -> Path:
@@ -412,7 +475,107 @@ def _parameters(entry: object, *, version: str, source: Path | str) -> PolicyPar
     return PolicyParameters(
         version=version,
         feedstock_inactivity=_interval(entry.get(INACTIVITY_DAYS_KEY), version=version, source=source),
+        vulnerability_risk_order=_risk_order(entry.get(RISK_ORDER_KEY), version=version, source=source),
     )
+
+
+def _risk_order(labels: object, *, version: str, source: Path | str) -> tuple[str, ...] | None:
+    """Refuse a risk order that is not a list of distinct fixed lowercase labels, and return it.
+
+    Args:
+        labels: Whatever the file recorded, or `None` where it recorded nothing.
+        version: The version being read, for the message.
+        source: What to call the file in a refusal.
+
+    Returns:
+        The labels in the order the file states them, worst first, or `None`
+        where this version records no such key. `None` is not a refusal: see
+        `PARAMETER_KEYS` for why an older entry must stay readable, and
+        `policies/vulnerability.py` for what a run at such a version derives
+        instead -- a row with a blank risk level saying so, rather than a
+        failure.
+
+    Raises:
+        PolicyParameterError: When the value is not a list; when it is empty;
+            when an entry is not a string; when an entry is blank, carries
+            surrounding whitespace or is not already lowercase; when an entry is
+            longer than `MAX_RISK_LEVEL_CHARACTERS`; or when two entries are the
+            same label. Each of those is a reviewer who believes they ranked
+            something. An empty list is refused rather than read as "rank
+            nothing", because a version that means to rank nothing omits the key
+            -- and an empty list would silently produce a blank risk level for
+            every package in the inventory, which reads exactly like a source
+            that states no severities.
+
+    """
+    if labels is None:
+        return None
+    if not isinstance(labels, list):
+        message = (
+            f"the policy parameters at {source} record {RISK_ORDER_KEY}={labels!r} for version {version!r}, "
+            f"which is {type(labels).__name__} rather than a list of severity labels. CPM-FR-17's risk level "
+            f"is drawn from an order a reviewer reads top to bottom; a value of another shape is refused "
+            f"rather than coerced."
+        )
+        raise PolicyParameterError(message)
+    if not labels:
+        message = (
+            f"the policy parameters at {source} record an empty {RISK_ORDER_KEY} for version {version!r}. A "
+            f"version that ranks no severity has no rule for the vulnerability pass to apply, and an empty "
+            f"list would produce a blank risk level for every package -- indistinguishable from a source that "
+            f"states no severities. Omit the key instead, which is refused where it is needed."
+        )
+        raise PolicyParameterError(message)
+
+    faults = sorted(f"{label!r} ({fault})" for label in labels if (fault := _risk_label_fault(label)) is not None)
+    if faults:
+        message = (
+            f"the policy parameters at {source} record {RISK_ORDER_KEY} entries for version {version!r} that "
+            f"cannot be applied: {', '.join(faults)}. Every entry is a fixed lowercase severity label of at "
+            f"most {MAX_RISK_LEVEL_CHARACTERS} characters (CPM-AD-5, CPM-AD-24). The comparison case-folds "
+            f"the severity a *source* stated; what a derived row stores is the reviewed label from this "
+            f"order, spelled exactly as it is written here."
+        )
+        raise PolicyParameterError(message)
+
+    ordered = [str(label) for label in labels]
+    repeated = sorted({label for label in ordered if ordered.count(label) > 1})
+    if repeated:
+        message = (
+            f"the policy parameters at {source} record {RISK_ORDER_KEY} for version {version!r} with the "
+            f"repeated label(s) {repeated}. An order is a ranking, and a label appearing twice ranks it in two "
+            f"places at once -- so which risk level a finding of that severity reaches would depend on where a "
+            f"reader stopped counting."
+        )
+        raise PolicyParameterError(message)
+    return tuple(ordered)
+
+
+def _risk_label_fault(label: object) -> str | None:
+    """Return why one recorded severity label cannot be applied, or `None`.
+
+    Separated from the refusal above so every fault a *list* can carry is
+    reported at once. A reviewer correcting one entry at a time, told about one
+    entry at a time, edits the file four times to learn it had four mistakes.
+
+    Args:
+        label: One entry of the recorded order.
+
+    Returns:
+        A short clause naming the fault, or `None` where the entry is usable.
+
+    """
+    if not isinstance(label, str):
+        return f"{type(label).__name__} rather than a string"
+    if not label.strip():
+        return "names nothing"
+    if label != label.strip():
+        return "carries surrounding whitespace"
+    if label != label.casefold():
+        return "is not lowercase, and the comparison case-folds the source's severity rather than this label"
+    if len(label) > MAX_RISK_LEVEL_CHARACTERS:
+        return f"is longer than the {MAX_RISK_LEVEL_CHARACTERS} characters a stored risk level can hold"
+    return None
 
 
 def _interval(days: object, *, version: str, source: Path | str) -> timedelta:

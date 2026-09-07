@@ -1268,8 +1268,9 @@ sentence saying so.
 **Nothing here ranks or evaluates anything.** The severity is the string the
 source stated, the ranges are the expressions the source wrote, and whether the
 version sits inside a range is a question the *source* answered. Turning any of
-that into a verdict is a policy pass with a versioned rule set, and no such
-policy exists yet.
+that into a verdict is a policy pass with a versioned rule set, and that pass is
+"The vulnerability policy" below: it reads these rows as of a run's cut-off and
+derives one status, one KEV membership and one risk level per package.
 
 **A misconfiguration and a transient failure leave this task the same way.** An
 undeclared advisory source raises out of `cpm.collect.vulnerability` like any
@@ -1315,8 +1316,10 @@ no advisory source is declared; the vulnerability collector has not observed thi
 package; it observed it and matched nothing; or everything it matched is now older
 than this collector calls current. Only the third is a statement about the package.
 It is **never** a statement that nothing against this package is being exploited.
-What a KEV hit *means* for a package — how it ranks, whether it leads a queue — is
-a policy question and no such policy exists yet.
+What a KEV hit *means* for a package is a policy question, and "The vulnerability
+policy" below is where it is answered: the derived row carries KEV membership in a
+column of its own, over three values rather than this table's two, and it is never
+an input to the risk level.
 
 **Declaring a catalog source is a change to this repository, not a setting**, on
 exactly the terms the advisory source is. Three things have to happen together:
@@ -2247,3 +2250,193 @@ relation `PROTECT`** — to the package, to the policy run, and to the feedstock
 observation. The reasoning and the consequences are exactly `package_currency`'s,
 above: there is no retention path, deleting old runs would have to delete these
 rows first, and no story currently claims it. Size the database accordingly.
+
+## The vulnerability policy: one status per package, with KEV kept visible
+
+`CPM-SECURITY-S04` adds the third policy pass. Like the two before it, it runs
+inside the orchestrating policy run rather than on a schedule of its own, makes
+no outbound call of any kind, and reads only the evidence a collector has already
+written — here `vulnerability_findings` and `kev_findings`. It answers
+`CPM-FR-17`: what does this run establish about one package's advisory exposure,
+and is any of it known-exploited.
+
+**It writes no rollup column, and that is deliberate.** `CPM-AD-21` says no pass
+writes `package_health`, and the rollup offers no column for this domain. The
+word "rollup" in this story's title means the reduction of many findings to one
+per-package result, into this pass's own table. Nothing here changes
+`package_health` except the `policy_versions` map, which gains a `vulnerability`
+entry because the pass ran.
+
+### The verdicts
+
+Each package gets one row in `package_vulnerability` per policy run. The status
+vocabulary is `core`'s four sentinels plus two of its own:
+
+| Status | What it means | What to do about it |
+|---|---|---|
+| `advisories_matched` | At least one advisory matched this package at the version the run asked about. | The finding the row references, and the rest of that sweep, are what to look at. |
+| `no_advisory_matched` | The advisory source was read and matched nothing. **Not clean**: this package may still carry an advisory the source does not know. | Nothing, but do not read it as "no vulnerabilities". |
+| `unknown` | Nothing was established: no evidence at the cut-off; **or** evidence saying only that nothing was established; **or** the lookup failed; **or** the source did not know the locator. | Read the row's `detail` and its referenced finding — every case but the first says which it was, in words. |
+| `error`, `not_found`, `not_applicable` | Reserved. This pass never produces them. | — |
+
+**`unknown` and `no_advisory_matched` are two facts and never one value.** "We
+read the source and matched nothing" is an established negative; "nobody looked",
+"the look failed" and "the source did not know the package" are three ways of
+establishing nothing. The evidence table records the first as `unknown` too — on
+an advisory table `not_found` would read as *clean*, which no collector is in a
+position to say — so the distinction is carried in the finding's own `detail`, and
+this pass reads it there.
+
+**A failed lookup makes the package `unknown`, not `error`.** That is a
+reduction one level above `CPM-FR-6`: the evidence row keeps all five of its
+states, and at the *package* level a failed look and an unknown locator both mean
+this run established nothing about its exposure. Which one it was is on the row —
+the referenced finding, plus a `detail` line saying it in words.
+
+### KEV is a column, never a number
+
+`package_vulnerability.kev_membership` holds one of three values, and it is
+**never** an input to `risk_level`:
+
+| Membership | What it means |
+|---|---|
+| `listed` | The KEV catalog lists at least one advisory this run recorded against the package. |
+| `not_listed` | The catalog was read and lists none of them. Not a statement that the package is clean. |
+| `not_established` | No cross-reference established anything — none was written by the cut-off, the ones that were say only that the catalog could not answer, or the KEV sweep read is not about the advisory sweep read (see below). |
+
+**Three values, not two, and the third is the one that matters
+operationally.** `kev_findings` has `listed` and `not_listed`; a package the KEV
+collector never ran for is neither. Recording it as `not_listed` would claim an
+absence the run never established — and `not_listed` is the value a read surface
+is most likely to paint green. If a whole inventory reads `not_established`,
+check that the KEV collector is running before concluding anything.
+
+**A membership is a claim about the advisories *this run recorded*, so the two
+sweeps have to line up — and at scale they often do not.** The advisory sweep and
+the KEV sweep are read as two independent "newest sweep at or before the cut-off"
+queries, and the KEV dispatch offset "reduces the window and does not close it":
+at ten thousand packages the advisory sweep spends most of a day inside its own
+allowance, so today's advisories beside yesterday's cross-references is normal.
+The pass therefore reduces only the cross-references that name a finding of the
+*current* advisory sweep, and counts a matched advisory nothing cross-referenced
+as `not_established`. Both stale readings are closed by that: a `not_listed` that
+was never asked about half of this run's advisories, and a `listed` about an
+advisory this run did not record. The row's `detail` says which advisories and
+which cross-references did not line up. **A rise in `not_established` beside
+healthy collectors means the two sweeps are drifting apart, not that packages
+changed.**
+
+**A `kev_findings` row carrying a state nothing recognises is recorded, not
+refused.** Django does not enforce `choices` on `save()`, so such a row is
+reachable. It reads as `not_established` -- never `not_listed` -- and the derived
+row's `detail` names the row and the state. It is deliberately not an error: one
+package is the atomic unit of a policy run, so refusing would roll that package's
+currency and feedstock rows back with it and leave the package with no
+`package_health` row at all, reading as never evaluated. If you see that line,
+the fault is in whatever wrote the evidence row, and the rest of the package's
+verdicts are intact.
+
+**Why a column rather than a contribution to the severity.** `CPM-FR-17`'s single
+hazard is that a severity score is an average, and averaging is exactly how a
+known-exploited advisory disappears: one KEV entry among nine moderate findings
+comes out looking moderate. Any design in which KEV feeds the risk level can, for
+some combination of findings, produce a level that does not distinguish a KEV
+package from a non-KEV one. A separate column cannot, because you filter on it
+directly. **Filter on `kev_membership = 'listed'`; never sort by `risk_level` and
+expect KEV to be near the top.**
+
+### The severity order is versioned data, not a constant
+
+This is the part with an operational consequence, so read it before enqueuing a
+run.
+
+The order lives in the same reviewed file the inactivity threshold does,
+`policies/data/policy-parameters.toml`, which ships inside the wheel and is
+changed **by pull request**:
+
+```toml
+[versions."<policy version>"]
+feedstock_inactivity_days = <positive whole number>
+vulnerability_risk_order = ["<severity>", "<severity>", ...]
+```
+
+The risk level is the **worst-ranked severity among the advisories matched to the
+package** — the first entry of that list any matched finding's `severity` names,
+compared case-insensitively against the string the source stated. It is a
+selection, never an arithmetic: nothing is summed, averaged or weighted.
+
+A blank `risk_level` means **missing, not low**. Four things reach it: the
+package matched nothing, its matched advisories state no severity, they state
+severities this version does not rank, or this version records no order at all.
+The row's `detail` says which, and names the version so you can read the entry
+that produced it.
+
+**`vulnerability_risk_order` is optional, and a version that omits it still
+runs.** It is the one key an entry may legitimately omit — it arrived after versions had already
+been recorded, and an old entry must keep saying what it said or a run at that
+version stops replaying (`CPM-FR-22`). So:
+
+1. **A run at a version that records no order still writes every row**, with a
+   **blank `risk_level`** and a `detail` naming the version and the missing key.
+   The status, the KEV membership and both evidence references are derived
+   exactly as they otherwise would be, because no other verdict reads this
+   parameter. There is no default and there must not be one: a risk level drawn
+   from an order nobody reviewed is indistinguishable from a reviewed one in
+   every report that reads it, and a blank is a missing measurement rather than a
+   low one. A *malformed* order is a different matter and is refused at the read,
+   naming the file — see `policies/data/README.md`.
+2. **A run at a version the file does not record at all fails outright**, before
+   any package, exactly as the feedstock pass's own missing threshold does.
+3. **Enqueue policy runs at a version that records both parameters** if you want
+   risk levels. The shipped file records `2026.09.1` for exactly that reason;
+   `2026.09` remains, unedited, so a run recorded at it replays as it was —
+   currency, feedstock, health and vulnerability rows, the last with no risk
+   level, because that version predates the parameter.
+
+**The shipped order is provisional.** `CPM-FR-17` names a risk level and the PRD
+seeds no severity scale for it. The file carries the reasoning beside the value
+and is the only place the labels appear, so this document does not repeat them.
+It is changeable by review **without a code change**, which is the whole point.
+
+**Never add a KEV label to that list.** KEV membership is its own column and must
+never become a severity. An entry such as `"kev"` would never match a finding's
+stated severity anyway — the order is read only over
+`vulnerability_findings.severity` — so it would look to a reviewer as though it
+did something while doing nothing.
+
+### Where the result lands
+
+| Table | What it holds |
+|---|---|
+| `package_vulnerability` | One row per package **per run**: the status, the KEV membership, the risk level, the policy version and evidence cut-off it was computed under, a `detail` for the shapes the columns do not explain, and foreign keys to the exact vulnerability finding and KEV cross-reference the verdict rests on. |
+| `package_health` | **Nothing.** This pass contributes no rollup column. Its name appears in `policy_versions` because it ran. |
+
+`package_vulnerability` copies the policy version and the cut-off onto every row,
+where `package_currency` and `package_feedstock_presence` copy neither. That is
+because a risk level is meaningless without the severity order that produced it,
+and the order is keyed by version — so a report reading this table alone can say
+what a value was drawn from, and a `CPM-FR-22` replay diff is a query over one
+table.
+
+### What a run costs
+
+This pass issues **five queries per package** for a package with evidence in both
+tables — two per evidence table, because "which sweep is current at the cut-off"
+and "which rows belong to it" are two questions, plus the insert of the derived
+row — on top of the currency pass's five and the feedstock pass's two. A package
+with no evidence at all costs four, because each read stops at the first query
+when there is no sweep to fetch. Looking the severity order up costs no query at
+all: it is a memoized read of a file, established once per run.
+
+Reading a *sweep* rather than a single row is what makes this a reduction: both
+evidence tables hold one row per advisory, and reading only the newest row would
+reduce nine advisories to whichever the database happened to return.
+
+### `package_vulnerability` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, with **every
+relation `PROTECT`** — to the package, to the policy run, and to both evidence
+rows. The reasoning and the consequences are exactly `package_currency`'s and
+`package_feedstock_presence`'s, above: there is no retention path, deleting old
+runs would have to delete these rows first, and no story currently claims it.
+Size the database accordingly, or run the policy less often than you collect.
