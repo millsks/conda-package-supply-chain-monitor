@@ -20,6 +20,9 @@ from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORM
 from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
 from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
 from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
+from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_NAME
+from conda_package_supply_chain_monitor.collectors.kev import KEV_DISPATCH_OFFSET
+from conda_package_supply_chain_monitor.collectors.kev import KevCollector
 from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
@@ -1267,6 +1270,7 @@ EXPECTED_SWEEP_ENTRIES = (
     "cpm-sweep-feedstock",
     "cpm-sweep-conda-package",
     "cpm-sweep-vulnerability",
+    "cpm-sweep-kev",
 )
 
 
@@ -1376,7 +1380,7 @@ def test_every_schedule_entry_fires_the_dispatch_task_by_the_name_it_declares(mo
 def test_the_schedule_dispatches_each_per_package_collector_exactly_once():
     """One entry per collector, and the cadences are the collectors' own.
 
-    Asserted against the five collector modules' declared cadences rather than
+    Asserted against the six collector modules' declared cadences rather than
     against intervals written out here: a literal in this file would be a third
     spelling of a number that already lives in two places, and it would keep
     passing while the schedule and the collectors drifted.
@@ -1398,8 +1402,38 @@ def test_the_schedule_dispatches_each_per_package_collector_exactly_once():
         FEEDSTOCK_NAME: FeedstockCollector.cadence,
         CONDA_PACKAGE_NAME: CondaPackageCollector.cadence,
         VULNERABILITY_NAME: VulnerabilityCollector.cadence,
+        KEV_NAME: KevCollector.cadence,
     }
     assert len(base.CELERY_BEAT_SCHEDULE) == len(dispatched)
+
+
+@pytest.mark.usefixtures("any_settings_module")
+def test_the_kev_dispatch_is_the_one_entry_carrying_a_phase_and_it_is_the_collectors_own():
+    """`CPM-SECURITY-S02`: the KEV sweep cross-references what the vulnerability sweep wrote.
+
+    Firing them from one instant means a KEV run reads the previous day's advisories
+    -- an answer one cadence behind, with nothing saying so. The reconciliation above
+    compares an entry's `schedule` with its collector's declared cadence, so the
+    interval cannot carry a phase and a crontab cannot be read as an interval; beat
+    passes an entry's `options` to `apply_async`, so a countdown on the dispatch is
+    the only phase this schedule can express.
+
+    Asserted against the collector module's own constant rather than against the
+    number, for the reason every cadence here is: a literal in this file would be a
+    second spelling that keeps passing while the two drift. And asserted as the
+    *only* entry carrying options, because a second one appearing without a reason
+    is a schedule nobody decided.
+    """
+    base = importlib.import_module(BASE)
+
+    phased = {
+        entry["kwargs"][COLLECTOR_KWARG]: entry["options"]["countdown"]
+        for entry in base.CELERY_BEAT_SCHEDULE.values()
+        if "options" in entry
+    }
+
+    assert phased == {KEV_NAME: int(KEV_DISPATCH_OFFSET.total_seconds())}
+    assert KevCollector.cadence > KEV_DISPATCH_OFFSET
 
 
 # ---------------------------------------------------------------------------

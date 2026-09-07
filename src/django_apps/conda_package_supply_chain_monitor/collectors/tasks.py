@@ -85,6 +85,10 @@ from django.db import transaction
 from conda_package_supply_chain_monitor.collectors.advisories import advisory_source
 from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
 from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
+from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_COLLECTOR_NAME
+from conda_package_supply_chain_monitor.collectors.kev import KevCollector
+from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
+from conda_package_supply_chain_monitor.collectors.kev import kev_source
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
@@ -97,6 +101,7 @@ from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
 from conda_package_supply_chain_monitor.core.collection import Collector
 from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
 from conda_package_supply_chain_monitor.core.collection import SweepOutcome
+from conda_package_supply_chain_monitor.core.ledger import collection_run
 from conda_package_supply_chain_monitor.core.ledger import current_trace_id
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
@@ -120,6 +125,7 @@ __all__ = [
     "COLLECTOR_NAME",
     "COLLECT_CONDA_PACKAGE_TASK_NAME",
     "COLLECT_FEEDSTOCK_TASK_NAME",
+    "COLLECT_KEV_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "COLLECT_VULNERABILITY_TASK_NAME",
@@ -137,6 +143,7 @@ __all__ = [
     "InventoryRecordError",
     "collect_conda_package",
     "collect_feedstock",
+    "collect_kev",
     "collect_pypi_release",
     "collect_source_release",
     "collect_sweep",
@@ -198,12 +205,17 @@ COLLECT_CONDA_PACKAGE_TASK_NAME: Final[str] = "cpm.collect.conda_package"
 #: the `collect` queue, and the name is the collector's.
 COLLECT_VULNERABILITY_TASK_NAME: Final[str] = "cpm.collect.vulnerability"
 
+#: The KEV-cross-reference task's declared name, on the same terms
+#: (`CPM-SECURITY-S02`, `CPM-FR-12`): the `cpm.collect.` namespace routes it to
+#: the `collect` queue, and the name is the collector's.
+COLLECT_KEV_TASK_NAME: Final[str] = "cpm.collect.kev"
+
 #: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
 #: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
 #: one, and `config/startup/stage_two.py` reconciles the beat schedule against
 #: the same string -- so it is declared in `collectors/sweep.py` beside the
 #: dispatch it fires and imported above, and it is re-exported in `__all__` so a
-#: reader looking for this application's task names finds all seven here -- one
+#: reader looking for this application's task names finds all eight here -- one
 #: per registered collector, plus the dispatch. The
 #: task itself must still be *declared* in this module: Celery's autodiscovery
 #: imports each application's `tasks` module and no other.
@@ -1482,6 +1494,96 @@ def collect_vulnerability(*, package_id: int, force: bool = False) -> str:
         return str(collector.collect(package_id=package_id, force=force).state.value)
 
 
+@shared_task(name=COLLECT_KEV_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_kev(*, package_id: int, force: bool = False) -> str:
+    """Cross-reference one package's current advisories against the KEV catalog (`CPM-FR-12`).
+
+    Package-scoped on the same terms as the five collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`).
+
+    **The transport is passed rather than built**, and it is the *declared KEV
+    source adapter* (`CPM-AD-29`) -- a second slot beside the advisory source's,
+    not a second use of it. Which KEV source this component reads is PRD Open
+    Question 1, so it is substituted at the base's seam exactly as the advisory
+    source is, and the two are declared, withdrawn and refused independently: an
+    operator may licence an advisory database and no catalog, and that is a state
+    worth being able to be in.
+
+    **This component ships with no adapter declared**, so every enqueue of this
+    task raises `KevSourceError` until an operator declares one --
+    and `KevCollector.selectable_packages` offers the sweep nothing at all while
+    nothing is declared, so a scheduled run enqueues no such task.
+
+    **The refusal happens inside an open ledger row**, which is the one place this
+    task's shape differs from `collect_vulnerability`'s. A source withdrawn
+    *between* a dispatch drawing its selection and its tasks running leaves ten
+    thousand enqueued tasks that each refuse; refusing before the recorder opened
+    would leave no trace of any of them -- a day on which nothing was observed and
+    nothing anywhere says so. So a ledger row is opened first and the recorder
+    finalizes it `failed` carrying the reason. **No evidence row is written**: a
+    component with no catalog has not looked, and a row recording that it had would
+    be an observation nobody made.
+
+    **What the collection reads is not only what the catalog said.**
+    `collectors/kev.py` reads `vulnerability_findings` for the advisories to
+    cross-reference, which `CPM-AD-7` does not grant; that module's docstring
+    argues the exception and `CPM-SECURITY-S02`'s Spec Change Log records it. The
+    read is one table, read-only, and never a write.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`).
+
+    **A misconfiguration leaves this task the same way a transient failure does,
+    and Celery cannot tell the two apart** -- the hazard `collect_conda_package`
+    records above, reached here by a third route: `KevSourceError` is permanent by
+    construction, and with nothing declared *every* enqueue raises it. Nothing here
+    declares `autoretry_for`. It is the same `deferred` entry `CPM-CURRENCY-S04`
+    recorded against every collector task at once.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        KevSourceError: When no KEV source adapter is declared -- which is what
+            ships, and what a withdrawal returns a running component to. Raised
+            inside an open ledger row, which the recorder finalizes `failed`; no
+            evidence row is written.
+        KevEvidenceError: When this package's own advisory evidence cannot be
+            cross-referenced -- more current advisories than one collection may
+            record, or a matched finding naming no advisory. An `error` evidence
+            row is written first and the ledger row is `failed`.
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so this
+            leaves nothing behind either.
+        KevDocumentError: When the declared adapter served something that is not a
+            KEV catalog. An `error` evidence row is written first and the ledger
+            row is `failed`, so the run is on the record either way.
+
+    """
+    declared = declared_kev_source()
+    if declared is None:
+        # Opened first and raised inside, so a withdrawal met by an already-enqueued
+        # task records the run rather than vanishing. `kev_source()` is what raises,
+        # rather than a second message here that could drift from it.
+        with collection_run(collector=KEV_COLLECTOR_NAME, clock=SystemClock(), package_id=package_id):
+            kev_source()
+    with KevCollector(clock=SystemClock(), transport=declared) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
 @shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]
 def collect_sweep(*, collector: str) -> str:
     """Enqueue one per-package collection for every package one collector can be asked about.
@@ -1491,7 +1593,7 @@ def collect_sweep(*, collector: str) -> str:
     module that takes a *collector* rather than a package. What it does is
     `collectors/sweep.py`'s dispatch: select, enqueue in chunks, and finalize one
     run-ledger row scoped to no package. It collects nothing itself and makes no
-    outbound call, so nothing about the five collectors' guarantees changes: every
+    outbound call, so nothing about the six collectors' guarantees changes: every
     observation is still written by the per-package task through the collector
     base, in that package's own transaction and under that package's own ledger
     row (`CPM-AD-23`).

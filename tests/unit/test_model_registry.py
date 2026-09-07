@@ -104,6 +104,7 @@ EVIDENCE_MODEL_LABELS: Final[frozenset[str]] = frozenset(
         "collectors.CondaPackageSnapshot",
         "collectors.FeedstockSnapshot",
         "collectors.InventorySnapshot",
+        "collectors.KevFinding",
         "collectors.PyPIReleaseSnapshot",
         "collectors.SourceReleaseSnapshot",
         "collectors.VulnerabilityFinding",

@@ -55,6 +55,7 @@ from django.apps import apps
 
 from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
 from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
+from conda_package_supply_chain_monitor.collectors.kev import KevCollector
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
@@ -945,6 +946,7 @@ def test_the_collectors_that_predate_the_plural_sentinel_hook_declare_nothing_ne
     assert PyPIReleaseCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert FeedstockCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert VulnerabilityCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert KevCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert CondaPackageCollector.sentinel_evidence_rows is not Collector.sentinel_evidence_rows
 
 
@@ -992,7 +994,7 @@ def test_the_collectors_that_predate_the_selection_hook_declare_nothing_new() ->
     Inventory ingestion is run-scoped -- it reads one document naming many
     packages (`CPM-AD-25`) and refuses all three per-package hooks -- so it
     inherits the default, and a later edit that gave it a selection would put it
-    on a per-package sweep it cannot serve. The five per-package collectors are
+    on a per-package sweep it cannot serve. The six per-package collectors are
     asserted to be the ones that *do* override it, which is the anti-vacuity half:
     an identity check over one class would pass just as happily if nobody had
     overridden the hook at all.
@@ -1006,6 +1008,7 @@ def test_the_collectors_that_predate_the_selection_hook_declare_nothing_new() ->
         FeedstockCollector,
         CondaPackageCollector,
         VulnerabilityCollector,
+        KevCollector,
     ):
         assert collector.selectable_packages() is not None
         assert collector.cadence is not None

@@ -1271,12 +1271,179 @@ other error, and Celery cannot tell a permanent refusal from something a retry
 would fix. Do not enable a retry policy for this task before a source is
 declared.
 
+## The KEV collector ships with no catalog source, and cross-references nothing until you declare one
+
+`cpm.collect.kev` takes the advisories the vulnerability collector already
+recorded against a package and asks a KEV catalog which of them are known to be
+exploited (`CPM-FR-12`). Each row it writes carries two facts and no others: a
+**link to the vulnerability finding it derives from**, as a real foreign key, and
+the **date the catalog says it added the advisory**.
+
+**It is a second source and a second declaration.** An advisory database and a KEV
+catalog are different products with different licences, so the two slots are
+independent: declaring an advisory source does not declare a KEV source,
+withdrawing one leaves the other collecting, and each fails under its own name.
+Which KEV sources are available and licensed for use is the same open product
+question that blocks the advisory source, so — as there — the mechanism ships and
+the source does not.
+
+**A KEV row does not say a package is being exploited, and it does not say it is
+safe.** Read the three answers apart:
+
+| The row says | What it means | Links to a finding? | Carries a date? |
+|---|---|---|---|
+| `listed` | this catalog lists an advisory we already recorded against this package | always | when the catalog stated a readable one |
+| `not_listed` | this catalog was read, uses this identifier's scheme, and does not list that advisory — **not** that the advisory is harmless or the package is clear | always | never |
+| `unknown` | nothing was established — either the catalog states no identifier in this advisory's scheme, or this package had no current advisory to cross-reference at all | only in the first of those two | never |
+| `not_found` | the KEV source reports that the **catalog itself** does not exist — a withdrawn or misconfigured source, **not** a package with nothing exploited against it | never | never |
+| `error` | the look failed: the adapter raised, the allowance was spent, or the catalog could not be read | never | never |
+| `not_applicable` | never written; the table refuses it outright | — | — |
+
+**`not_found` is the row to be most careful with.** The base finalizes that run
+`succeeded`, because the source answered — so a withdrawn catalog produces a full
+day of clean-looking runs. The row says so in its `detail` and the component emits
+`kev.catalog_absent`; alert on it.
+
+`unknown` is the other one. Its `detail` always says which of four things happened:
+no advisory source is declared; the vulnerability collector has not observed this
+package; it observed it and matched nothing; or everything it matched is now older
+than this collector calls current. Only the third is a statement about the package.
+It is **never** a statement that nothing against this package is being exploited.
+What a KEV hit *means* for a package — how it ranks, whether it leads a queue — is
+a policy question and no such policy exists yet.
+
+**Declaring a catalog source is a change to this repository, not a setting**, on
+exactly the terms the advisory source is. Three things have to happen together:
+
+**1. Write the adapter.** It satisfies `Transport` — one method, `fetch(locator,
+*, headers=None) -> Payload` — and owes rather more than that:
+
+- **The locator it is handed is `kev://declared-source/catalog`, and it is the same
+  string every time.** The catalog is one document about advisories rather than a
+  question about a package; which of *our* advisories get cross-referenced against
+  it is this product's own evidence and is not something an adapter is told.
+- **The body is JSON in the collector's own schema**, not the catalog's. A
+  top-level object with `entries` (a list, optional) — **and no other field**,
+  because a field the reader does not know is refused rather than dropped. There is
+  no document-level `detail`: a catalog says nothing about our package. Each entry
+  carries `advisory_id` (required, non-blank), an optional `aliases` (a list of the
+  other identifiers the same advisory is issued under, at most 32), and an optional
+  `date_added`. Every value must fit its column and carry no control character; one
+  that does not causes the **whole document** to be refused, so every package
+  records `error` until the source changes. One advisory reachable under two
+  entries — by its own spelling or through an alias — is refused for the same
+  reason: two entries could carry two dates, and choosing between them would be an
+  invention.
+- **State the aliases, or `not_listed` is not trustworthy.** Matching is an exact
+  comparison of identifiers, folded for case, against the identifiers and aliases
+  your catalog states. A finding this product recorded under `GHSA-…`, against an
+  advisory your catalog lists as `CVE-…` with no alias stated, would otherwise read
+  as an advisory the catalog does not list. The collector will not write that: where
+  your catalog states **no identifier at all in the finding's scheme**, it records
+  `unknown` and says why, rather than the reassuring value. That is the safe
+  direction and it is also a quieter table than it should be — a CVE-only catalog
+  against a GHSA-heavy advisory source answers `unknown` for everything. Stating
+  aliases is how you turn those into real answers.
+- **`date_added` must carry an offset, and fall inside 1999–2200.** A value that
+  does not parse, that parses to a naive instant — which is what a bare
+  `2024-02-06` does — or that falls outside that window is recorded as *missing*,
+  with the row saying which of the three it was, rather than guessed at or stored
+  as an instant nothing could read back. The advisory is still recorded as listed;
+  only the date is absent. Emit `2024-02-06T00:00:00Z` rather than `2024-02-06` if
+  you want the date kept.
+- **`found` is yours to set.** `False` means the *catalog locator* does not exist —
+  a withdrawn or misconfigured source — which the collector records as `not_found`
+  with a caveat saying so. A catalog that exists and lists nothing is not that: it
+  is a document with no entries, which records `not_listed` for every current
+  advisory.
+- **Every failure is raised as `TransportError`.** The collector base catches that
+  class and nothing else, so any other exception escapes **before an evidence row is
+  written** — the one way to get no row at all out of this collector.
+- **Never answer `304`/`not_modified`.** This collector declares no response cache,
+  so it sends no validator and holds no body to replay.
+- **Hold the catalog yourself.** The base is per-package, so your adapter is asked
+  once per package for the same document — ten thousand times a day at
+  `CPM-NFR-1`'s inventory. Fetching the catalog over the network on each of those
+  is what will hurt; caching it inside the adapter, with whatever freshness your
+  source's own publication schedule justifies, is the intended shape. The collector
+  deliberately does not cache it: a remembered security answer is the one this
+  product should be slowest to replay.
+
+**2. Declare it, guarded**, in `collectors/apps.py`'s `ready()`, exactly as the
+advisory source is declared:
+
+```python
+from conda_package_supply_chain_monitor.collectors.kev import declare_kev_source
+from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
+
+if not isinstance(declared_kev_source(), YourKevAdapter):
+    declare_kev_source(YourKevAdapter())
+```
+
+A second declaration of a *different* adapter is refused, so "which catalog does
+this component read" can never be answered by import order.
+
+**3. License the call in the audit.** `tests/unit/django_apps/test_kev.py` fails on
+a `declare_kev_source(...)` call anywhere under `src/`. Add the declaring module to
+`MODULES_PERMITTED_TO_DECLARE_A_KEV_SOURCE` in that file, in the same change. The
+set ships empty; adding to it is the pull request that records which catalog this
+deployment chose.
+
+**What an undeclared component looks like, and what to alert on.** The collector is
+registered and scheduled like every other, but its sweep **selects no package at
+all**, and a collection triggered by hand raises before the run ledger opens with a
+message naming `declare_kev_source` — so there is no ledger row and no evidence row.
+A `succeeded` dispatch over an empty selection is byte-identical to a healthy day,
+so the component says so in the log instead. Alert on the structured event:
+
+```
+event = "kev.no_kev_source"   level = warning
+event = "kev.catalog_absent"  level = warning
+```
+
+The first is emitted once per daily dispatch, and it is also what fires if somebody
+withdraws a declared source from a running process. The second is the *declared*
+source's silence: an adapter answering `found=False` writes `not_found` under a
+**`succeeded`** ledger row, because the source answered — so a withdrawn or
+misconfigured catalog produces a full day of clean-looking runs with nothing else
+in the log. It is emitted once per package rather than once per dispatch, which is
+noisier by design: it is the failure a reader of the rows would most easily mistake
+for an answer.
+
+**The declared allowance is thirty requests a minute, and you will need to raise
+it** — the same arithmetic the advisory source's section gives, and it applies
+twice: the base charges four requests per package, which is 7.5 packages a minute
+and about 22 hours for `CPM-NFR-1`'s ten thousand. The two security sweeps fire on
+the same tick and each spends its own allowance against its own source.
+
+**This collector reads the vulnerability collector's evidence table**, which is the
+one place in this product where a collector reads a table it does not write. It is
+read-only, it is one table, and it is what makes the link on every row possible:
+`CPM-FR-12` is defined as a cross-reference of what `CPM-FR-11` recorded.
+
+**"Current" is bounded in time as well as by advisory.** Only the newest
+determinate finding per advisory is cross-referenced, and only while it is no older
+than this collector's own freshness target — two days. That bound is what *retires*
+an advisory: the vulnerability collector records "nothing matched today" as one row
+naming no advisory, so nothing there ever says an advisory has gone, and without
+the bound a single match would be cross-referenced for the life of the package. A
+run that excluded anything says so, in the `detail` of every row it writes.
+
+The practical consequence is worth stating: **if the vulnerability sweep stops
+running, the KEV table goes to `unknown` within two days** rather than repeating
+yesterday's answer indefinitely. That is the intended behaviour and it is what the
+freshness read on `vulnerability_findings` is telling you at the same time.
+
+At most 2,000 cross-references are recorded for one package in one collection; a
+package with more current advisories than that records `error` rather than a
+partial answer.
+
 ## The full-inventory sweep: what beat fires, and what it does not do
 
-**Six collectors are registered and five of them are swept one package at a
-time.** The sixth is inventory ingestion, which reads one document naming many
+**Seven collectors are registered and six of them are swept one package at a
+time.** The seventh is inventory ingestion, which reads one document naming many
 packages and is deliberately absent from the schedule below; every count in this
-section is the five unless it says otherwise. What runs those five across the
+section is the six unless it says otherwise. What runs those six across the
 whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 `django_celery_beat` once per collector at the cadence that collector declares
 (`CPM-NFR-1`, `CPM-FR-15`).
@@ -1284,10 +1451,10 @@ whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 **A dispatch never collects.** It resolves the collector by name, asks it which
 packages it can be asked about, and enqueues one ordinary per-package collection
 task for each — `cpm.collect.source_release`, `cpm.collect.pypi_release`,
-`cpm.collect.feedstock`, `cpm.collect.conda_package` or
-`cpm.collect.vulnerability`, exactly the tasks a manual recollection uses. It
-makes no outbound call, writes no evidence and holds no
-transaction. Every guarantee described in the five sections above therefore holds
+`cpm.collect.feedstock`, `cpm.collect.conda_package`,
+`cpm.collect.vulnerability` or `cpm.collect.kev`, exactly the tasks a manual
+recollection uses. It makes no outbound call, writes no evidence and holds no
+transaction. Every guarantee described in the six sections above therefore holds
 unchanged under a sweep: one package per task, one package per ledger row, one
 package per transaction (`CPM-AD-23`).
 
@@ -1352,11 +1519,27 @@ The shipped pairs are:
 | `feedstock` | weekly |
 | `conda_package` | daily |
 | `vulnerability` | daily |
+| `kev` | daily |
 
-The four daily entries fire together, from one instant, and that is accepted
-rather than overlooked: a dispatch enqueues and returns, so what lands at once is
-four cheap tasks rather than four inventories of I/O, and the collections they
-enqueue are paced by each collector's own rate limiter.
+Four of the five daily entries fire together, from one instant, and that is
+accepted rather than overlooked: a dispatch enqueues and returns, so what lands at
+once is four cheap tasks rather than four inventories of I/O, and the collections
+they enqueue are paced by each collector's own rate limiter.
+
+**The KEV entry is deliberately offset by an hour**, because it cross-references
+what the vulnerability collector wrote: firing them from one instant means a KEV
+run reads the previous day's advisories. The offset is a `countdown` on the entry
+rather than a different interval or a crontab, because the start-up reconciliation
+compares an entry's interval with its collector's declared cadence and cannot read
+a crontab as one.
+
+**It reduces the window and does not close it.** At `CPM-NFR-1`'s ten thousand
+packages the vulnerability sweep spends most of a day inside its own rate limit, so
+an hour buys a small inventory and not a large one — a KEV row can still be
+computed from an advisory observation up to a cadence old. Sequencing the two
+properly would mean one dispatch chaining the other, which the sweep design
+deliberately does not do (one collector failing must never stop another). Read a
+KEV row's `observed_at` against the linked finding's when the lag matters.
 
 Inventory ingestion is deliberately absent: it reads one document naming many
 packages and is not swept one package at a time, so a dispatch refuses it by name.
@@ -1374,6 +1557,7 @@ has reached the mapping it reads, so a dispatch offers:
 | `feedstock` | those whose feedstock mapping is `established`, `not_found` or `not_applicable` |
 | `conda_package` | every package — **or none at all, until you declare channels and platforms** |
 | `vulnerability` | **every package** — or none at all, until you declare an advisory source |
+| `kev` | **every package** — or none at all, until you declare a KEV source |
 
 A package a collector would refuse is never enqueued, so its ledger does not fill
 with `failed` runs for every package nobody has resolved. **Until a resolver
@@ -1390,10 +1574,12 @@ dispatch records one `succeeded` row saying so, and the component says it once a
 day. Declare `CPM_MONITORED_CHANNELS` and `CPM_MONITORED_PLATFORMS` and the sweep
 starts observing on the next tick.
 
-**The vulnerability sweep selects nothing until an advisory source is declared**,
+**The two security sweeps select nothing until their own sources are declared**,
 on the same terms and for a sharper reason: with no source, every enqueued task
 raises *before* the ledger opens, so an undeclared component would leave ten
-thousand tasks a day with no record at all that they ran.
+thousand tasks a day with no record at all that they ran. They are two separate
+declarations: declaring an advisory source does not declare a KEV source, and
+withdrawing either leaves the other collecting.
 
 **Once a source is declared it offers every package** — including packages whose
 `primary_purl` names no version and packages with no package URL at all. That is

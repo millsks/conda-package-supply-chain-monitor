@@ -87,7 +87,7 @@ class CollectorsConfig(AppConfig):
         value the platform composed and not a second selection rule.
 
         **The roster is a loop over a tuple rather than a line per collector.**
-        Eight are coming (`CPM-EP-CURRENCY`, `CPM-EP-SECURITY`, `CPM-EP-PY314`),
+        More are coming (`CPM-EP-CURRENCY`, `CPM-EP-SECURITY`, `CPM-EP-PY314`),
         and the guard below is the part that must not be written eight times: a
         copy of it that compared the wrong name, or that was left off a new
         adoption, would either abort boot on a second `django.setup()` or register
@@ -118,20 +118,27 @@ class CollectorsConfig(AppConfig):
         refused, because "which file is this component's inventory" is exactly
         the question `CPM-AD-29` will not have answered by import order.
 
-        **No advisory source is declared here, and the absence is the
-        declaration.** `collectors/advisories.py` opens the same one-slot seam
-        for `CPM-FR-11`'s vulnerability collector, and this hook deliberately
-        makes no `declare_advisory_source` call: which advisory sources are
-        licensed for use is PRD Open Question 1, it explicitly blocks
-        `CPM-EP-SECURITY`, and a source chosen by default would produce security
-        findings about an organisation's packages that the organisation never
-        agreed to act on. Nothing is refused at boot over it either -- unlike the
-        watchlist path and the monitored channels below, an undeclared advisory
+        **Neither security source is declared here, and the absence is the
+        declaration.** `collectors/advisories.py` opens the one-slot seam for
+        `CPM-FR-11`'s vulnerability collector and `collectors/kev.py` opens a
+        second one for `CPM-FR-12`'s KEV collector, and this hook deliberately
+        makes neither call: which advisory and KEV sources are licensed for use is
+        PRD Open Question 1, it explicitly blocks `CPM-EP-SECURITY`, and a source
+        chosen by default would produce security findings about an organisation's
+        packages that the organisation never agreed to act on. Nothing is refused
+        at boot over either -- unlike the
+        watchlist path and the monitored channels below, an undeclared security
         source is the *shipped* state rather than a settings module that dropped
         an assignment, so a component that refused to start over it would refuse
         to start as designed. What it costs instead is a collector whose sweep
         selects nothing and whose task refuses by name, which
         `docs/deployment.md` tells an operator to expect.
+
+        **Two slots and not one**, because they are two sources: an advisory
+        database and a KEV catalog are different products with different licences,
+        and an operator may reasonably have one and not the other. Declaring one
+        leaves the other's collector observing nothing and saying so, which is a
+        state this component can be in honestly.
 
         **The two refusals about what a collector *declares* are made here, and
         here is the only place they can be made.** `CPM-AD-28`'s freshness
@@ -196,6 +203,7 @@ class CollectorsConfig(AppConfig):
         from conda_package_supply_chain_monitor.collectors.feedstock import (  # noqa: PLC0415 - see above
             FeedstockCollector,
         )
+        from conda_package_supply_chain_monitor.collectors.kev import KevCollector  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.collectors.pypi_release import (  # noqa: PLC0415 - see above
             PyPIReleaseCollector,
         )
@@ -234,6 +242,7 @@ class CollectorsConfig(AppConfig):
             FeedstockCollector,
             CondaPackageCollector,
             VulnerabilityCollector,
+            KevCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)

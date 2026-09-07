@@ -4,20 +4,35 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` and
-`CPM-SECURITY-S01` -- the five surface tables beside it: upstream releases, PyPI
-releases, conda-forge feedstocks, published conda packages and advisory matches.
+against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04`,
+`CPM-SECURITY-S01` and `CPM-SECURITY-S02` -- the six surface tables beside it:
+upstream releases, PyPI releases, conda-forge feedstocks, published conda
+packages, advisory matches and KEV cross-references.
 
-**One module, six tables, and no shared columns beyond the ones every evidence
+**One module, seven tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
 `source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`,
-`conda_package_snapshots` and `vulnerability_findings` are written by six
-collectors that share nothing but the log, and none reads another's. They live
+`conda_package_snapshots`, `vulnerability_findings` and `kev_findings` are written
+by seven collectors that share nothing but the log. They live
 together because Django auto-imports `<app>.models` and no other module, so a
 model declared elsewhere in this application is registered only by whatever
 happens to import it -- which is a table that exists on a developer's machine and
 not in a migration.
+
+**One collector reads a table it does not write, and the exception is licensed by
+an object rather than by this paragraph.** `CPM-AD-7` also says a collector "never
+reads another collector's evidence table". This module used to assert that none
+did; `collectors/kev.py` now does, because `CPM-FR-12` is *defined* as a
+cross-reference of what `CPM-FR-11` recorded and a KEV row that carried no link
+would fail its acceptance criterion outright. The read is one table, read-only,
+reached through this module rather than by importing the sibling collector, and
+never written. `CPM-SECURITY-S02`'s Spec Change Log argues the alternatives and
+hands the judgement to review -- and because a prose clause is not something a
+second reader trips over, `tests/unit/django_apps/test_collector_base_audit.py`
+carries `MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE`, sweeps every
+registered collector in both directions, and fails when a second one takes the
+same read or when the licensed one stops needing it.
 
 **The first evidence model in this repository.** `core/models.py` has carried
 `AppendOnlyModel` since `CPM-EVIDENCE-S02` with nothing inheriting it, and three
@@ -86,10 +101,16 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from conda_package_supply_chain_monitor.collectors.match_confidence import MatchConfidence
+from conda_package_supply_chain_monitor.collectors.outcomes import KEV_NOT_APPLICABLE
+from conda_package_supply_chain_monitor.collectors.outcomes import KEV_UNKNOWN
+from conda_package_supply_chain_monitor.collectors.outcomes import LISTED
 from conda_package_supply_chain_monitor.collectors.outcomes import MATCHED
+from conda_package_supply_chain_monitor.collectors.outcomes import NOT_LISTED
 from conda_package_supply_chain_monitor.collectors.outcomes import VULNERABILITY_NOT_APPLICABLE
+from conda_package_supply_chain_monitor.collectors.outcomes import KevOutcome
 from conda_package_supply_chain_monitor.collectors.outcomes import VulnerabilityOutcome
 from conda_package_supply_chain_monitor.core.clock import is_aware
+from conda_package_supply_chain_monitor.core.models import AppendOnlyError
 from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
 from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
 from conda_package_supply_chain_monitor.identity.models import Package
@@ -106,6 +127,9 @@ __all__ = [
     "ESTABLISHED_ABSENCE_CONSTRAINT",
     "FEEDSTOCK_FACTS_CONSTRAINT",
     "FEEDSTOCK_READ_INDEX",
+    "KEV_APPLICABILITY_CONSTRAINT",
+    "KEV_FACTS_CONSTRAINT",
+    "KEV_READ_INDEX",
     "PYPI_FACTS_CONSTRAINT",
     "PYPI_READ_INDEX",
     "RELEASE_FACTS_CONSTRAINT",
@@ -120,6 +144,7 @@ __all__ = [
     "FeedstockSnapshot",
     "InventoryReadError",
     "InventorySnapshot",
+    "KevFinding",
     "PyPIReleaseSnapshot",
     "SourceReleaseSnapshot",
     "VulnerabilityFinding",
@@ -389,6 +414,26 @@ _ADVISORY_LOCATOR_LENGTH: Final[int] = 768
 VULNERABILITY_FACTS_CONSTRAINT: Final[str] = "vulnerability_facts_present_exactly_when_matched"
 VULNERABILITY_APPLICABILITY_CONSTRAINT: Final[str] = "vulnerability_applies_to_every_package"
 VULNERABILITY_READ_INDEX: Final[str] = "vuln_finding_pkg_observed"
+
+#: The names of the two constraints `kev_findings` carries, and the read index its
+#: freshness query needs, declared on the terms every name above is: the model
+#: declares them and the cases that assert the database refuses a violation name
+#: them too.
+#:
+#: Two constraints and **no unique constraint of any kind** (`CPM-AD-2`): two
+#: cross-references of one advisory are two rows, and a re-observation must
+#: insert. The first constraint is the biconditional that makes the catalog facts
+#: present exactly where they are true -- the link to the vulnerability finding on
+#: every row derived from one, the catalog date only where the catalog listed the
+#: advisory. The second is this table's own, and is the sibling's rule reached for
+#: the same reason: `not_applicable` is a value the vocabulary carries by
+#: construction and this table may never hold.
+#:
+#: Django caps an index name at 30 characters, which is why it does not spell out
+#: `kev_finding` twice.
+KEV_FACTS_CONSTRAINT: Final[str] = "kev_facts_present_exactly_when_cross_referenced"
+KEV_APPLICABILITY_CONSTRAINT: Final[str] = "kev_applies_to_every_package"
+KEV_READ_INDEX: Final[str] = "kev_finding_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -1737,3 +1782,294 @@ class VulnerabilityFinding(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{advisory} against {against} for {scope}: {self.state} at {when}"
+
+
+class KevFinding(AppendOnlyModel):
+    """One cross-reference of one advisory against the KEV catalog. Table `kev_findings`.
+
+    PRD Appendix A.2 gives this table exactly two facts -- "link to the
+    vulnerability finding, KEV catalog date added" -- and `CPM-FR-12` is where they
+    come from: "a KEV finding links to the vulnerability finding it derives from
+    and records the catalog date added".
+
+    **The link is the whole point, and it is a real foreign key.** A row keyed by
+    advisory identifier alone would leave a reviewer to re-derive which observation
+    it came from, against a table that accumulates several rows per advisory --
+    and nothing else in this product would ever create that link. The relation is
+    `PROTECT` on the same terms `package` is (`EVIDENCE.02-AUDIT-001`): Django's
+    deletion collector bypasses every append-only refusal in `core/models.py`, so
+    `CASCADE` here would destroy a KEV observation when the advisory observation it
+    derives from went.
+
+    **It is nullable, and the rows that leave it null are the rows that derive from
+    no finding** -- the `unknown` one a package with nothing to cross-reference
+    gets, and the `error` and `not_found` rows the base writes. Inventing a link to
+    an unrelated finding would be worse than leaving it absent, and
+    `Meta.constraints` makes that a rule rather than a convention. An `unknown` row
+    *may* carry one: a finding whose advisory identifier uses a scheme the catalog
+    never states is an advisory the catalog cannot speak to, and that row is about
+    one specific advisory and names it.
+
+    **The linked finding must be about this same package, and that is not a check
+    constraint** -- because SQL cannot make it one. A `CHECK` is evaluated per row
+    against that row's own columns; the predicate here spans two tables, and Django
+    offers no joined constraint. The one relational spelling that would work is a
+    composite foreign key on `(package, vulnerability_finding)`, which needs a
+    `UniqueConstraint` over `(package, id)` on `vulnerability_findings` --
+    `EVIDENCE.02-AUDIT-003` bans a unique constraint on an evidence model outright,
+    for `CPM-AD-2`'s reasons, and this is not the story to reopen that. So the rule
+    is held in three places instead, and each closes a different writer:
+    `save()` below refuses the mismatch, which is every write that constructs an
+    instance -- `objects.create()` included; `collectors/kev.py` takes the row's
+    package *from the finding* rather than from the run, so the collector's own
+    `bulk_create` cannot produce one; and raw SQL is closed by
+    `EVIDENCE.02-AUDIT-002`. What is left uncovered is a hand-written `bulk_create`
+    by some future writer, and it is named here rather than left to be discovered.
+
+    **One row per current advisory, and never one row for several.** Three current
+    findings are three cross-references and three rows, each linking to its own
+    finding, because a reviewer's question is about one advisory at a time -- is
+    *this* one being used against people -- and a row standing for several could
+    not answer it for any of them.
+
+    **A package with nothing to cross-reference still gets a row, and it carries
+    `unknown`.** `CPM-FR-6` and `CPM-SM-2` again: a package this product has no
+    advisory for has not been shown to be free of known-exploited vulnerabilities,
+    it has been shown that there was nothing here to ask about. A package with no
+    row would read as never-observed, and there would be nothing anywhere
+    distinguishing "we cross-referenced and nothing is listed" from "nobody
+    looked".
+
+    **The determinate values are `listed` and `not_listed`, and emphatically not
+    `ok`.** On this table a determinate row is either an advisory the catalog says
+    is being exploited or an advisory it says it is not -- and `core`'s single
+    precedence order ranks `ok` best of five while `CPM-AD-24` carries a state's
+    value verbatim onto every read surface. A table using `ok` for the listed half
+    would render exactly the known-exploited packages as the clean ones, which is
+    the correction `CPM-SECURITY-S01` was patched for and which is made here by
+    construction. `collectors/outcomes.py` composes the vocabulary and argues both
+    values at length.
+
+    **`catalog_date_added` may be blank on a `listed` row, and blank means
+    missing** (PRD Appendix A.1). Two things reach that state and `detail` says
+    which: the catalog listed the advisory and stated no date, or it stated one
+    this collector could not read as an aware instant. Neither is guessed -- a date
+    inferred from a catalog's own publication, or a naive value assumed to be UTC,
+    would be a permanent claim about when an advisory became known-exploited that
+    nobody made (`CPM-AD-26`).
+
+    **Nothing here is ranked, weighed or rolled up.** What a KEV hit *means* for a
+    package -- how it ranks against a severity, whether it leads a queue -- is
+    `CPM-FR-17`'s policy pass (`CPM-AD-8`), which is `CPM-SECURITY-S04`.
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    #:
+    #: Carried even on a row that also names a vulnerability finding, which names
+    #: the same package. Not redundant: every read of this table is per package and
+    #: newest-first (`core/freshness.py`), and reaching the package through the
+    #: nullable link would make that read a join that no row without a link could
+    #: satisfy at all.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="kev_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The vulnerability finding this cross-reference derives from -- AC 1's link,
+    #: as a foreign key rather than as a copied identifier. NULL exactly on a row
+    #: that derives from no finding; see the class docstring and `Meta.constraints`.
+    vulnerability_finding = models.ForeignKey(
+        VulnerabilityFinding,
+        on_delete=models.PROTECT,
+        related_name="kev_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("vulnerability finding"),
+    )
+
+    #: Where this observation came from -- the locator the declared KEV source
+    #: adapter recorded for the catalog it served, or the locator this run asked
+    #: about where no catalog answer was read. It is what makes the source pluggable
+    #: without the policy layer learning which one is active (`CPM-AD-29`): a policy
+    #: reads this column like any other evidence's.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the cross-reference concluded, over `KevOutcome` and emitted verbatim
+    #: (`CPM-AD-24`). See the class docstring for what each value means here, and
+    #: `collectors/outcomes.py` for why neither determinate value is `ok`.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=KevOutcome.choices)
+
+    #: When the catalog says it added the advisory -- AC 1's second fact, as the
+    #: catalog stated it. NULL on every row that is not `listed`, and NULL on a
+    #: `listed` row whose catalog stated no date or stated one this collector could
+    #: not read; `detail` says which.
+    catalog_date_added = models.DateTimeField(_("catalog date added"), null=True, blank=True, default=None)
+
+    #: What the collector or the base had to say about this observation -- that the
+    #: catalog does not list this advisory, that it listed it and stated no date,
+    #: that it stated a date that could not be read, or that this package had no
+    #: current vulnerability finding to cross-reference at all.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table PRD Appendix A.2 names, not the `collectors_kevfinding` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Two
+        cross-references of one advisory are two rows, and idempotency is the run
+        ledger's property rather than this table's. Here the tuple that looks
+        unique -- `(package, vulnerability_finding)` -- is exactly the tuple a
+        re-observation repeats, every day, for as long as that finding stays the
+        current one for its advisory.
+        """
+
+        db_table = "kev_findings"
+        verbose_name = _("KEV finding")
+        verbose_name_plural = _("KEV findings")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on
+            # the terms `VULNERABILITY_READ_INDEX` states. Django's automatic
+            # foreign-key index covers the filter alone and leaves the sort to a
+            # scan of that package's whole cross-reference history, which grows
+            # daily -- and grows once per current advisory rather than once per
+            # package, so it is the faster-growing history of the two.
+            models.Index(fields=["package", "-observed_at"], name=KEV_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, and every conjunct is load bearing.
+            #
+            # A determinate row is a *cross-reference*, and CPM-FR-12 fixes what
+            # one says: which vulnerability finding it derives from, and -- where
+            # the catalog listed the advisory -- the date it was added. A
+            # determinate row with no link is the row AC 1 exists to forbid: a
+            # claim about an advisory nothing ties to the observation that found
+            # it, in a table nothing may correct.
+            #
+            # An `unknown` row may carry a link or not, and the two are different
+            # facts rather than a loosened rule. One is about a *specific*
+            # advisory the catalog cannot speak to -- it states no identifier in
+            # that advisory's scheme, so its silence establishes nothing -- and it
+            # names which advisory, because a reader has to know. The other is a
+            # package with nothing to cross-reference at all, which derives from no
+            # finding and names none.
+            #
+            # An `error` or `not_found` row carries no link, because the catalog
+            # never answered: a link there would be a fact about a document that
+            # does not exist.
+            #
+            # A catalog date is permitted only on a `listed` row, and that half is
+            # the one a later edit is likeliest to lose. A date on a `not_listed`
+            # row would say the catalog both does and does not list the advisory;
+            # a date on an `unknown` or sentinel row would be a date for an
+            # advisory nothing named.
+            #
+            # `state` is NOT NULL and an `IS NULL` test is never itself NULL, so
+            # this expression is always true or false and never the third thing a
+            # SQL CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state=LISTED) & models.Q(vulnerability_finding__isnull=False))
+                    | (
+                        models.Q(state=NOT_LISTED)
+                        & models.Q(vulnerability_finding__isnull=False, catalog_date_added__isnull=True)
+                    )
+                    | (models.Q(state=KEV_UNKNOWN) & models.Q(catalog_date_added__isnull=True))
+                    | (
+                        ~models.Q(state=LISTED)
+                        & ~models.Q(state=NOT_LISTED)
+                        & ~models.Q(state=KEV_UNKNOWN)
+                        & models.Q(vulnerability_finding__isnull=True, catalog_date_added__isnull=True)
+                    )
+                ),
+                name=KEV_FACTS_CONSTRAINT,
+            ),
+            # The one value this vocabulary carries and this table may not hold,
+            # on the terms `VULNERABILITY_APPLICABILITY_CONSTRAINT` states: it
+            # arrives in `KevOutcome` by construction because `outcome_type`
+            # supplies all four sentinels and refuses a type that drops one, and a
+            # KEV question applies to every package that could have an advisory
+            # against it -- which is every package. `KevCollector` refuses it at
+            # `sentinel_evidence` and `inapplicability` never answers a reason, but
+            # both of those are one writer's rules; this is the table's, and it
+            # holds against every writer this product ever grows.
+            #
+            # `state` is NOT NULL, so this expression is always true or false and
+            # never the third thing a SQL CHECK can be.
+            models.CheckConstraint(
+                condition=~models.Q(state=KEV_NOT_APPLICABLE),
+                name=KEV_APPLICABILITY_CONSTRAINT,
+            ),
+        ]
+
+    def save(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        """Insert the cross-reference, refusing one that names another package's observation.
+
+        The rule the class docstring argues cannot be a check constraint, held at
+        the one place every write that constructs an instance passes -- which is
+        `objects.create()` and every hand-written `save()`. It costs one primary-key
+        read, and only on a row that carries a link.
+
+        Args:
+            args: Passed to `AppendOnlyModel.save`, which refuses a positional
+                caller by name. Not read here.
+            kwargs: Passed to `AppendOnlyModel.save` unchanged.
+
+        Raises:
+            AppendOnlyError: When the linked vulnerability finding is about a
+                different package. Raised as the base's own error rather than a new
+                class, because it is the same kind of defect every other refusal on
+                this write path is: a row that would misrepresent an observation,
+                permanently, in a table nothing may correct.
+
+        """
+        if self.vulnerability_finding_id is not None:
+            about = (
+                VulnerabilityFinding.objects.filter(pk=self.vulnerability_finding_id)
+                .values_list("package_id", flat=True)
+                .first()
+            )
+            if about is not None and about != self.package_id:
+                message = (
+                    f"this kev_findings row is about package {self.package_id} and links to vulnerability "
+                    f"finding {self.vulnerability_finding_id}, which is an observation of package {about}. A "
+                    f"cross-reference derives from an advisory recorded against the package it is about "
+                    f"(CPM-FR-12); a row pairing two would say the catalog listed an advisory against a package "
+                    f"nobody matched it to."
+                )
+                raise AppendOnlyError(message, model_label="collectors.KevFinding", pk=self.pk)
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+    def __str__(self) -> str:
+        """Return the finding this derives from, the state and when it was observed.
+
+        Returns:
+            A one-line summary, read off `vulnerability_finding_id` and
+            `package_id` rather than off the related objects, for the reason
+            `VulnerabilityFinding.__str__` gives: the related object of an unsaved
+            instance raises, and a `__str__` that raises breaks a debugger and a
+            traceback alike.
+
+        """
+        derives = (
+            "no vulnerability finding"
+            if self.vulnerability_finding_id is None
+            else f"vulnerability finding {self.vulnerability_finding_id}"
+        )
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        return f"{derives} for {scope}: {self.state} at {when}"
