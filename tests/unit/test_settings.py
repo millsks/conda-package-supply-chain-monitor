@@ -26,6 +26,8 @@ from conda_package_supply_chain_monitor.collectors.source_release import COLLECT
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
 from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
+from conda_package_supply_chain_monitor.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
+from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
 from conda_package_supply_chain_monitor.core import queues
 from conda_package_supply_chain_monitor.core import roles
 from config.authorization import claims
@@ -1264,6 +1266,7 @@ EXPECTED_SWEEP_ENTRIES = (
     "cpm-sweep-pypi-release",
     "cpm-sweep-feedstock",
     "cpm-sweep-conda-package",
+    "cpm-sweep-vulnerability",
 )
 
 
@@ -1373,7 +1376,7 @@ def test_every_schedule_entry_fires_the_dispatch_task_by_the_name_it_declares(mo
 def test_the_schedule_dispatches_each_per_package_collector_exactly_once():
     """One entry per collector, and the cadences are the collectors' own.
 
-    Asserted against the four collector modules' declared cadences rather than
+    Asserted against the five collector modules' declared cadences rather than
     against intervals written out here: a literal in this file would be a third
     spelling of a number that already lives in two places, and it would keep
     passing while the schedule and the collectors drifted.
@@ -1394,6 +1397,7 @@ def test_the_schedule_dispatches_each_per_package_collector_exactly_once():
         PYPI_RELEASE_NAME: PyPIReleaseCollector.cadence,
         FEEDSTOCK_NAME: FeedstockCollector.cadence,
         CONDA_PACKAGE_NAME: CondaPackageCollector.cadence,
+        VULNERABILITY_NAME: VulnerabilityCollector.cadence,
     }
     assert len(base.CELERY_BEAT_SCHEDULE) == len(dispatched)
 

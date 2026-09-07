@@ -89,8 +89,8 @@ development_status:
   epic-currency-retrospective: optional
 
   # CPM-EP-SECURITY: Vulnerability, KEV and licence exposure
-  epic-security: backlog
-  cpm-security-s01-vulnerability-evidence-ranges-match-confidence: ready-for-dev
+  epic-security: in-progress
+  cpm-security-s01-vulnerability-evidence-ranges-match-confidence: done
   cpm-security-s02-kev-cross-reference: ready-for-dev
   cpm-security-s03-licence-evidence-raw-normalized: ready-for-dev
   cpm-security-s04-vulnerability-kev-rollup: ready-for-dev

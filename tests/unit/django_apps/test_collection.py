@@ -58,6 +58,7 @@ from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCol
 from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
+from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
 from conda_package_supply_chain_monitor.core.clock import FixedClock
 from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
@@ -918,7 +919,7 @@ def test_a_collector_that_declares_nothing_about_sentinel_rows_writes_the_one_ro
     assert len(Collector.sentinel_evidence_rows(collector, state=OutcomeState.ERROR, **_SENTINEL_ASK)) == 1
 
 
-def test_the_four_collectors_that_predate_the_plural_sentinel_hook_declare_nothing_new() -> None:
+def test_the_collectors_that_predate_the_plural_sentinel_hook_declare_nothing_new() -> None:
     """ "The existing collectors declare nothing new", asserted on the real classes.
 
     `CPM-CURRENCY-S04` added `sentinel_evidence_rows` with a default so that the
@@ -929,14 +930,21 @@ def test_the_four_collectors_that_predate_the_plural_sentinel_hook_declare_nothi
     `test_the_two_collectors_that_predate_the_hook_declare_nothing_new` pins
     `inapplicability`.
 
+    `CPM-SECURITY-S01`'s collector, written *after* the hook existed, inherits it
+    too and for the reason the four before it do: it observes one surface per
+    package, so one sentinel row is the whole of what any sentinel path owes it.
+    A collector added after a hook is where an unnecessary override is likeliest,
+    which is why it is pinned here rather than only in its own module.
+
     `CondaPackageCollector` is asserted to be the one that *does* override it,
-    which is the anti-vacuity half: an identity check over four classes would pass
+    which is the anti-vacuity half: an identity check over five classes would pass
     just as happily if the hook had never been overridden by anybody.
     """
     assert InventoryIngestionCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert SourceReleaseCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert PyPIReleaseCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert FeedstockCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
+    assert VulnerabilityCollector.sentinel_evidence_rows is Collector.sentinel_evidence_rows
     assert CondaPackageCollector.sentinel_evidence_rows is not Collector.sentinel_evidence_rows
 
 
@@ -984,7 +992,7 @@ def test_the_collectors_that_predate_the_selection_hook_declare_nothing_new() ->
     Inventory ingestion is run-scoped -- it reads one document naming many
     packages (`CPM-AD-25`) and refuses all three per-package hooks -- so it
     inherits the default, and a later edit that gave it a selection would put it
-    on a per-package sweep it cannot serve. The four per-package collectors are
+    on a per-package sweep it cannot serve. The five per-package collectors are
     asserted to be the ones that *do* override it, which is the anti-vacuity half:
     an identity check over one class would pass just as happily if nobody had
     overridden the hook at all.
@@ -997,6 +1005,7 @@ def test_the_collectors_that_predate_the_selection_hook_declare_nothing_new() ->
         PyPIReleaseCollector,
         FeedstockCollector,
         CondaPackageCollector,
+        VulnerabilityCollector,
     ):
         assert collector.selectable_packages() is not None
         assert collector.cadence is not None

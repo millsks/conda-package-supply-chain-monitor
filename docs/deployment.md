@@ -1131,19 +1131,163 @@ while the per-package document answers the question about one in kilobytes.
 the channel spelled it. Whether it is *behind* anything is `CPM-FR-16`'s policy
 with a versioned threshold, and no such policy exists yet.
 
+## The vulnerability collector ships with no advisory source, and observes nothing until you declare one
+
+`cpm.collect.vulnerability` matches a package and the version its identity names
+against an advisory source, and records one row per matched advisory
+(`CPM-FR-11`) — the advisory identifier, the severity as the source stated it,
+the affected range, the fixed range, the version it was matched against, the
+source, and the **match confidence**, which is how surely the source says the
+advisory applies. Match confidence is not the package-identity confidence
+elsewhere in this product; the two are unrelated and are never abbreviated to the
+same word.
+
+**No advisory source ships, and that is the intended behaviour rather than a
+gap.** Which advisory sources are available and licensed for use is an open
+product question, and a component that read a source nobody chose would record
+security findings your organisation never agreed to act on — permanently, in a
+log nothing may correct. So the mechanism ships and the source does not.
+
+**Declaring one is a change to this repository, not a setting.** The source is an
+*adapter* substituted at the collector base's transport seam, the same mechanism
+the inventory watchlist uses. Three things have to happen together:
+
+**1. Write the adapter.** It satisfies `Transport` — one method, `fetch(locator,
+*, headers=None) -> Payload` — and owes rather more than that:
+
+- **The locator it is handed** is `advisory://declared-source/<the package's
+  primary purl>`, or
+  `advisory://declared-source/unnameable-identity/<package key>` when this
+  product's identity for that package names no usable package URL. The scheme is
+  opaque on purpose: the adapter already knows which API or file it reads. Parse
+  the purl out of it; answer the `unnameable-identity` form however you like,
+  because the collector discards that answer.
+- **The body is JSON in the collector's own schema**, not the source's. A
+  top-level object with `identified` (boolean, **required**), `findings` (list,
+  optional) and `detail` (string, optional) — **and no other field**, because a
+  field the reader does not know is refused rather than dropped. Each finding
+  carries `advisory_id`, `affected_range` and `match_confidence`, all required
+  and non-blank, plus optional `severity` and `fixed_range`. `match_confidence`
+  must be `exact-version`, `exact-range` or `name-only`. Every value must fit its
+  column (advisory 128 characters, severity 256, each range 1024) and carry no
+  control character; one that does not causes the **whole document** to be
+  refused, so that package records `error` until the source changes.
+- **`found` is yours to set.** `False` means the *locator* does not exist —
+  a withdrawn or misconfigured source. "I have no record of this package" is
+  **not** that: it is a document answering `identified: false`, which the
+  collector records as `unknown`. Conflating them writes the one row on this
+  table a reader could mistake for a clean answer.
+- **Every failure is raised as `TransportError`.** The collector base catches
+  that class and nothing else, so any other exception escapes **before an
+  evidence row is written** — the one way to get no row at all out of this
+  collector. Convert your client library's exceptions, including the ones raised
+  while building a request.
+- **Never answer `304`/`not_modified`.** This collector declares no response
+  cache, so it sends no validator and holds no body to replay; a `304` fails the
+  run with nothing to read.
+
+**2. Declare it, guarded.** `AppConfig.ready()` is Django's to call and a second
+`django.setup()` in one process calls it again, while a second declaration is
+refused — so the unguarded form aborts boot. Use the shape the inventory adapter
+already uses, in `collectors/apps.py`'s `ready()`:
+
+```python
+from conda_package_supply_chain_monitor.collectors.advisories import declare_advisory_source
+from conda_package_supply_chain_monitor.collectors.advisories import declared_advisory_source
+
+if not isinstance(declared_advisory_source(), YourAdvisoryAdapter):
+    declare_advisory_source(YourAdvisoryAdapter())
+```
+
+A second declaration of a *different* adapter is still refused, so "which
+advisory database does this component read" can never be answered by import
+order.
+
+**3. License the call in the audit.**
+`tests/unit/django_apps/test_vulnerability.py` fails on a
+`declare_advisory_source(...)` call anywhere under `src/` — that audit is what
+proves *this* repository ships no source, and every application lives under
+`src/`, so declaring one makes it fail by design. Add the declaring module to
+`MODULES_PERMITTED_TO_DECLARE_AN_ADVISORY_SOURCE` in that file, in the same
+change. The set ships empty; adding to it is the pull request that records which
+source this deployment chose, which is the point.
+
+**What an undeclared component looks like, and what to alert on.** The collector
+is registered and scheduled like every other, but:
+
+- its sweep **selects no package at all**, so the daily dispatch records one
+  `succeeded` run saying the selection was empty rather than enqueueing ten
+  thousand tasks that cannot run;
+- a collection triggered by hand raises before the run ledger opens, with a
+  message naming `declare_advisory_source`, so there is **no ledger row and no
+  evidence row** — a component with no source has not looked, and nothing records
+  that it did.
+
+A `succeeded` dispatch over an empty selection is byte-identical to a healthy day
+on which nothing needed collecting, so **the component says so in the log
+instead**. Alert on the structured event:
+
+```
+event = "vulnerability.no_advisory_source"   level = warning
+```
+
+It is emitted wherever the selection is asked for — once at every process start,
+because the boot reconciliation asks every registered collector for its
+selection, and once per daily dispatch. It is the only signal that this component
+has stopped looking for vulnerabilities, and it is also what fires if somebody
+withdraws a declared source from a running process.
+
+**Egress is whatever your adapter needs**, and this component names no host of
+its own: nothing under `src/` spells an advisory API's name, which is the whole
+point of the seam.
+
+**The declared allowance is thirty requests a minute, and you will need to raise
+it.** The base charges `1 + retries` per collection, which at the declared three
+retries is **four requests per package** — so thirty a minute is **7.5 packages a
+minute**, 450 an hour, and `CPM-NFR-1`'s ten thousand packages in about **22
+hours of a 24-hour cadence**. That fits, with almost nothing spare and no margin
+for a retry storm. It is a courtesy bound rather than a ceiling any source
+published, because no source is chosen; reconcile it against what your source
+actually publishes, in the same change that declares the adapter.
+
+**A package the collector could not match records `unknown`, never clean.** Four
+different things produce that row and each says which in `detail`: the source was
+read and matched nothing; the source could not identify the package; this
+package's identity names no version to match a range against; or its identity
+names no package URL at all. A row saying "nothing matched" is **not** a
+statement that the package is safe, and the one row that could be mistaken for
+one — the source reporting that the locator itself does not exist — carries a
+sentence saying so.
+
+**Nothing here ranks or evaluates anything.** The severity is the string the
+source stated, the ranges are the expressions the source wrote, and whether the
+version sits inside a range is a question the *source* answered. Turning any of
+that into a verdict is a policy pass with a versioned rule set, and no such
+policy exists yet.
+
+**A misconfiguration and a transient failure leave this task the same way.** An
+undeclared advisory source raises out of `cpm.collect.vulnerability` like any
+other error, and Celery cannot tell a permanent refusal from something a retry
+would fix. Do not enable a retry policy for this task before a source is
+declared.
+
 ## The full-inventory sweep: what beat fires, and what it does not do
 
-Four collectors observe one package each per run. What runs them across the whole
-inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
+**Six collectors are registered and five of them are swept one package at a
+time.** The sixth is inventory ingestion, which reads one document naming many
+packages and is deliberately absent from the schedule below; every count in this
+section is the five unless it says otherwise. What runs those five across the
+whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 `django_celery_beat` once per collector at the cadence that collector declares
 (`CPM-NFR-1`, `CPM-FR-15`).
 
 **A dispatch never collects.** It resolves the collector by name, asks it which
 packages it can be asked about, and enqueues one ordinary per-package collection
 task for each — `cpm.collect.source_release`, `cpm.collect.pypi_release`,
-`cpm.collect.feedstock` or `cpm.collect.conda_package`, exactly the tasks a manual
-recollection uses. It makes no outbound call, writes no evidence and holds no
-transaction. Every guarantee described in the four sections above therefore holds
+`cpm.collect.feedstock`, `cpm.collect.conda_package` or
+`cpm.collect.vulnerability`, exactly the tasks a manual recollection uses. It
+makes no outbound call, writes no evidence and holds no
+transaction. Every guarantee described in the five sections above therefore holds
 unchanged under a sweep: one package per task, one package per ledger row, one
 package per transaction (`CPM-AD-23`).
 
@@ -1207,10 +1351,11 @@ The shipped pairs are:
 | `pypi_release` | daily |
 | `feedstock` | weekly |
 | `conda_package` | daily |
+| `vulnerability` | daily |
 
-The three daily entries fire together, from one instant, and that is accepted
+The four daily entries fire together, from one instant, and that is accepted
 rather than overlooked: a dispatch enqueues and returns, so what lands at once is
-three cheap tasks rather than three inventories of I/O, and the collections they
+four cheap tasks rather than four inventories of I/O, and the collections they
 enqueue are paced by each collector's own rate limiter.
 
 Inventory ingestion is deliberately absent: it reads one document naming many
@@ -1228,6 +1373,7 @@ has reached the mapping it reads, so a dispatch offers:
 | `pypi_release` | those whose release-ecosystem mapping is `established` or `not_applicable` |
 | `feedstock` | those whose feedstock mapping is `established`, `not_found` or `not_applicable` |
 | `conda_package` | every package — **or none at all, until you declare channels and platforms** |
+| `vulnerability` | **every package** — or none at all, until you declare an advisory source |
 
 A package a collector would refuse is never enqueued, so its ledger does not fill
 with `failed` runs for every package nobody has resolved. **Until a resolver
@@ -1243,6 +1389,22 @@ thousand `failed` rows a day, out of the box. Instead the selection is empty, th
 dispatch records one `succeeded` row saying so, and the component says it once a
 day. Declare `CPM_MONITORED_CHANNELS` and `CPM_MONITORED_PLATFORMS` and the sweep
 starts observing on the next tick.
+
+**The vulnerability sweep selects nothing until an advisory source is declared**,
+on the same terms and for a sharper reason: with no source, every enqueued task
+raises *before* the ledger opens, so an undeclared component would leave ten
+thousand tasks a day with no record at all that they ran.
+
+**Once a source is declared it offers every package** — including packages whose
+`primary_purl` names no version and packages with no package URL at all. That is
+deliberate and it costs a collection a day for packages this product cannot
+match. The alternative was worse: a narrower selection means those packages are
+never enqueued, never write a row, and therefore read as *never observed* — which
+is not stale, is not `unknown`, and is exactly the silence this collector's
+`unknown` row exists to prevent. The row is only worth writing if a scheduled run
+writes it. Those collections still spend the allowance above, so count the whole
+inventory rather than the matchable part of it when you size the source's rate
+limit.
 
 ### What bounds a sweep
 
@@ -1286,7 +1448,7 @@ line** under `sweep.package_refused`, carrying the collector, the task and the
 `package_id`. That is the recovery path: filter the logs for that event and that
 collector to get the packages the sweep did not offer.
 
-**Rate limits are per collector and are not yet a sweep rate.** Each of the four
+**Rate limits are per collector and are not yet a sweep rate.** Each of the five
 declares its own allowance, and at `1 + retries` per collection none of them
 sweeps ten thousand packages inside its declared cadence today. The dispatch does
 not change that arithmetic: it enqueues the work, and the per-collector limiter

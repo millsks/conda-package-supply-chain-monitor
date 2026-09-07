@@ -604,7 +604,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # **not** buy is an operator changing one of *these four* intervals without a
 # deploy -- the scheduler rewrites every entry it finds here on each beat start,
 # so a value edited in the admin is live only until beat restarts. Cadence as data
-# is what lets a *later* schedule be added or changed in the tables; these four
+# is what lets a *later* schedule be added or changed in the tables; these five
 # are the declaration, and changing one is a pull request. docs/deployment.md says
 # the same thing to an operator.
 #
@@ -622,11 +622,11 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # which is the failure CPM-CURRENCY-S01 recorded and this reconciliation exists
 # to prevent.
 #
-# **The three daily entries fire together, and that is accepted rather than
-# overlooked.** Beat starts them from one instant, so three dispatches land on the
+# **The four daily entries fire together, and that is accepted rather than
+# overlooked.** Beat starts them from one instant, so four dispatches land on the
 # `collect` queue at once. A dispatch enqueues and returns -- it makes no outbound
-# call and holds no transaction -- so what arrives simultaneously is three cheap
-# tasks rather than three inventories of I/O, and the collections they enqueue are
+# call and holds no transaction -- so what arrives simultaneously is four cheap
+# tasks rather than four inventories of I/O, and the collections they enqueue are
 # then bounded by each collector's own rate limiter, which is where the real
 # pacing lives (CPM-AD-20). Offsetting them would need crontab entries, which the
 # reconciliation below deliberately cannot read as intervals.
@@ -661,6 +661,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "cpm.collect.sweep",
         "schedule": timedelta(days=1),
         "kwargs": {"collector": "conda_package"},
+    },
+    "cpm-sweep-vulnerability": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=1),
+        "kwargs": {"collector": "vulnerability"},
     },
 }
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events

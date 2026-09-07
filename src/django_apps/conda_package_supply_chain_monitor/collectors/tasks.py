@@ -82,6 +82,7 @@ from celery import shared_task
 from django.db import DatabaseError
 from django.db import transaction
 
+from conda_package_supply_chain_monitor.collectors.advisories import advisory_source
 from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
 from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
 from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
@@ -89,6 +90,7 @@ from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIRelea
 from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
 from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
 from conda_package_supply_chain_monitor.collectors.sweep import dispatch
+from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
 from conda_package_supply_chain_monitor.core.clock import SystemClock
 from conda_package_supply_chain_monitor.core.collection import NO_CACHE
 from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
@@ -120,6 +122,7 @@ __all__ = [
     "COLLECT_FEEDSTOCK_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
+    "COLLECT_VULNERABILITY_TASK_NAME",
     "INGEST_TASK_NAME",
     "INVENTORY_SOURCE",
     "MAX_COUNT",
@@ -137,6 +140,7 @@ __all__ = [
     "collect_pypi_release",
     "collect_source_release",
     "collect_sweep",
+    "collect_vulnerability",
     "declare_inventory_adapter",
     "declared_inventory_adapter",
     "ingest_inventory",
@@ -189,12 +193,18 @@ COLLECT_FEEDSTOCK_TASK_NAME: Final[str] = "cpm.collect.feedstock"
 #: it, and the name is the collector's.
 COLLECT_CONDA_PACKAGE_TASK_NAME: Final[str] = "cpm.collect.conda_package"
 
+#: The vulnerability-collection task's declared name, on the same terms
+#: (`CPM-SECURITY-S01`, `CPM-FR-11`): the `cpm.collect.` namespace routes it to
+#: the `collect` queue, and the name is the collector's.
+COLLECT_VULNERABILITY_TASK_NAME: Final[str] = "cpm.collect.vulnerability"
+
 #: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
 #: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
 #: one, and `config/startup/stage_two.py` reconciles the beat schedule against
 #: the same string -- so it is declared in `collectors/sweep.py` beside the
 #: dispatch it fires and imported above, and it is re-exported in `__all__` so a
-#: reader looking for this application's task names finds all five here. The
+#: reader looking for this application's task names finds all seven here -- one
+#: per registered collector, plus the dispatch. The
 #: task itself must still be *declared* in this module: Celery's autodiscovery
 #: imports each application's `tasks` module and no other.
 
@@ -1398,6 +1408,80 @@ def collect_conda_package(*, package_id: int, force: bool = False) -> str:
         return str(collector.collect(package_id=package_id, force=force).state.value)
 
 
+@shared_task(name=COLLECT_VULNERABILITY_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_vulnerability(*, package_id: int, force: bool = False) -> str:
+    """Match one package and its version against the declared advisory source (`CPM-FR-11`).
+
+    Package-scoped on the same terms as the four collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`).
+
+    **What is different is that the transport is passed rather than built**, and
+    it is the *declared advisory source adapter* (`CPM-AD-29`). The four tasks
+    above let the base build a `RequestsTransport` from their declarations
+    because they each read one known public API; which advisory source this
+    component reads is PRD Open Question 1, so it is substituted at the base's
+    seam exactly as inventory ingestion's source is -- which is what makes AC 3
+    true, that changing the source touches neither this collector nor any policy.
+
+    **This component ships with no adapter declared**, so every enqueue of this
+    task raises `AdvisorySourceError` until an operator declares one. That is
+    deliberate: a source nobody chose would produce security findings an
+    organisation never agreed to act on. The refusal happens before the recorder
+    opens, so an unconfigured component leaves no ledger row claiming to have
+    looked -- and `VulnerabilityCollector.selectable_packages` offers the sweep
+    nothing at all while nothing is declared, so the scheduled dispatch enqueues
+    no such task rather than ten thousand raising ones.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`).
+
+    **A misconfiguration leaves this task the same way a transient failure does,
+    and Celery cannot tell the two apart** -- the hazard
+    `collect_conda_package` records above, reached here by a second route:
+    `AdvisorySourceError` is permanent by construction, and with nothing declared
+    *every* enqueue raises it. Nothing here declares `autoretry_for`. It is the
+    same `deferred` entry `CPM-CURRENCY-S04` recorded against every collector
+    task at once.
+
+    Args:
+        package_id: The package to observe, by the integer primary key
+            `CPM-AD-3` fixes. Keyword only, so a caller can never enqueue a
+            collection for the wrong package by getting an argument's position
+            wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A
+        string rather than the `CollectionResult`, because a task's return value
+        is serialized into the result backend and the durable record of the run
+        is the ledger row.
+
+    Raises:
+        AdvisorySourceError: When no advisory source adapter is declared -- which
+            is what ships. Raised before the collector is constructed and
+            therefore before the recorder opens, so it leaves nothing behind at
+            all.
+        RunLedgerError: When `package_id` names no package. The recorder checks
+            the key before it writes the opening row (`CPM-EVIDENCE-S09`), so
+            this leaves nothing behind either.
+        AdvisoryLookupError: When the package's row went between the ledger's key
+            check and the identity read, or when its purl builds a locator wider
+            than the column that records it. The ledger row is finalized `failed`
+            carrying the reason and no evidence row is written; a package with no
+            *version* is not one of these -- it is an `unknown` row saying so.
+        VulnerabilityDocumentError: When the declared adapter served something
+            that is not an advisory document. An `error` evidence row is written
+            first and the ledger row is `failed`, so the run is on the record
+            either way.
+
+    """
+    with VulnerabilityCollector(clock=SystemClock(), transport=advisory_source()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
 @shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]
 def collect_sweep(*, collector: str) -> str:
     """Enqueue one per-package collection for every package one collector can be asked about.
@@ -1407,7 +1491,7 @@ def collect_sweep(*, collector: str) -> str:
     module that takes a *collector* rather than a package. What it does is
     `collectors/sweep.py`'s dispatch: select, enqueue in chunks, and finalize one
     run-ledger row scoped to no package. It collects nothing itself and makes no
-    outbound call, so nothing about the four collectors' guarantees changes: every
+    outbound call, so nothing about the five collectors' guarantees changes: every
     observation is still written by the per-package task through the collector
     base, in that package's own transaction and under that package's own ledger
     row (`CPM-AD-23`).
