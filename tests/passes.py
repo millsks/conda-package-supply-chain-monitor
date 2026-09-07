@@ -98,6 +98,8 @@ from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as
 from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
 from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.licence import LicensePass
+from conda_package_supply_chain_monitor.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.remediation import RemediationPass
 from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
 from tests.model_registry import FIXTURE_APP
@@ -181,6 +183,7 @@ ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (
     FEEDSTOCK_POLICY_NAME,
     VULNERABILITY_POLICY_NAME,
     LICENCE_POLICY_NAME,
+    REMEDIATION_POLICY_NAME,
 )
 
 #: The adopted pass classes, in the same order, so a case can re-register them.
@@ -189,6 +192,7 @@ ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (
     FeedstockPresencePass,
     VulnerabilityPass,
     LicensePass,
+    RemediationPass,
 )
 
 #: The policy version the cases that execute a real policy run must declare.

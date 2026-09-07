@@ -38,6 +38,41 @@ version's complete parameter set.
 | `vulnerability_risk_order` | no | The severity labels `CPM-FR-17`'s per-package **risk level** is drawn from, **worst first**. A non-empty list of distinct, fixed lowercase strings, each at most 32 characters. Compared case-insensitively against the `severity` a vulnerability finding stored exactly as its source stated it. A version that omits it gets vulnerability rows with **no risk level**, and every other verdict on them is unaffected. |
 | `license_rules` | no | `CPM-FR-18`'s licence policy: one table per rule, each declaring exactly `expression` and `disposition`. `expression` is a normalized SPDX expression as `license_findings.normalized_license` stores it, non-blank, at most 2048 characters, spelled as SPDX spells it; the match case-folds both sides and is over the **whole** expression. `disposition` is one of `allowed`, `restricted`, `forbidden`. May be empty or omitted, and **is empty in every shipped version** — see below. |
 
+`CPM-FR-41`'s remediation readiness pass (`policies/remediation.py`) reads **no
+key at all**, and that is a decision rather than an oversight. Its comparison is
+`policies/currency.py`'s and is not a reviewer's to tune; the freshness targets it
+consumes are the collectors' own declarations (`CPM-AD-28`); and its vocabulary is
+fixed by `CPM-AD-5`. A key added here for it would be a knob nothing reads. Its
+rows still record the policy version they were computed under, because what a row
+means is fixed by the version it ran at whether or not that version carries a key
+for its domain.
+
+**No version of this file can make a package `blocked`, and nothing else can
+either.** The readiness vocabulary carries `blocked` -- the epic's AC 2 requires
+it to exist and to be distinct from `ready` and `unknown` -- and no row this
+product currently writes reaches it. `blocked` means the fixed version was looked
+for on every surface and found on none, and nothing this product records can
+establish that a surface does not carry a version: each of the four surface tables
+stores the version its surface states as its **latest**, not the set of versions it
+carries, so "latest is not the fix" says nothing in either direction. Such a
+surface reads `not_read`, the readiness is `unknown`, and the row's `detail` names
+every version each surface stated.
+
+Two changes would make it reachable, and neither is a parameter:
+
+* a **version-ordering rule** -- given a fix and a version a surface states, decide
+  whether the surface is at or past it. No architecture decision owns this. It is
+  not `CPM-AD-6`, which is *version authority is explicit per package*: that owns
+  which surface is authoritative, not how two version strings compare.
+* a **collector change** that records "the source stated there is no fix"
+  distinctly from "the field was absent". `collectors/vulnerability.py` writes one
+  clause per *blank* field, and blank means missing and is never inferred, so a
+  matched advisory with no fixed range is `unknown`.
+
+Both are on `CPM-SECURITY-S06`'s deferred list. When either lands it is a change to
+code, not to a reviewed version here -- so no entry in this file becomes wrong, and
+no row already written changes meaning.
+
 What counts as recipe activity is **not** a parameter. `CPM-CURRENCY-S03` fixed
 it — a push to the feedstock repository — and the collector records the instant.
 This file only says how long a gap has to be.

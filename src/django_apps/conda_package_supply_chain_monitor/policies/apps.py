@@ -55,30 +55,34 @@ class PoliciesConfig(AppConfig):
         **The order is a declaration, and it is why this is a tuple.**
         `core/policy.py` keeps registration order where the collector registry
         sorts by name, because `CPM-AD-21` lets a later pass read an earlier
-        pass's derived rows for the same run. Four passes today, in the order
+        pass's derived rows for the same run. Five passes today, in the order
         this component's epics landed them: currency (`CPM-CURRENCY-S06`), then
         feedstock presence (`CPM-CURRENCY-S07`), then vulnerability
-        (`CPM-SECURITY-S04`), then licence (`CPM-SECURITY-S05`).
+        (`CPM-SECURITY-S04`), then licence (`CPM-SECURITY-S05`), then
+        remediation readiness (`CPM-SECURITY-S06`).
 
         **None reads another, and the order is therefore not yet load
-        bearing -- which is exactly why it is worth stating now.** All four read
+        bearing -- which is exactly why it is worth stating now.** All five read
         evidence and write their own derived tables, so today they could be
         adopted in any order with identical results. Recording the order
         while it is free is what makes it a declaration somebody chose rather
-        than one discovered on the day a fifth pass starts reading a fourth
+        than one discovered on the day a sixth pass starts reading a fifth
         pass's rows. `tests/unit/django_apps/test_policies_app.py` asserts the
         order this tuple is in, which is what makes the paragraph above a claim
         about the code rather than about its author's intentions: every other
         assertion over the roster sorts or takes a set, so until that case
         existed, reordering these failed nothing anywhere.
 
-        **The licence pass is last, and that is where a reader of an earlier
-        pass's rows would go.** `CPM-FR-41`'s remediation readiness
-        (`CPM-SECURITY-S06`) is the first pass that plausibly reads an earlier
-        one's derived rows for the same run, so each of these is adopted before
-        it exists rather than after -- and a pass that started reading
-        `package_currency`, `package_feedstock_presence` or
-        `package_vulnerability` would already be in the right place.
+        **The remediation pass is last, and it is the one an earlier draft of
+        this docstring expected to read the others' rows.** It does not.
+        `CPM-SECURITY-S06` reads the five *evidence* tables instead --
+        `vulnerability_findings` for the fixed version and the four
+        currency-surface snapshots for where that version has appeared -- because
+        a readiness derived from `package_currency` would depend on two policy
+        versions at once and `CPM-FR-22`'s replay could then be stated for
+        neither. So the order still binds nothing, and the position is kept for
+        the reason it was chosen: a pass that one day does read an earlier one's
+        rows belongs after them, and this is where it would go.
 
         **Adopting the same class twice is a no-op, and that is not a softening
         of the registry's duplicate-name refusal.** That refusal is about two
@@ -112,10 +116,11 @@ class PoliciesConfig(AppConfig):
             FeedstockPresencePass,
         )
         from conda_package_supply_chain_monitor.policies.licence import LicensePass  # noqa: PLC0415 - see above
+        from conda_package_supply_chain_monitor.policies.remediation import RemediationPass  # noqa: PLC0415 - see above
         from conda_package_supply_chain_monitor.policies.vulnerability import (  # noqa: PLC0415 - see above
             VulnerabilityPass,
         )
 
-        for policy_pass in (CurrencyPass, FeedstockPresencePass, VulnerabilityPass, LicensePass):
+        for policy_pass in (CurrencyPass, FeedstockPresencePass, VulnerabilityPass, LicensePass, RemediationPass):
             if pass_registrations().get(policy_pass.name) is not policy_pass:
                 register_pass(policy_pass)

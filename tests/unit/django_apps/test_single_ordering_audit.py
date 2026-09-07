@@ -521,18 +521,33 @@ def _recorded_key(path: Path) -> str:
 #: is last because a reduction must never reach it while any channel said
 #: anything else.
 #:
+#: **`CPM-SECURITY-S06` added a fifth, and it is invisible for the same reason.**
+#: `READINESS_PRECEDENCE` ranks `blocked`, `unknown`, `awaiting_packaging`,
+#: `awaiting_build` and `ready` -- exactly one `OutcomeState` member reference,
+#: because `RemediationReadiness`'s other three sentinels are members by
+#: construction that the readiness pass never produces and the reduction therefore
+#: never meets. So the detector still finds one declaration in that file and means
+#: it, and `tests/unit/django_apps/test_remediation_policy.py` pins this order by
+#: name and by contents -- including the two ends: `blocked` leads it because a
+#: package is only as actionable as its worst finding, and `ready` is last because
+#: a reduction must never reach it while any finding said anything else. Recorded
+#: here on the terms this comment already sets: the residual below is stated rather
+#: than left to be found, and an order added to that file and *not* named in this
+#: comment is exactly the thing the residual is about.
+#:
 #: **The residual, stated rather than left to be found.** This table names one of
-#: the four orders that file declares, and the file is excluded from
+#: the five orders that file declares, and the file is excluded from
 #: `SUBJECT_MODULES` wholesale -- so a *fifth* order added there is caught by
 #: nothing in this module. `test_every_recorded_ordering_still_declares_the_order_it_records`'s
 #: `len(declared) == 1` sees only what the detector sees, and a fifth order over
 #: a vocabulary with fewer than two sentinels would be invisible to it exactly as
-#: the three above are. The check that would catch one is a case in the domain's own
+#: the four above are. The check that would catch one is a case in the domain's own
 #: suite, pinning that domain's orders by name and contents, which is what the two
-#: `CPM-SECURITY-S04` orders and the `CPM-SECURITY-S05` one have. Widening the table to hold several names per
+#: `CPM-SECURITY-S04` orders, the `CPM-SECURITY-S05` one and the
+#: `CPM-SECURITY-S06` one have. Widening the table to hold several names per
 #: module would not close it either: the names would still have to be maintained
 #: by hand, and the alternative -- reshaping `policies/outcomes.py` so the
-#: detector could see all three -- is shaping code around a detector, which this
+#: detector could see all four -- is shaping code around a detector, which this
 #: module's own docstring refuses.
 #:
 #: Both directions are checked, as every recorded table in this repository is:
