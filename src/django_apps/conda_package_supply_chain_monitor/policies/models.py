@@ -2,8 +2,9 @@
 
 `CPM-AD-21` gives every pass a per-domain table keyed `(package, policy_run)`.
 `PackageCurrency` (`CPM-CURRENCY-S06`) was the first, `PackageFeedstockPresence`
-(`CPM-CURRENCY-S07`) the second and `PackageVulnerability` (`CPM-SECURITY-S04`)
-the third; they are three tables and not one wide one,
+(`CPM-CURRENCY-S07`) the second, `PackageVulnerability` (`CPM-SECURITY-S04`)
+the third and `PackageLicense` (`CPM-SECURITY-S05`) the fourth; they are four
+tables and not one wide one,
 because a pass writes only its own and a shared table would make "which pass
 wrote this column" a convention rather than a schema. **None of them is the
 health rollup** -- `CPM-AD-21` says no pass writes `package_health` and
@@ -53,11 +54,19 @@ The status columns are declared
 `editable=False` anyway: nothing but a policy run may write a derived verdict,
 and that is true whether or not an audit is currently looking.
 
-**What `PackageVulnerability` *does* copy, where its siblings copy nothing, is
-the policy version and the cut-off** -- both facts about the run rather than
-about the evidence. Its class docstring argues why, and the short of it is that
-the risk level it carries is meaningless without the version whose severity order
-produced it.
+**What `PackageVulnerability` and `PackageLicense` *do* copy, where the two
+older tables copy nothing, is the policy version and the cut-off** -- both facts
+about the run rather than about the evidence. Their class docstrings argue why,
+and the short of it is the same in both: the value each carries is meaningless
+without the version whose reviewed data produced it -- a severity order there, a
+licence rule set here.
+
+**`PackageLicense` is the one table in this module with a constraint behind a
+*clean* value.** Every other constraint here requires evidence behind an adverse
+or a determinate verdict. `allowed` is the one verdict in this product that
+claims nothing is wrong, and it is the one whose appearance in error is least
+likely to be questioned -- so the database requires it to name the rule that
+produced it, rather than trusting the pass never to reach it by accident.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
 platform decision; a decision from this product's own architecture spine always
@@ -75,6 +84,7 @@ from django.utils.translation import gettext_lazy as _
 from conda_package_supply_chain_monitor.collectors.models import CondaPackageSnapshot
 from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
 from conda_package_supply_chain_monitor.collectors.models import KevFinding
+from conda_package_supply_chain_monitor.collectors.models import LicenseFinding
 from conda_package_supply_chain_monitor.collectors.models import PyPIReleaseSnapshot
 from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
 from conda_package_supply_chain_monitor.collectors.models import VulnerabilityFinding
@@ -91,38 +101,50 @@ from conda_package_supply_chain_monitor.policies.outcomes import FEEDSTOCK_STATE
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_LISTED
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_MEMBERSHIP_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import KEV_NOT_LISTED
+from conda_package_supply_chain_monitor.policies.outcomes import LICENSE_STATE_LENGTH
+from conda_package_supply_chain_monitor.policies.outcomes import MANUAL_REVIEW
 from conda_package_supply_chain_monitor.policies.outcomes import NO_ADVISORY_MATCHED
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_INACTIVE
 from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_package_supply_chain_monitor.policies.outcomes import RULE_DISPOSITIONS
 from conda_package_supply_chain_monitor.policies.outcomes import STAGED_RECIPE_PENDING
 from conda_package_supply_chain_monitor.policies.outcomes import VULNERABILITY_STATE_LENGTH
 from conda_package_supply_chain_monitor.policies.outcomes import CurrencyOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import FeedstockOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import KevMembership
+from conda_package_supply_chain_monitor.policies.outcomes import PackageLicenseOutcome
 from conda_package_supply_chain_monitor.policies.outcomes import PackageVulnerabilityOutcome
+from conda_package_supply_chain_monitor.policies.parameters import MAX_LICENSE_EXPRESSION_CHARACTERS
 from conda_package_supply_chain_monitor.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
 
 __all__ = [
     "AN_AGE_EXACTLY_WHEN_THERE_IS_AN_INSTANT",
     "AUTHORITY_IS_A_KNOWN_SURFACE",
+    "A_MATCHED_RULE_ONLY_WHERE_A_RULE_DECIDED",
     "A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED",
+    "A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT",
     "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
     "DETERMINATE_STATUS_NEEDS_ITS_FINDING",
     "DETERMINATE_VERDICT_NEEDS_AN_AUTHORITY",
     "ESTABLISHED_KEV_MEMBERSHIPS",
     "ESTABLISHED_VULNERABILITY_STATUSES",
+    "JUDGED_LICENSE_OUTCOMES",
+    "LICENSE_ROW_NAMES_ITS_POLICY_VERSION",
     "MAINTENANCE_VERDICT_NEEDS_AN_ACTIVITY_INSTANT",
     "MEASURED_VERDICTS",
     "ONE_FEEDSTOCK_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
     "SURFACE_STATUS_FIELDS",
+    "THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING",
     "THRESHOLD_IS_A_POSITIVE_INTERVAL",
     "VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION",
     "AuthorityOrderSource",
     "PackageCurrency",
     "PackageFeedstockPresence",
+    "PackageLicense",
     "PackageVulnerability",
 ]
 
@@ -1179,3 +1201,327 @@ class PackageVulnerability(models.Model):
         membership = self.kev_membership or "(no KEV answer)"
         risk = self.risk_level or "no risk level"
         return f"vulnerability of {scope}: {status}, KEV {membership}, {risk}"
+
+
+#: The unique constraint that makes `(package, policy_run)` the key `CPM-AD-21`
+#: requires of the licence table, by name, so the case that asserts the refusal
+#: and the declaration that makes it cannot drift.
+ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_license_row_per_package_per_run"
+
+#: The constraint requiring the finding behind an outcome the run *judged*, by
+#: name.
+THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING: Final[str] = "license_outcome_names_its_finding"
+
+#: The constraint requiring the rule behind an outcome a rule produced, by name.
+#: This is the one this story exists to make a schema rule -- see the class
+#: docstring.
+A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT: Final[str] = "license_outcome_names_the_rule_that_produced_it"
+
+#: The constraint forbidding a matched rule on a row no rule decided, by name.
+A_MATCHED_RULE_ONLY_WHERE_A_RULE_DECIDED: Final[str] = "license_rule_only_where_a_rule_decided"
+
+#: The constraint requiring every row to name the policy version that produced
+#: it, by name.
+LICENSE_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "license_row_names_its_policy_version"
+
+#: Every licence outcome this run reached *about an established licence*, and
+#: therefore every one that cannot be reached without the finding that
+#: established it.
+#:
+#: The three a rule can state plus `manual_review`, which is the outcome for a
+#: licence this run established and no rule names -- so it too rests on a row
+#: that said what the licence is. A row carrying it while referencing nothing
+#: would claim a licence was established by a run that cannot show any channel
+#: was ever read, and it is the claim a reader is *least* likely to check,
+#: because "somebody has to look at this" reads as a to-do rather than as an
+#: assertion.
+#:
+#: `unknown` is deliberately absent, on exactly the terms `not_established` is
+#: absent from `ESTABLISHED_KEV_MEMBERSHIPS`: it is the outcome of a package with
+#: no licence evidence at all, so requiring a finding behind it would forbid the
+#: row this vocabulary exists to be honest about.
+#:
+#: A tuple rather than four literals inside the constraint, because
+#: `THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING` and
+#: `tests/unit/django_apps/test_licence_policy.py` both name the same set and a
+#: second spelling of it is a constraint that stops matching what the pass
+#: produces. It holds `PackageLicenseOutcome` values and no `OutcomeState`
+#: members, so it is not the shape
+#: `tests/unit/django_apps/test_single_ordering_audit.py` reads -- and it is not
+#: an order in any case: `LICENSE_PRECEDENCE` is where the ranking lives, and
+#: these four are not contiguous in it.
+JUDGED_LICENSE_OUTCOMES: Final[tuple[str, ...]] = (*RULE_DISPOSITIONS, MANUAL_REVIEW)
+
+
+class PackageLicense(models.Model):
+    """What one policy run concluded about one package's licence compliance. Table `package_license`.
+
+    `CPM-FR-18` as a row: one licence outcome per package, drawn from a rule set
+    held as versioned data. Named by the same convention `package_currency`,
+    `package_feedstock_presence`, `package_vulnerability` and `package_health`
+    are.
+
+    **`allowed` is never a default and never an absence, and this table is where
+    that stops being the pass's promise.** Every other outcome here is reachable
+    by something *not* happening -- no rule matched, no rule set was recorded, the
+    channel stated no licence, the read failed, there was no evidence at all --
+    and each of those reaches `manual_review` or `unknown`, which claim nothing.
+    `allowed` is the one value that asserts a compliance decision, and the one
+    whose appearance in error would be least likely to be noticed, because it
+    looks like good news. So `A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT`
+    requires the row to name the rule: an `allowed` row that names none is
+    refused by PostgreSQL, not merely avoided by `policies/licence.py`.
+
+    The constraint covers `restricted` and `forbidden` too, and that is
+    deliberate rather than incidental. All three are reachable only from a rule's
+    recorded disposition, so holding the rule on one of them and not the others
+    would be the sibling rule held on one half only --
+    `ESTABLISHED_VULNERABILITY_STATUSES` records what that cost the last time.
+    `allowed` is the value the rule exists *for*; it is not the only value it is
+    true of.
+
+    **`manual_review` and `unknown` are two values and never one.** `unknown`
+    means the licence itself was never established -- no evidence at the cut-off,
+    a channel that stated none, one that stated something `collectors/spdx.py`
+    will not normalize without guessing, one that could not be read, or a sweep
+    in which no monitored channel serves the package at all.
+    `manual_review` means the licence *is* known and
+    this product has no rule for it, which today is every package with a licence,
+    because PRD Open Question 2 is unanswered and the shipped rule set is empty.
+    A reader has to be able to tell "fix the evidence" from "decide the policy",
+    and collapsing the two would hide which they are being asked to do.
+
+    **This is not the health rollup and contributes no column to it.**
+    `CPM-AD-21` says no pass writes `package_health`; each writes only its own
+    per-domain table keyed `(package, policy_run)`, and `CPM-EP-PRIORITY` owns
+    the orchestrating writer. `tests/passes.py`'s synthetic rollup declares a
+    `licence_status` column precisely because the real rollup does not, and this
+    story does not add one.
+
+    **Every relation is `PROTECT`**, on exactly the terms `PackageCurrency`
+    states: deleting a policy run under `CASCADE` would silently take away the
+    findings that explain a verdict still naming it, and an evidence row is the
+    *support* for that verdict -- a finding deleted out from under a row that
+    cites it would leave the row claiming a licence nothing can be shown for.
+
+    **The evidence reference is nullable and the outcome is not.** A package with
+    no licence evidence at the cut-off is `unknown`, which is a real, ordinary
+    answer and a matrix row of its own -- so the outcome column always holds a
+    value while the reference has nothing to point at. `NULL` here is the absence
+    of a row rather than a second spelling of a state.
+
+    **It copies the policy version and the cut-off**, on exactly the terms
+    `PackageVulnerability` argues: this pass's whole output is governed by a rule
+    set chosen by version, and `CPM-FR-22`'s replay is a diff of two runs' rows
+    over one cut-off. Carrying both means the diff is a query over this table
+    alone, and means a row can never be read at a version it was not computed
+    under -- which matters more here than anywhere, because the same expression
+    reads `manual_review` at today's empty rule set and may read `forbidden` at
+    tomorrow's.
+
+    **It declares no `computed_at`**, for the reason the module docstring gives:
+    `CPM-AD-11` requires that column of the *rollup*, and `core/policy_run.py`
+    hands a pass no clock at all, so the only value such a column could hold is a
+    copy of an instant the referenced run already carries.
+    """
+
+    #: The package this finding is about, by the integer primary key `CPM-AD-3`
+    #: fixes. Together with `policy_run` it is `CPM-AD-21`'s key, made a database
+    #: rule by the constraint below.
+    #:
+    #: `related_name` is `license_policy_findings` and not `license_findings`,
+    #: because `collectors.LicenseFinding` already claims that accessor on
+    #: `Package` -- the same collision `PackageVulnerability` records, and
+    #: resolved the same way.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="license_policy_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that computed this row.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="license_policy_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: What this run concluded about the package's licence compliance.
+    #: `editable=False`: a derived verdict is a policy run's to write and nobody
+    #: else's (`CPM-FR-37`), and the declaration leaves the field out of every
+    #: `ModelForm`, out of the admin and out of `full_clean()`'s validation of
+    #: user-supplied data.
+    #:
+    #: Named `license_outcome` and not `license_status`, and either would have
+    #: satisfied `tests/unit/django_apps/test_outcome_field_audit.py` -- both
+    #: suffixes are in its convention. `outcome` is the word `CPM-FR-18` uses and
+    #: the word `collectors/outcomes.py` uses for the evidence one level down, so
+    #: the two columns a reviewer joins are named alike.
+    license_outcome = models.CharField(
+        _("license outcome"),
+        max_length=LICENSE_STATE_LENGTH,
+        choices=PackageLicenseOutcome.choices,
+        editable=False,
+    )
+
+    #: The normalized expression the rule that decided this row names, exactly as
+    #: the reviewed file spells it -- the audit trail for `allowed`.
+    #:
+    #: **No `choices`, on exactly the terms `PackageVulnerability.risk_level`
+    #: states.** The rules are versioned data in
+    #: `policies/data/policy-parameters.toml` (`CPM-AD-8`), so the set of values
+    #: this column may hold is a property of the run's policy version rather than
+    #: of the schema -- declaring `choices` here would freeze into code the
+    #: licence policy PRD Open Question 2 says nobody has decided, which is
+    #: exactly what shipping the rules as data avoids. `policy_version` beside it
+    #: says which rule set a given value was drawn from, and
+    #: `policies/parameters.py` is what stops the file recording an expression
+    #: this column could not hold.
+    #:
+    #: Blank means no rule decided this row, which is `manual_review`, `unknown`,
+    #: and today every package there is. The two constraints below make that a
+    #: biconditional rather than a convention: a ruled outcome names its rule and
+    #: an unruled one names none.
+    matched_rule = models.CharField(
+        _("matched rule"),
+        max_length=MAX_LICENSE_EXPRESSION_CHARACTERS,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: The policy version whose rule set produced this row, copied from the run
+    #: (`CPM-AD-8`). See the class docstring for why this table copies it.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant this row's evidence was read as of, copied from the run
+    #: (`CPM-AD-21`). Never NULL: a pass is never called without one, and a row
+    #: that could not say what it was as of could not be replayed against.
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    #: The licence finding this outcome rests on: the first, in the read's stated
+    #: order, whose own verdict is the one the row carries. NULL where there was
+    #: no finding at the cut-off at all.
+    #:
+    #: One reference where the reduction may have read several rows -- one per
+    #: monitored channel -- and what that costs is stated rather than left to be
+    #: discovered: a package four channels disagree about names one of them here,
+    #: and the rest are one query away on `license_findings` filtered by the
+    #: package and this row's `evidence_cutoff`. The row's `detail` says the
+    #: channels disagreed, so the reference is never the only sign of it.
+    license_finding = models.ForeignKey(
+        LicenseFinding,
+        on_delete=models.PROTECT,
+        related_name="license_policy_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("license finding"),
+    )
+
+    #: What this run has to say about the outcome it reached, where the columns
+    #: beside it do not already say it.
+    #:
+    #: Populated on exactly the shapes whose reason is not readable off the row:
+    #: a `manual_review` and which of its two causes it was, an `unknown` that has
+    #: evidence behind it, and a package whose channels state different licences.
+    #: Empty everywhere else, which is the rule every table in this product
+    #: applies to its own `detail`: an explanation of an unremarkable row is
+    #: noise.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    class Meta:
+        """The table the architecture names, not the `policies_packagelicense` Django derives."""
+
+        db_table = "package_license"
+        verbose_name = _("package license")
+        verbose_name_plural = _("package license")
+        constraints = [
+            # `CPM-AD-21`'s key, as a database rule rather than as the writer's
+            # promise, on exactly the terms the three sibling tables state.
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # The evidence half. All four judged outcomes are statements about a
+            # licence this run *established*: three of them because a rule named
+            # that licence, and `manual_review` because no rule named it -- and
+            # both readings require the run to have read a channel that said what
+            # the licence is. A row carrying one while referencing nothing is a
+            # compliance verdict about a package whose licence was never
+            # established.
+            #
+            # The converse is deliberately not asserted: a row referencing a
+            # finding and reading `unknown` is the ordinary shape of a channel
+            # that could not answer, and a row referencing nothing and reading
+            # `unknown` is the ordinary shape of a package nobody has observed.
+            #
+            # No column tested here is the third thing a SQL CHECK can be: the
+            # outcome is NOT NULL and an `IS NULL` test is never itself NULL.
+            models.CheckConstraint(
+                condition=~models.Q(license_outcome__in=JUDGED_LICENSE_OUTCOMES)
+                | models.Q(license_finding__isnull=False),
+                name=THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING,
+            ),
+            # **The constraint this story exists to put in the schema.**
+            # `allowed`, `restricted` and `forbidden` are things a *rule* said,
+            # so each names the rule that said it. `allowed` is the one it is
+            # written for: it is the only verdict in this product that claims
+            # nothing is wrong, every other value here is reachable by an
+            # absence, and a row reaching it without a rule would be a package
+            # cleared by nobody -- read as good news and questioned by no one.
+            # `manual_review` and `unknown` are outside the set because they are
+            # precisely the rows no rule decided.
+            #
+            # `matched_rule` is NOT NULL and blank means missing, so this
+            # expression is always true or false.
+            models.CheckConstraint(
+                condition=~models.Q(license_outcome__in=RULE_DISPOSITIONS) | ~models.Q(matched_rule=""),
+                name=A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT,
+            ),
+            # The other half of the same biconditional, and it is asserted where
+            # the sibling tables leave their converses alone, because here the
+            # converse is a contradiction rather than merely an unusual row: a
+            # `manual_review` naming a matched rule says both that a rule decided
+            # this licence and that none did. Together the two make
+            # `matched_rule` readable as "the rule behind this outcome, or
+            # nothing" rather than as a column whose meaning depends on which
+            # value sits beside it.
+            models.CheckConstraint(
+                condition=models.Q(matched_rule="") | models.Q(license_outcome__in=RULE_DISPOSITIONS),
+                name=A_MATCHED_RULE_ONLY_WHERE_A_RULE_DECIDED,
+            ),
+            # `CPM-AD-8` in the column that carries it, on the terms
+            # `VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION` states. A row whose
+            # version names nothing cannot be replayed and cannot say which rule
+            # set its outcome was drawn from -- which matters most for the row
+            # that says `manual_review`, since the answer at a later version may
+            # be anything at all.
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=LICENSE_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return the package, the outcome and the rule that produced it.
+
+        Returns:
+            A one-line summary. Read off `package_id` rather than off `package`,
+            for the reason `PackageCurrency.__str__` gives: the related object of
+            an unsaved instance raises `RelatedObjectDoesNotExist`, and a
+            `__str__` that raises breaks the two places a half-built object is
+            most likely to be rendered, a debugger and a traceback.
+
+            The rule is rendered beside the outcome rather than left to the
+            column, because this table's whole rule is that a permissive verdict
+            names what permitted it -- and the one line a human is likeliest to
+            read is where that should be hardest to miss.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        outcome = self.license_outcome or "(no verdict)"
+        rule = self.matched_rule or "no rule"
+        return f"license of {scope}: {outcome} by {rule}"

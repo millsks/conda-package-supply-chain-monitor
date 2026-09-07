@@ -94,7 +94,7 @@ development_status:
   cpm-security-s02-kev-cross-reference: done
   cpm-security-s03-licence-evidence-raw-normalized: done
   cpm-security-s04-vulnerability-kev-rollup: done
-  cpm-security-s05-licence-policy-as-versioned-data: ready-for-dev
+  cpm-security-s05-licence-policy-as-versioned-data: done
   cpm-security-s06-whether-finding-can-actually-be: ready-for-dev
   epic-security-retrospective: optional
 

@@ -51,6 +51,8 @@ from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
 from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
+from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.licence import LicensePass
 from conda_package_supply_chain_monitor.policies.parameters import parameters_directory
 from conda_package_supply_chain_monitor.policies.parameters import parameters_file
 from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
@@ -102,6 +104,7 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
     "apps.py",
     "currency.py",
     "feedstock.py",
+    "licence.py",
     "models.py",
     "outcomes.py",
     "parameters.py",
@@ -142,6 +145,7 @@ EXPECTED_MIGRATIONS: Final[tuple[str, ...]] = (
     "0001_package_currency.py",
     "0002_package_feedstock_presence.py",
     "0003_package_vulnerability.py",
+    "0004_package_license.py",
 )
 
 
@@ -251,6 +255,7 @@ def test_the_ready_hook_adopted_this_applications_passes() -> None:
     assert pass_registrations().get(POLICY_NAME) is CurrencyPass
     assert pass_registrations().get(FEEDSTOCK_POLICY_NAME) is FeedstockPresencePass
     assert pass_registrations().get(VULNERABILITY_POLICY_NAME) is VulnerabilityPass
+    assert pass_registrations().get(LICENCE_POLICY_NAME) is LicensePass
     assert set(ADOPTED_PASS_NAMES) <= set(pass_registrations())
 
 

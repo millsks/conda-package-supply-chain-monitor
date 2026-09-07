@@ -58,3 +58,69 @@ feedstock_inactivity_days = 180
 # would be exactly the collapse the requirement forbids, and the pass reads this
 # order only over a finding's own stated severity.
 vulnerability_risk_order = ["critical", "high", "moderate", "low"]
+
+[versions."2026.09.2"]
+# Added, not edited: 2026.09 and 2026.09.1 above stay exactly as they were so a
+# run recorded at either still replays (CPM-FR-22). This entry is 2026.09.1 plus
+# CPM-FR-18's licence rule set, which the two earlier versions predate. Its two
+# other parameters are byte-identical to 2026.09.1's, which is deliberate: what
+# this entry adds is a *statement* that review looked at the licence policy and
+# recorded no rule, where an older version merely could not have carried one.
+feedstock_inactivity_days = 180
+vulnerability_risk_order = ["critical", "high", "moderate", "low"]
+
+# EMPTY ON PURPOSE, AND NOT PROVISIONAL. CPM-FR-18 gives licence compliance to a
+# versioned policy, and *which licences are allowed* is PRD Open Question 2 --
+# which the PRD names as unanswered and as blocking CPM-EP-SECURITY.
+# CPM-SECURITY-S05's epic entry therefore constrains that story to the mechanism
+# and a schema, not a seeded policy, so this list names no licence.
+#
+# This is deliberately unlike vulnerability_risk_order above, which ships a
+# PROVISIONAL value. There the PRD named a risk level and simply seeded no
+# thresholds, so a starting point marked as one is a reviewable list. Here the
+# PRD names the *decision itself* as open, and a "conservative starting point" or
+# a list of permissive licences "everyone agrees on" would be this component
+# deciding a compliance question it was told not to decide -- in the one
+# direction (allowed) that looks like good news and is least likely to be
+# questioned.
+#
+# What an empty list produces: every package whose licence this run established
+# reaches `manual_review`, and every package whose licence it did not establish
+# reaches `unknown`. Nothing reaches `allowed`, because `allowed` is reachable
+# only from a rule that names a licence and permits it -- in the pass, and again
+# in a database check constraint on package_license. That is the correct answer
+# to "no licence policy has been decided", and it is exactly what
+# CPM-SECURITY-S03's AC 2 already promised.
+#
+# What review does once Open Question 2 is answered: add a NEW [versions."..."]
+# entry -- never edit this one -- carrying one table per rule, like this:
+#
+#   license_rules = [
+#     { expression = "MIT", disposition = "allowed" },
+#     { expression = "Apache-2.0", disposition = "allowed" },
+#     { expression = "GPL-3.0-only", disposition = "forbidden" },
+#     { expression = "MPL-2.0", disposition = "restricted" },
+#   ]
+#
+# `expression` is a normalized SPDX expression exactly as collectors/spdx.py
+# produces it and as license_findings.normalized_license stores it, spelled as
+# SPDX spells it; the comparison case-folds both sides. An expression that module
+# can never produce -- "GPL-3.0", "GPLv3", anything with WITH or parentheses -- is
+# REFUSED when this file is read, because such a rule would match no row ever
+# written and would forbid nothing, silently and permanently.
+#
+# `disposition` is one of allowed, restricted, forbidden -- and never
+# manual_review, which is what a licence no rule names already reaches.
+#
+# A compound expression is matched WHOLE. "MIT OR Apache-2.0" offers a choice and
+# deciding which licence a package took is a compliance judgement rather than a
+# string operation, so a rule that should cover it names it in full and an
+# unmatched one reaches manual_review. "MIT AND GPL-3.0-only" is different: a
+# conjunction binds both sets of obligations at once, so where no rule names it
+# whole, a rule naming one of its operands forbidden or restricted decides it --
+# the least permissive winning. That runs one way only: a rule allowing one
+# operand never allows the conjunction, because allowed requires a rule naming the
+# whole expression.
+#
+# Naming one expression twice is refused, whether or not the two rules agree.
+license_rules = []

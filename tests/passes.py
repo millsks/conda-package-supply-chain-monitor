@@ -96,6 +96,8 @@ from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as 
 from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
 from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
+from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
+from conda_package_supply_chain_monitor.policies.licence import LicensePass
 from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
 from tests.model_registry import FIXTURE_APP
@@ -150,6 +152,11 @@ A_VERDICT: Final[str] = OutcomeState.OK.value
 #: so `vulnerability_status` is still a column `core/rollup.py` does not offer,
 #: and still the right stand-in. `package_vulnerability.vulnerability_status` is
 #: a column on that pass's own derived table and is a different thing entirely.
+#:
+#: **`CPM-SECURITY-S05` landed the licence pass and it did not move either**, for
+#: the identical reason -- and that is also why `A_DOMAIN_STATUS` below still
+#: names `licence_status`: `LicensePass.contributes` is empty too, so the rollup
+#: offers neither column and neither has an owner.
 AN_UNDECLARED_COLUMN: Final[str] = "vulnerability_status"
 
 #: How wide the fixture verdict column is. Wide enough for any `OutcomeState`
@@ -173,10 +180,16 @@ ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (
     CURRENCY_POLICY_NAME,
     FEEDSTOCK_POLICY_NAME,
     VULNERABILITY_POLICY_NAME,
+    LICENCE_POLICY_NAME,
 )
 
 #: The adopted pass classes, in the same order, so a case can re-register them.
-ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPresencePass, VulnerabilityPass)
+ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (
+    CurrencyPass,
+    FeedstockPresencePass,
+    VulnerabilityPass,
+    LicensePass,
+)
 
 #: The policy version the cases that execute a real policy run must declare.
 #:
@@ -204,16 +217,23 @@ ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (CurrencyPass, FeedstockPr
 #: said it was.** It claimed such a run would finalize `partial` with every
 #: package's vulnerability row missing, because `VulnerabilityPass` refused a
 #: version recording no order. That refusal was the defect: `core/policy_run.py`
-#: wraps all three passes for one package in one `transaction.atomic()`
+#: wraps **every** pass for one package in one `transaction.atomic()`
 #: (`CPM-AD-23`'s unit is one package, not one pass), so it rolled back that
 #: package's currency and feedstock rows too and -- the condition holding for
 #: every package -- finalized the run `failed` having written nothing. The pass
 #: now derives the status and the KEV membership normally at such a version and
-#: leaves the risk level blank, so `2026.09` replays with all three domains' rows.
+#: leaves the risk level blank, so `2026.09` replays with every domain's rows.
 #: `2026.09` stays in the shipped file, unedited, because a run recorded at it
 #: must still replay (`CPM-FR-22`), and
 #: `tests/integration/django_apps/test_vulnerability_policy.py` asserts both
 #: halves of that by name.
+#:
+#: **`CPM-SECURITY-S05` added `2026.09.2` and did not move this constant**, which
+#: is the ordinary case and is stated because the paragraph above records the
+#: exception. `license_rules` is optional and an absent key means what an empty
+#: list means, so `LicensePass` derives identical rows at all three shipped
+#: versions -- there is nothing an older entry cannot express, and nothing obliged
+#: the suite to move. `policies/data/README.md` records both directions.
 A_RECORDED_POLICY_VERSION: Final[str] = "2026.09.1"
 
 
@@ -607,6 +627,15 @@ def registry_without_adopted_passes() -> Iterator[None]:
 #: reasons: it is distinguishable from "nothing was written", and it is
 #: *determinate enough to be a claim*, which is what makes an ungated default
 #: visible to a case rather than indistinguishable from a gated one.
+#:
+#: **`CPM-SECURITY-S05` landed the licence pass and this name stayed**, which is
+#: worth stating because it now looks like a collision. `LicensePass` contributes
+#: nothing -- `CPM-AD-21` says no pass writes the health rollup and the story's
+#: Never list forbids adding a column for this domain -- so `core/rollup.py`
+#: still declares no `licence_status`, nothing owns it, and it is still a column
+#: only this synthetic model has. `package_license.license_outcome` is a column
+#: on that pass's own derived table and is a different thing entirely, down to
+#: the spelling.
 A_DOMAIN_STATUS: Final[str] = "licence_status"
 THE_COLUMN_DEFAULT: Final[str] = OutcomeState.NOT_APPLICABLE.value
 
