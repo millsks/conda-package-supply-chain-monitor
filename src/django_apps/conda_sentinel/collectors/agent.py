@@ -45,15 +45,13 @@ __all__ = [
 #: `tests/unit/django_apps/test_source_release.py` looks the metadata up once
 #: without the catch: the raise is the guard.
 #:
-#: `PROJECT_URL` is the *repository*, which `CPM-RENAME-S04` renames and this
-#: story does not. The two therefore disagree for now, deliberately: the
-#: distribution is `conda-sentinel`, while the repository has never been renamed
-#: and still carries the product's former name. The URL below is the repository's
-#: current, live address, so it resolves today; once `CPM-RENAME-S04` runs it
-#: moves here in the same story, and GitHub's redirect covers anything published
-#: with this string in the meantime.
+#: `PROJECT_URL` is the *repository*. `CPM-RENAME-S02` left it naming the former
+#: product because the repository had not moved yet; `CPM-RENAME-S04` renamed the
+#: repository and moved this string with it, so the distribution and the
+#: repository agree again. GitHub's redirect covers anything published with the
+#: former URL.
 DISTRIBUTION_NAME: Final[str] = "conda-sentinel"
-PROJECT_URL: Final[str] = "https://github.com/millsks/conda-package-supply-chain-monitor"
+PROJECT_URL: Final[str] = "https://github.com/millsks/conda-sentinel"
 UNKNOWN_VERSION: Final[str] = "0.0.0"
 
 

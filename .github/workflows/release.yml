@@ -256,14 +256,14 @@ jobs:
           ## Using this template
 
           \`\`\`bash
-          git clone https://github.com/millsks/conda-package-supply-chain-monitor.git
-          cd conda-package-supply-chain-monitor
+          git clone https://github.com/millsks/conda-sentinel.git
+          cd conda-sentinel
           pixi install
           pixi run migrate
           pixi run runserver
           \`\`\`
 
-          📝 **Full changelog**: [CHANGELOG.md](https://github.com/millsks/conda-package-supply-chain-monitor/blob/main/CHANGELOG.md)
+          📝 **Full changelog**: [CHANGELOG.md](https://github.com/millsks/conda-sentinel/blob/main/CHANGELOG.md)
           RELEASE_NOTES
           EOF
             else
@@ -276,7 +276,7 @@ jobs:
 
           ⚠️ **No specific changelog entry found for this version.**
 
-          Please check the [full changelog](https://github.com/millsks/conda-package-supply-chain-monitor/blob/main/CHANGELOG.md) for details.
+          Please check the [full changelog](https://github.com/millsks/conda-sentinel/blob/main/CHANGELOG.md) for details.
 
           ### Release Information
           - Version: ${{ env.NEW_TAG }}

@@ -451,7 +451,7 @@ footer = """
 trim = true
 # postprocessors
 postprocessors = [
-  # { pattern = '<REPO>', replace = "https://github.com/millsks/conda-package-supply-chain-monitor" }, # replace repository URL
+  # { pattern = '<REPO>', replace = "https://github.com/millsks/conda-sentinel" }, # replace repository URL
 ]
 
 [tool.git-cliff.git]
@@ -464,7 +464,7 @@ split_commits = false
 # regex for preprocessing the commit messages
 commit_preprocessors = [
   # Replace issue numbers
-  #{ pattern = '\\((\\w+\\s)?#([0-9]+)\\)', replace = "([#${2}](https://github.com/millsks/conda-package-supply-chain-monitor/issues/${2}))" },
+  #{ pattern = '\\((\\w+\\s)?#([0-9]+)\\)', replace = "([#${2}](https://github.com/millsks/conda-sentinel/issues/${2}))" },
   # Check spelling of the commit with https://github.com/crate-ci/typos
   # If the spelling is incorrect, it will be automatically fixed.
   #{ pattern = '.*', replace_command = 'typos --write-changes -' },

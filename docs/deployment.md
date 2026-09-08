@@ -781,12 +781,12 @@ Each of the five collectors sends the same `User-Agent`, declared once in
 **distribution name**, the version the running build reports and the project URL:
 
 ```text
-conda-sentinel/<version> (+https://github.com/millsks/conda-package-supply-chain-monitor)
+conda-sentinel/<version> (+https://github.com/millsks/conda-sentinel)
 ```
 
 !!! warning "This string changed at `CPM-RENAME-S02`, and it is an emitted value"
 
-    The leading token was `conda-package-supply-chain-monitor` before that story
+    The leading token was `conda-sentinel` before that story
     and is `conda-sentinel` after it, because the token *is*
     `pyproject.toml`'s `[project] name` — pixi validates the
     `[pypi-dependencies]` key against the built metadata name, so renaming the
@@ -800,7 +800,7 @@ conda-sentinel/<version> (+https://github.com/millsks/conda-package-supply-chain
 
 **Two emitted identities, and only one of them moved.** The other is
 `OTEL_SERVICE_NAME`, whose default is still
-`conda-package-supply-chain-monitor` — see
+`conda-sentinel` — see
 [Observability](observability.md#configuration). The decisions are opposite on
 purpose and the difference is who is forced: the `User-Agent` token had no choice,
 because packaging derives it from a name that had to change, and the cost lands on

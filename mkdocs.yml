@@ -1,6 +1,6 @@
 site_name: Conda-Sentinel
 site_description: Evidence-based health, vulnerability, and currency monitoring for a Conda/Python package inventory.
-repo_url: https://github.com/millsks/conda-package-supply-chain-monitor
+repo_url: https://github.com/millsks/conda-sentinel
 
 docs_dir: docs
 site_dir: site
