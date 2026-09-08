@@ -157,7 +157,7 @@ there. Adding a second channel changes what the project trusts, so it is a
 deliberate change rather than one more word in a list.
 
 **`[pypi-dependencies]` carries the editable self-install and nothing else.**
-The one entry, `conda-package-supply-chain-monitor = { path = ".", editable = true }`, is how
+The one entry, `conda-sentinel = { path = ".", editable = true }`, is how
 the source tree reaches the environment — it is not a supply-chain exception. A
 third-party package appearing there *is* one, and it needs its reasoning and an
 exit condition recorded beside it in `pixi.toml`. The project carries **zero**

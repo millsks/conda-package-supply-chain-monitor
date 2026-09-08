@@ -96,15 +96,14 @@ Its `sources` mapping remaps the three subtrees of `src/`:
 
 `config` and `django_service` land at the wheel root under their own names;
 `src/django_apps` maps onto the root itself, which makes it a second path root
-whose contents — the `conda_package_supply_chain_monitor` package and the domain
-applications inside it — are also top-level. `django_apps` is never importable.
+whose contents — the `conda_sentinel` package and the domain applications
+inside it — are also top-level. `django_apps` is never importable.
 
 Subtrees, not packages: an application added under
-`src/django_apps/conda_package_supply_chain_monitor/` needs no entry here. The
-keys are deliberately three rather than `["src", "src/django_apps"]`, which does
-not work — hatchling sorts `sources` ascending and applies the first matching
-prefix, so `"src"` shadows `"src/django_apps"` and the second root silently
-becomes a no-op.
+`src/django_apps/conda_sentinel/` needs no entry here. The keys are deliberately
+three rather than `["src", "src/django_apps"]`, which does not work — hatchling
+sorts `sources` ascending and applies the first matching prefix, so `"src"`
+shadows `"src/django_apps"` and the second root silently becomes a no-op.
 
 `dev-mode-exact = true` in the same table makes the editable install a
 redirecting finder over those three names instead of a list of directories on
@@ -112,7 +111,7 @@ redirecting finder over those three names instead of a list of directories on
 namespace package in a working tree. The editable install is what puts the
 packages on `sys.path` — under pytest exactly as under gunicorn. A new
 *top-level* package needs a `pixi install` before it resolves; a new application
-inside `conda_package_supply_chain_monitor` needs nothing.
+inside `conda_sentinel` needs nothing.
 
 ## Testing
 

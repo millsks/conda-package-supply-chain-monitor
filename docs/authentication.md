@@ -163,7 +163,7 @@ or in a pixi task's own `env` table — **never in `[activation.env]`**, where a
 local convenience would leak into every environment on the machine.
 
 The rows are provisioned by a data migration,
-`src/django_apps/conda_package_supply_chain_monitor/core/migrations/0001_provision_role_groups.py`,
+`src/django_apps/conda_sentinel/core/migrations/0001_provision_role_groups.py`,
 which creates nothing itself — it calls
 `django_service.users.provisioning.provision_groups`, the same single mechanism
 that creates the designated groups above, and depends on
@@ -191,7 +191,7 @@ ignored. Rolling the migration back and forward again, or creating the group in
 the admin, is what actually moves it.
 
 The contract is read once, in `config/settings/base.py`, into the `ROLE_CONTRACT`
-setting; `conda_package_supply_chain_monitor/core/roles.py` holds the reader.
+setting; `conda_sentinel/core/roles.py` holds the reader.
 `config/settings/local.py` fills only the fields the environment left unset, with
 local development values, so a fresh clone has role groups to develop against.
 

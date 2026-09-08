@@ -5,10 +5,12 @@ underscored spelling to `conda_sentinel`. The move itself is a mechanical edit
 that either compiles or does not; what survives the story is this file. One
 hundred and forty-eight files under the two trees this gate scans named the old
 identifier the day before the rename -- one hundred and eighty-six across the
-whole repository, the rest of them under `docs/` and `_bmad-output/`, which are
-later stories' -- and without a gate the name comes back one import at a time: a
-docstring copied out of a merged story, a path in a comment, an import somebody
-hand-wrote from memory. None of those fails a build.
+whole repository, the rest of them under `docs/`, which `CPM-RENAME-S02` cleared,
+and `_bmad-output/`, which is `CPM-RENAME-S03`'s: it *corrects* the planning
+artifacts, whose Code Maps must name paths that exist, and leaves only the merged
+story files alone as a record -- and without a gate the name comes back one import at a
+time: a docstring copied out of a merged story, a path in a comment, an import
+somebody hand-wrote from memory. None of those fails a build.
 
 **Text, not syntax.** Every other audit in this suite matches on the parsed tree
 and argues at length for doing so, and this one deliberately does the opposite.
@@ -46,19 +48,32 @@ pass on every file forever -- so the assembled value is pinned by digest, and a
 detector still finds it. An audit that cannot be shown to detect anything has
 quietly stopped auditing.
 
-**The distribution name is not this gate's subject.** `[project] name` in
-`pyproject.toml` is still the hyphenated `conda-package-supply-chain-monitor`,
-and `CPM-RENAME-S02` owns it. The hyphenated and underscored spellings are
-different strings, so the scan cannot confuse them -- `tests/unit/test_package_version.py`
-and `tests/unit/test_component_declaration.py` both name the distribution today
-and are not offences -- and a case below asserts that separation rather than
-leaving it to be inferred.
+**The hyphenated spelling is not this gate's subject.** What is forbidden is the
+underscored module identifier. The hyphenated spelling of the same five words
+survived `CPM-RENAME-S02` under `src/` in two places, and they are not the same
+kind of thing:
+
+* `conda_sentinel/collectors/agent.py`'s `PROJECT_URL` names the **repository**,
+  which has never been renamed. `CPM-RENAME-S04` renames it and moves this string
+  with it.
+* `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME` names the
+  **product**, and `CPM-RENAME-S02` deliberately left it. It is an *emitted*
+  value -- every span's `service.name` -- so moving it silently breaks any
+  dashboard or alert keyed on the old one. `docs/observability.md`'s
+  `OTEL_SERVICE_NAME` row records that decision. Do not "finish the rename" here
+  on the strength of this gate being green; a story that wants the trace identity
+  moved owns the migration note, and nothing in this suite pins the literal, so
+  the change would pass silently.
+
+The two spellings are different strings, so the scan cannot confuse them, and a
+case below asserts that separation rather than leaving it to be inferred. It is
+asserted rather than observed because the near-miss is close: same words, one
+separator apart.
 
 **Scope is `src/` and `tests/`, and no further.** `_bmad-output/` holds merged
 story files that are a historical record of what was decided when;
 `CPM-RENAME-S03` decides what happens there and deliberately leaves the merged
-ones alone. `docs/` and `README.md` are `CPM-RENAME-S02`'s. A gate that reached
-into any of them would fail on work this story is defined not to do.
+ones alone. A gate that reached into it would fail on work no story has done yet.
 
 The four application labels are asserted here too. They are the reason the rename
 was cheap: Django derives a label from the last segment of `AppConfig.name`, so
@@ -104,10 +119,16 @@ FORMER_IMPORT_ROOT_DIGEST: Final[str] = "d852798cb66f54b5bd2efda5134ffad8b08e7d8
 #: What the import root is now.
 CURRENT_IMPORT_ROOT: Final[str] = "conda_sentinel"
 
-#: The distribution in `pyproject.toml`'s `[project] name`, which `CPM-RENAME-S02`
-#: owns and this story leaves alone. Spelled in full because the point of the case
-#: below is that the scan does *not* match it.
-DISTRIBUTION_NAME: Final[str] = "conda-package-supply-chain-monitor"
+#: The hyphenated spelling of the forbidden identifier's five words. It was
+#: `pyproject.toml`'s `[project] name` until `CPM-RENAME-S02` made that
+#: `conda-sentinel`. Two live examples under `src/` carry it still, for different
+#: reasons -- `conda_sentinel/collectors/agent.py`'s `PROJECT_URL`, which names
+#: the repository and is `CPM-RENAME-S04`'s, and
+#: `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`, which names the
+#: product and was deliberately left because it is emitted (see the module
+#: docstring). Spelled in full because the point of the case below is that the
+#: scan does *not* match it.
+NEAR_MISS_HYPHENATED_SPELLING: Final[str] = "conda-package-supply-chain-monitor"
 
 #: The two trees `CPM-RENAME-S01` AC 1 names, and nothing else.
 SCANNED_ROOTS: Final[tuple[Path, ...]] = (REPO_ROOT / "src", REPO_ROOT / "tests")
@@ -289,22 +310,25 @@ def test_the_detector_finds_the_former_name_in_a_path_whose_bytes_are_clean(tmp_
     assert _path_names_the_former_import_root(offender, tmp_path)
 
 
-def test_the_detector_ignores_the_distribution_name(tmp_path: Path) -> None:
-    """The hyphenated distribution is `CPM-RENAME-S02`'s and is not an offence here.
+def test_the_detector_ignores_the_hyphenated_spelling(tmp_path: Path) -> None:
+    """The hyphenated spelling of the same words is not an offence here.
 
-    `tests/unit/test_package_version.py` and `tests/unit/test_dependency_policy.py`
-    both name it today and must keep passing, so the separation is asserted rather
-    than left to the fact that the two strings happen to differ.
+    It named the distribution until `CPM-RENAME-S02`, and two files under `src/`
+    carry it today and must keep passing: `conda_sentinel/collectors/agent.py`'s
+    `PROJECT_URL`, which names the repository, and
+    `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`, which names the
+    product and was deliberately left. The separation is asserted rather than left
+    to the fact that the two strings happen to differ.
 
     Asserted for the path detector as well as the byte one, which also pins that
     the path detector answers False for something: a detector that returned True
     unconditionally would satisfy the falsification case above and fail every file
     in the sweep, but one that matched the hyphenated spelling too would fail only
-    the nine files that legitimately carry it.
+    the handful of files that legitimately carry it.
     """
-    innocent = tmp_path / DISTRIBUTION_NAME / "packaging.py"
+    innocent = tmp_path / NEAR_MISS_HYPHENATED_SPELLING / "packaging.py"
     innocent.parent.mkdir(parents=True)
-    innocent.write_text(f'DISTRIBUTION = "{DISTRIBUTION_NAME}"\n', encoding="utf-8")
+    innocent.write_text(f'PROJECT_URL = "{NEAR_MISS_HYPHENATED_SPELLING}"\n', encoding="utf-8")
 
     assert _offending_lines(innocent) == []
     assert not _path_names_the_former_import_root(innocent, tmp_path)

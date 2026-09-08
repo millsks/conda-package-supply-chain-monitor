@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
 
-DISTRIBUTION = "conda-package-supply-chain-monitor"
+DISTRIBUTION = "conda-sentinel"
 
 # What the package reports when its distribution metadata cannot be found.
 FALLBACK_VERSION = "0.0.0"

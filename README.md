@@ -1,4 +1,4 @@
-# Conda Package Supply Chain Monitor
+# Conda-Sentinel
 
 [![CI](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-package-supply-chain-monitor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=millsks_conda-package-supply-chain-monitor)
@@ -15,7 +15,7 @@ The architecture is designed for inventories that include Python packages as wel
 
 Package inventories change continuously. A package may be current upstream but lagging on PyPI, conda-forge, or an internal channel. It may also have known vulnerabilities, a license-policy issue, incomplete Python 3.14 support, a missing feedstock, or an inactive source repository.
 
-The Conda Package Supply Chain Monitor collects evidence from these sources, evaluates it using deterministic and versioned policies, and produces an explainable package-health and remediation view.
+Conda-Sentinel collects evidence from these sources, evaluates it using deterministic and versioned policies, and produces an explainable package-health and remediation view.
 
 ## Capabilities
 
@@ -369,7 +369,7 @@ two-stage startup check, and health and drain endpoints.
 |   |   |-- templates/
 |   |   `-- static/
 |   `-- django_apps/           # second import root -- deliberately NOT a package
-|       `-- conda_package_supply_chain_monitor/   # every domain application
+|       `-- conda_sentinel/    # every domain application
 |           |-- core/          # shared base models and utilities
 |           |-- identity/      # planned -- see below
 |           |-- collectors/
@@ -387,8 +387,8 @@ two-stage startup check, and health and drain endpoints.
 ```
 
 `src/` and `src/django_apps/` are both import roots and neither is a package, so
-`config`, `django_service` and `conda_package_supply_chain_monitor` import as
-top-level names while `django_apps` itself never appears in an import statement.
+`config`, `django_service` and `conda_sentinel` import as top-level names
+while `django_apps` itself never appears in an import statement.
 Both are declared in exactly one place -- the
 `[tool.hatch.build.targets.wheel]` table in `pyproject.toml`, whose `sources`
 mapping enumerates the three subtrees so that no key is a prefix of another.
@@ -399,9 +399,12 @@ entrypoint, pixi task or test setting declares a root a second time.
 ### Planned domain applications
 
 The evidence pipeline is largely unbuilt. `core/` exists; the rest land under
-`src/django_apps/conda_package_supply_chain_monitor/` -- one distribution package
-holding one pluggable Django application per business domain, so every
-application shares a single stable top-level name:
+`src/django_apps/conda_sentinel/` -- one top-level package holding one pluggable
+Django application per business domain, so every application shares a single
+stable top-level name. It is not the distribution, which is `conda-sentinel` and
+ships `config` and `django_service` alongside it; the two spellings coincide
+because the product has one name, not because the package and the distribution
+are the same thing:
 
 - **identity/** -- package identity resolution, canonical inventory management, and mapping overrides.
 - **collectors/** -- evidence collection from source repositories, PyPI, conda-forge, vulnerability sources, and other external systems.
