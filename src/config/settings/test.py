@@ -4,7 +4,7 @@ With these settings, tests run faster.
 
 import sys
 
-from conda_package_supply_chain_monitor.core.roles import RoleContract
+from conda_sentinel.core.roles import RoleContract
 from config.authorization.claims import ClaimsContract
 from config.observability.logging import build_logging_config
 from config.startup import run_stage_one
@@ -151,7 +151,7 @@ CLAIMS_CONTRACT = ClaimsContract(
 # what lets `tests/unit/django_apps/test_roles.py` check that none of these three
 # names appears in `roles.py`, the module that declares the contract, or in the
 # migration that provisions from it. base.py defaults none of them; see
-# conda_package_supply_chain_monitor/core/roles.py.
+# conda_sentinel/core/roles.py.
 #
 # Deliberately disjoint from CLAIMS_CONTRACT's two group names above. The
 # collision case -- one directory group named by both contracts -- is a

@@ -42,15 +42,15 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from typing import Final
 
-from conda_package_supply_chain_monitor.policies import parameters as parameters_module
-from conda_package_supply_chain_monitor.policies.parameters import INACTIVITY_DAYS_KEY
-from conda_package_supply_chain_monitor.policies.parameters import PARAMETERS_FILENAME
-from conda_package_supply_chain_monitor.policies.parameters import RISK_ORDER_KEY
-from conda_package_supply_chain_monitor.policies.parameters import RULE_DISPOSITION_KEY
-from conda_package_supply_chain_monitor.policies.parameters import RULE_EXPRESSION_KEY
-from conda_package_supply_chain_monitor.policies.parameters import RULES_KEY
-from conda_package_supply_chain_monitor.policies.parameters import VERSIONS_TABLE
-from conda_package_supply_chain_monitor.policies.parameters import forget_recorded_parameters
+from conda_sentinel.policies import parameters as parameters_module
+from conda_sentinel.policies.parameters import INACTIVITY_DAYS_KEY
+from conda_sentinel.policies.parameters import PARAMETERS_FILENAME
+from conda_sentinel.policies.parameters import RISK_ORDER_KEY
+from conda_sentinel.policies.parameters import RULE_DISPOSITION_KEY
+from conda_sentinel.policies.parameters import RULE_EXPRESSION_KEY
+from conda_sentinel.policies.parameters import RULES_KEY
+from conda_sentinel.policies.parameters import VERSIONS_TABLE
+from conda_sentinel.policies.parameters import forget_recorded_parameters
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

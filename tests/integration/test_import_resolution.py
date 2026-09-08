@@ -107,13 +107,13 @@ APPLICATION_ROOT_NAME = "django_apps"
 # The one distribution package inside that root. Every domain application is a
 # subpackage of it, so they share a single stable top-level name and neither
 # `pyproject.toml` nor ruff needs an edit when one is added.
-APPLICATION_PACKAGE = "conda_package_supply_chain_monitor"
+APPLICATION_PACKAGE = "conda_sentinel"
 
 # A wheel entry belonging to an application has at least three path parts -- the
 # application package, the application, and the file. The constant is the
 # minimum itself and is compared with `>=`, so the number and the comparison say
 # the same thing; a two-part entry
-# (`conda_package_supply_chain_monitor/__init__.py`) is the package's own module
+# (`conda_sentinel/__init__.py`) is the package's own module
 # rather than one of its applications.
 APPLICATION_MEMBER_MIN_PARTS = 3
 
@@ -567,7 +567,7 @@ def test_the_built_wheel_ships_the_source_tree_at_its_root(tmp_path: Path) -> No
     assert packages == expected, sorted(top_level)
     assert APPLICATION_ROOT_NAME not in packages, sorted(top_level)
 
-    # The top-level check above stops at `conda_package_supply_chain_monitor`, so on its own it
+    # The top-level check above stops at `conda_sentinel`, so on its own it
     # would not notice an application failing to ship: every app is a level deeper. Deriving the
     # expectation from the tree is what makes "an app added later needs no edit here" a claim the
     # gate rechecks rather than a comment -- add a package under the application package and this
@@ -635,7 +635,7 @@ def test_the_domain_application_resolves_in_a_plain_interpreter() -> None:
 
     Same control as `test_the_import_probe_resolves_in_a_plain_interpreter`, for
     the root added second: ``PYTHONSAFEPATH`` is set and ``PYTHONPATH`` cleared,
-    so the only thing that can resolve `conda_package_supply_chain_monitor` is
+    so the only thing that can resolve `conda_sentinel` is
     the editable finder generated from
     `[tool.hatch.build.targets.wheel.sources]`. This is the leg that would have
     failed under the shadowed `sources = [ "src", "src/django_apps" ]` spelling,
@@ -665,7 +665,7 @@ def test_the_second_import_root_is_not_itself_importable() -> None:
     The negative half of the mapping. If `src/django_apps` were mapped to
     anything but the wheel root -- or if it grew an `__init__.py` -- this import
     would start succeeding and every application would have acquired a second,
-    silently-working spelling (`django_apps.conda_package_supply_chain_monitor.core`).
+    silently-working spelling (`django_apps.conda_sentinel.core`).
 
     Asserted on the interpreter's own message naming *this* module, not merely
     on a non-zero exit and not merely on the exception class: a broken

@@ -99,8 +99,8 @@ development_status:
   epic-security-retrospective: optional
 
   # CPM-EP-RENAME: The product is called Conda-Sentinel
-  epic-rename: backlog
-  cpm-rename-s01-import-root-becomes-conda-sentinel: ready-for-dev
+  epic-rename: in-progress
+  cpm-rename-s01-import-root-becomes-conda-sentinel: done
   cpm-rename-s02-conda-sentinel-on-operator-surfaces: ready-for-dev
   cpm-rename-s03-planning-artifacts-name-new-module: ready-for-dev
   cpm-rename-s04-repository-is-called-conda-sentinel: ready-for-dev

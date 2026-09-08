@@ -37,19 +37,19 @@ import structlog
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from conda_package_supply_chain_monitor.collectors import selection as selection_module
-from conda_package_supply_chain_monitor.collectors.models import InventoryReadError
-from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
-from conda_package_supply_chain_monitor.collectors.models import snapshot_as_of
-from conda_package_supply_chain_monitor.collectors.selection import QUEUE_SELECTED_EVENT
-from conda_package_supply_chain_monitor.collectors.selection import unresolved_packages
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import UNKNOWN
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.collectors import selection as selection_module
+from conda_sentinel.collectors.models import InventoryReadError
+from conda_sentinel.collectors.models import InventorySnapshot
+from conda_sentinel.collectors.models import snapshot_as_of
+from conda_sentinel.collectors.selection import QUEUE_SELECTED_EVENT
+from conda_sentinel.collectors.selection import unresolved_packages
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import UNKNOWN
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP

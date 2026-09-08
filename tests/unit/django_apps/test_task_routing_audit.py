@@ -63,11 +63,11 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
-from conda_package_supply_chain_monitor.core.queues import QUEUE_BY_NAMESPACE
-from conda_package_supply_chain_monitor.core.queues import TASK_NAMESPACE_PREFIX
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.core.queues import QUEUE_BY_NAMESPACE
+from conda_sentinel.core.queues import TASK_NAMESPACE_PREFIX
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
 from config.celery_app import app
 from tests.celery_tasks import EXCLUDED_TASK_PREFIXES
 from tests.celery_tasks import SUITE_TASK_PREFIX
@@ -114,7 +114,7 @@ A_COLLECTOR_TASK: Final[str] = "cpm.collect.fixture_release"
 A_POLICY_TASK: Final[str] = "cpm.policy.currency"
 A_VERIFICATION_TASK: Final[str] = "cpm.verify.py314_build"
 A_PRODUCT_TASK_IN_NO_NAMESPACE: Final[str] = "cpm.sweep.thing"
-A_PRODUCT_TASK_WITH_A_BARE_NAME: Final[str] = "conda_package_supply_chain_monitor.collectors.tasks.fetch"
+A_PRODUCT_TASK_WITH_A_BARE_NAME: Final[str] = "conda_sentinel.collectors.tasks.fetch"
 A_SECOND_TASK_IN_THE_EXEMPTED_MODULE: Final[str] = "django_service.users.tasks.count_something_else"
 
 #: The last segment of the policy run's declared name, and the module celery's
@@ -127,7 +127,7 @@ A_SECOND_TASK_IN_THE_EXEMPTED_MODULE: Final[str] = "django_service.users.tasks.c
 #: still come from `core/queues.py`, so a renamed queue fails here rather than
 #: routing the task nowhere.
 POLICY_RUN_TASK_SUFFIX: Final[str] = "run"
-AUTODISCOVERED_TASK_MODULE: Final[str] = "conda_package_supply_chain_monitor.core.tasks"
+AUTODISCOVERED_TASK_MODULE: Final[str] = "conda_sentinel.core.tasks"
 
 #: Every name the resolver and celery's router are reconciled over, well-formed
 #: and not.

@@ -47,42 +47,42 @@ from django.db.models import QuerySet
 from django.test import override_settings
 from structlog.testing import capture_logs
 
-from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
-from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORMS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
-from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
-from conda_package_supply_chain_monitor.collectors.models import PyPIReleaseSnapshot
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_OBSERVATION_WINDOW
-from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import EVENT_KEYS
-from conda_package_supply_chain_monitor.collectors.sweep import PACKAGE_EVENT_KEYS
-from conda_package_supply_chain_monitor.collectors.sweep import PACKAGE_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import RESERVED_COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import SELECTION_CHUNK
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_DISPATCHED_EVENT
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_PACKAGE_REFUSED_EVENT
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_REFUSED_EVENT
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_SKIPPED_EVENT
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import SweepDispatchError
-from conda_package_supply_chain_monitor.collectors.sweep import collection_task_name
-from conda_package_supply_chain_monitor.collectors.sweep import dispatch
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
-from conda_package_supply_chain_monitor.collectors.tasks import collect_sweep
-from conda_package_supply_chain_monitor.core.clock import SystemClock
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import RequestsTransport
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.collectors.conda_package import CHANNELS_SETTING
+from conda_sentinel.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
+from conda_sentinel.collectors.conda_package import PLATFORMS_SETTING
+from conda_sentinel.collectors.conda_package import CondaPackageCollector
+from conda_sentinel.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
+from conda_sentinel.collectors.models import PyPIReleaseSnapshot
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_OBSERVATION_WINDOW
+from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
+from conda_sentinel.collectors.sweep import EVENT_KEYS
+from conda_sentinel.collectors.sweep import PACKAGE_EVENT_KEYS
+from conda_sentinel.collectors.sweep import PACKAGE_KWARG
+from conda_sentinel.collectors.sweep import RESERVED_COLLECTOR_NAME
+from conda_sentinel.collectors.sweep import SELECTION_CHUNK
+from conda_sentinel.collectors.sweep import SWEEP_DISPATCHED_EVENT
+from conda_sentinel.collectors.sweep import SWEEP_PACKAGE_REFUSED_EVENT
+from conda_sentinel.collectors.sweep import SWEEP_REFUSED_EVENT
+from conda_sentinel.collectors.sweep import SWEEP_SKIPPED_EVENT
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.collectors.sweep import SweepDispatchError
+from conda_sentinel.collectors.sweep import collection_task_name
+from conda_sentinel.collectors.sweep import dispatch
+from conda_sentinel.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
+from conda_sentinel.collectors.tasks import InventoryIngestionCollector
+from conda_sentinel.collectors.tasks import collect_sweep
+from conda_sentinel.core.clock import SystemClock
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import RequestsTransport
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from config.celery_app import app
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FIXTURE_CADENCE

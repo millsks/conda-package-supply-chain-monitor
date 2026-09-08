@@ -49,37 +49,37 @@ from django.db import transaction
 from django.db.models import ProtectedError
 from opentelemetry import trace
 
-from conda_package_supply_chain_monitor.collectors.models import COUNTS_PRESENT_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import InventoryReadError
-from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
-from conda_package_supply_chain_monitor.collectors.models import snapshot_as_of
-from conda_package_supply_chain_monitor.collectors.tasks import ABSENT_DETAIL
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import INVENTORY_SOURCE
-from conda_package_supply_chain_monitor.collectors.tasks import OPTIONAL_SIGNALS
-from conda_package_supply_chain_monitor.collectors.tasks import PACKAGE_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import SOURCE_PACKAGE_KEY
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecord
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecordError
-from conda_package_supply_chain_monitor.collectors.tasks import declare_inventory_adapter
-from conda_package_supply_chain_monitor.collectors.tasks import ingest_inventory
-from conda_package_supply_chain_monitor.collectors.tasks import withdraw_inventory_adapter
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_PARTIAL_EVENT
-from conda_package_supply_chain_monitor.core.collection import EVENT_KEYS
-from conda_package_supply_chain_monitor.core.ledger import TRACE_ID_FORMAT
-from conda_package_supply_chain_monitor.core.models import AppendOnlyError
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
-from conda_package_supply_chain_monitor.identity.services import ResolutionError
-from conda_package_supply_chain_monitor.identity.services import resolve_package_shell
+from conda_sentinel.collectors.models import COUNTS_PRESENT_CONSTRAINT
+from conda_sentinel.collectors.models import InventoryReadError
+from conda_sentinel.collectors.models import InventorySnapshot
+from conda_sentinel.collectors.models import snapshot_as_of
+from conda_sentinel.collectors.tasks import ABSENT_DETAIL
+from conda_sentinel.collectors.tasks import COLLECTOR_NAME
+from conda_sentinel.collectors.tasks import INVENTORY_SOURCE
+from conda_sentinel.collectors.tasks import OPTIONAL_SIGNALS
+from conda_sentinel.collectors.tasks import PACKAGE_NAME
+from conda_sentinel.collectors.tasks import SOURCE_PACKAGE_KEY
+from conda_sentinel.collectors.tasks import InventoryIngestionCollector
+from conda_sentinel.collectors.tasks import InventoryRecord
+from conda_sentinel.collectors.tasks import InventoryRecordError
+from conda_sentinel.collectors.tasks import declare_inventory_adapter
+from conda_sentinel.collectors.tasks import ingest_inventory
+from conda_sentinel.collectors.tasks import withdraw_inventory_adapter
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import COLLECTION_PARTIAL_EVENT
+from conda_sentinel.core.collection import EVENT_KEYS
+from conda_sentinel.core.ledger import TRACE_ID_FORMAT
+from conda_sentinel.core.models import AppendOnlyError
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.services import ASSOCIATOR_KEY_LENGTH
+from conda_sentinel.identity.services import CANONICAL_NAME_LENGTH
+from conda_sentinel.identity.services import ResolutionError
+from conda_sentinel.identity.services import resolve_package_shell
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import OBSERVATION_GAP
 from tests.collectors import FixedLimiter
@@ -93,7 +93,7 @@ if TYPE_CHECKING:
 
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
+    from conda_sentinel.core.collection import CollectionResult
 
 #: The three packages the multi-record cases name, in the order a document lists
 #: them. Named rather than numbered so a failure reads as the package it is

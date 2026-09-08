@@ -33,20 +33,20 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import MAPPED_FIELDS
-from conda_package_supply_chain_monitor.identity.models import UNKNOWN
-from conda_package_supply_chain_monitor.identity.models import Feedstock
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import IdentityOverride
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import MappingOutcome
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import verify_sentinels
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import MAPPED_FIELDS
+from conda_sentinel.identity.models import UNKNOWN
+from conda_sentinel.identity.models import Feedstock
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityOverride
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import MappingOutcome
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 from tests.model_registry import OBSERVED_AT_FIELD
@@ -191,21 +191,17 @@ DERIVED_STATUS_SUFFIXES: Final[tuple[str, ...]] = ("_outcome", "_status")
 #: module reads the vocabulary from the leaf. Compared as source text rather than
 #: resolved from an AST because that is exactly what an import statement is, and
 #: both forms are the literal line a developer types.
-CORE_PACKAGE: Final[Path] = SRC_ROOT / "django_apps" / "conda_package_supply_chain_monitor" / "core"
-FORBIDDEN_CONFIDENCE_IMPORT: Final[str] = (
-    "from conda_package_supply_chain_monitor.identity.models import IdentityConfidence"
-)
-PERMITTED_CONFIDENCE_IMPORT: Final[str] = (
-    "from conda_package_supply_chain_monitor.identity.confidence import IdentityConfidence"
-)
+CORE_PACKAGE: Final[Path] = SRC_ROOT / "django_apps" / "conda_sentinel" / "core"
+FORBIDDEN_CONFIDENCE_IMPORT: Final[str] = "from conda_sentinel.identity.models import IdentityConfidence"
+PERMITTED_CONFIDENCE_IMPORT: Final[str] = "from conda_sentinel.identity.confidence import IdentityConfidence"
 
 #: The `core` modules that legitimately read the vocabulary, by path under `src/`.
 #: `models.py` mirrors the value onto `PackageHealth`; `confidence.py` is
 #: `CPM-AD-4`'s gate over it. Written out so a third reader is a decision somebody
 #: made, and so the ban above cannot pass by nothing reading it at all.
 EXPECTED_CONFIDENCE_READERS: Final[tuple[str, ...]] = (
-    "django_apps/conda_package_supply_chain_monitor/core/confidence.py",
-    "django_apps/conda_package_supply_chain_monitor/core/models.py",
+    "django_apps/conda_sentinel/core/confidence.py",
+    "django_apps/conda_sentinel/core/models.py",
 )
 
 #: The confidence values, in the PRD's own spelling. The hyphen in the middle

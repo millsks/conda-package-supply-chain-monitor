@@ -37,65 +37,65 @@ from celery.schedules import crontab
 from django.db.models import QuerySet
 from django.test import override_settings
 
-from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
-from conda_package_supply_chain_monitor.collectors.conda_package import CONDA_PACKAGE_CADENCE
-from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORMS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
-from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
-from conda_package_supply_chain_monitor.collectors.feedstock import FEEDSTOCK_CADENCE
-from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
-from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_NAME
-from conda_package_supply_chain_monitor.collectors.kev import KEV_CADENCE
-from conda_package_supply_chain_monitor.collectors.kev import KevCollector
-from conda_package_supply_chain_monitor.collectors.license import COLLECTOR_NAME as LICENSE_NAME
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_CADENCE
-from conda_package_supply_chain_monitor.collectors.license import LicenseCollector
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_CADENCE
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
-from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.source_release import SOURCE_RELEASE_CADENCE
-from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
-from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import EVENT_KEYS
-from conda_package_supply_chain_monitor.collectors.sweep import PACKAGE_EVENT_KEYS
-from conda_package_supply_chain_monitor.collectors.sweep import PACKAGE_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import RESERVED_COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import SELECTION_CHUNK
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import DispatchOutcome
-from conda_package_supply_chain_monitor.collectors.sweep import SweepDispatchError
-from conda_package_supply_chain_monitor.collectors.sweep import _as_interval
-from conda_package_supply_chain_monitor.collectors.sweep import _scheduled_dispatches
-from conda_package_supply_chain_monitor.collectors.sweep import _streamed
-from conda_package_supply_chain_monitor.collectors.sweep import cadence_reconciliation_fault
-from conda_package_supply_chain_monitor.collectors.sweep import collection_task_name
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_CONDA_PACKAGE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_FEEDSTOCK_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_KEV_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_LICENSE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_SOURCE_RELEASE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_VULNERABILITY_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
-from conda_package_supply_chain_monitor.collectors.tasks import collect_sweep
-from conda_package_supply_chain_monitor.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
-from conda_package_supply_chain_monitor.collectors.vulnerability import VULNERABILITY_CADENCE
-from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
-from conda_package_supply_chain_monitor.core.collection import NO_CADENCE
-from conda_package_supply_chain_monitor.core.collection import Collector
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.collection import require_cadence
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.collectors.conda_package import CHANNELS_SETTING
+from conda_sentinel.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
+from conda_sentinel.collectors.conda_package import CONDA_PACKAGE_CADENCE
+from conda_sentinel.collectors.conda_package import PLATFORMS_SETTING
+from conda_sentinel.collectors.conda_package import CondaPackageCollector
+from conda_sentinel.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
+from conda_sentinel.collectors.feedstock import FEEDSTOCK_CADENCE
+from conda_sentinel.collectors.feedstock import FeedstockCollector
+from conda_sentinel.collectors.kev import COLLECTOR_NAME as KEV_NAME
+from conda_sentinel.collectors.kev import KEV_CADENCE
+from conda_sentinel.collectors.kev import KevCollector
+from conda_sentinel.collectors.license import COLLECTOR_NAME as LICENSE_NAME
+from conda_sentinel.collectors.license import LICENSE_CADENCE
+from conda_sentinel.collectors.license import LicenseCollector
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_CADENCE
+from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
+from conda_sentinel.collectors.source_release import SOURCE_RELEASE_CADENCE
+from conda_sentinel.collectors.source_release import SourceReleaseCollector
+from conda_sentinel.collectors.sweep import COLLECTOR_KWARG
+from conda_sentinel.collectors.sweep import EVENT_KEYS
+from conda_sentinel.collectors.sweep import PACKAGE_EVENT_KEYS
+from conda_sentinel.collectors.sweep import PACKAGE_KWARG
+from conda_sentinel.collectors.sweep import RESERVED_COLLECTOR_NAME
+from conda_sentinel.collectors.sweep import SELECTION_CHUNK
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.collectors.sweep import DispatchOutcome
+from conda_sentinel.collectors.sweep import SweepDispatchError
+from conda_sentinel.collectors.sweep import _as_interval
+from conda_sentinel.collectors.sweep import _scheduled_dispatches
+from conda_sentinel.collectors.sweep import _streamed
+from conda_sentinel.collectors.sweep import cadence_reconciliation_fault
+from conda_sentinel.collectors.sweep import collection_task_name
+from conda_sentinel.collectors.tasks import COLLECT_CONDA_PACKAGE_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_FEEDSTOCK_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_KEV_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_LICENSE_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_SOURCE_RELEASE_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_VULNERABILITY_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
+from conda_sentinel.collectors.tasks import InventoryIngestionCollector
+from conda_sentinel.collectors.tasks import collect_sweep
+from conda_sentinel.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
+from conda_sentinel.collectors.vulnerability import VULNERABILITY_CADENCE
+from conda_sentinel.collectors.vulnerability import VulnerabilityCollector
+from conda_sentinel.core.collection import NO_CADENCE
+from conda_sentinel.core.collection import Collector
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.collection import require_cadence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from tests.collectors import FIXTURE_CADENCE
 from tests.collectors import FIXTURE_FRESHNESS_TARGET
 from tests.collectors import collector_class
@@ -108,12 +108,7 @@ if TYPE_CHECKING:
 
 #: The module the source sweeps at the foot of this file read.
 SWEEP_MODULE: Final[Path] = (
-    Path(__file__).resolve().parents[3]
-    / "src"
-    / "django_apps"
-    / "conda_package_supply_chain_monitor"
-    / "collectors"
-    / "sweep.py"
+    Path(__file__).resolve().parents[3] / "src" / "django_apps" / "conda_sentinel" / "collectors" / "sweep.py"
 )
 
 #: The seven per-package collectors and the cadence each declares, as one table
@@ -649,10 +644,10 @@ def test_the_package_keyword_is_the_one_every_collection_task_takes() -> None:
     positional parameter -- or lost the keyword -- fails here rather than
     producing ten thousand `TypeError`s in a worker.
     """
-    from conda_package_supply_chain_monitor.collectors.tasks import collect_conda_package  # noqa: PLC0415
-    from conda_package_supply_chain_monitor.collectors.tasks import collect_feedstock  # noqa: PLC0415
-    from conda_package_supply_chain_monitor.collectors.tasks import collect_pypi_release  # noqa: PLC0415
-    from conda_package_supply_chain_monitor.collectors.tasks import collect_source_release  # noqa: PLC0415
+    from conda_sentinel.collectors.tasks import collect_conda_package  # noqa: PLC0415
+    from conda_sentinel.collectors.tasks import collect_feedstock  # noqa: PLC0415
+    from conda_sentinel.collectors.tasks import collect_pypi_release  # noqa: PLC0415
+    from conda_sentinel.collectors.tasks import collect_source_release  # noqa: PLC0415
 
     for task in (collect_source_release, collect_pypi_release, collect_feedstock, collect_conda_package):
         parameters = inspect.signature(task.run).parameters

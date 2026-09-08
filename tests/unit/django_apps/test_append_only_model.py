@@ -54,10 +54,10 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.models import AppendOnlyError
-from conda_package_supply_chain_monitor.core.models import AppendOnlyManager
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-from conda_package_supply_chain_monitor.core.models import AppendOnlyQuerySet
+from conda_sentinel.core.models import AppendOnlyError
+from conda_sentinel.core.models import AppendOnlyManager
+from conda_sentinel.core.models import AppendOnlyModel
+from conda_sentinel.core.models import AppendOnlyQuerySet
 from tests.clocks import FIXED_INSTANT
 from tests.model_registry import A_FACT
 from tests.model_registry import FIXTURE_APP

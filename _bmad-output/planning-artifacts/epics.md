@@ -1339,13 +1339,14 @@ does not fall by waiting.
 **What makes this cheaper than a Django app rename usually is.** Two things that normally make
 it expensive do not apply, and both were verified against the tree rather than assumed:
 
-- **No table is renamed.** All nineteen models declare an explicit `db_table` and not one
+- **No table is renamed.** All twenty models declare an explicit `db_table` and not one
   carries the package name. There is no `AlterModelTable`, no data migration, and nothing an
   operator has to schedule.
 - **No app label changes.** Django derives a label from the last segment of the app's `name`,
   so the labels are `core`, `identity`, `collectors` and `policies`. Migration dependencies
-  reference those short labels, as does `django_content_type`. All twenty-four migrations are
-  untouched, and only three mention the package name at all.
+  reference those short labels, as does `django_content_type`. Only three of the twenty-five
+  migrations mention the package name at all, and those three are the only ones edited: no
+  operation is added, removed, reordered or changed in meaning, and no migration is created.
 
 What remains is a Python import path, the `name` field of four `AppConfig` classes, and prose.
 
@@ -1371,9 +1372,22 @@ So that the module path and the product stop disagreeing.
 **Then** no table, column, index or constraint differs, and `makemigrations --check` reports
 no changes
 
-**Given** the twenty-four existing migration files
+**Given** the twenty-five existing migration files
 **When** the diff for this story is read
-**Then** no migration's operations are edited, and no `AlterModelTable` is added
+**Then** no operation is added, removed or reordered, no operation's meaning changes, and no
+`AlterModelTable` or `RenameModel` appears; the only edit permitted inside an `operations`
+list is the dotted spelling of a module the migration already imports
+
+**Amended 2026-09-07 (CPM-RENAME-S01).** This criterion previously read "no migration's
+operations are edited". That was written from the twenty-two migrations whose operations are
+schema literals, and it is self-contradictory for the other three: it permits updating a
+migration's imports while forbidding the only expression that uses them. Django serialises a
+callable field kwarg as a dotted module path — `identity/migrations/0004_version_authority_order.py`
+carries `<import root>.identity.models.validate_authority_order` inside an `AddField` — and a
+rename of the import root must reach it. Leaving it stale makes the migration graph fail to
+import, and the autodetector compares the deconstructed validator by identity, so a
+differently-spelled module produces a spurious `AlterField` that AC 2 forbids. The criterion is
+therefore semantic rather than textual: what may not change is what an operation *means*.
 
 **Satisfies:** no functional requirement — this story changes no behaviour
 **Governed by:** `CPM-AD-8` — adoption stays explicit; entry-point discovery remains forbidden

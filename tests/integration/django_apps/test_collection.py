@@ -78,27 +78,27 @@ import pytest
 import structlog
 from django.db import connection
 
-from conda_package_supply_chain_monitor.core import collection
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_FAILED_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_APPLICABLE_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_MODIFIED_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_NOT_REMEMBERED_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_PARTIAL_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_REFUSED_EVENT
-from conda_package_supply_chain_monitor.core.collection import COLLECTION_SKIPPED_EVENT
-from conda_package_supply_chain_monitor.core.collection import EVENT_KEYS
-from conda_package_supply_chain_monitor.core.collection import NO_CACHE
-from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
-from conda_package_supply_chain_monitor.core.collection import CollectionWriteError
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
-from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import RequestsTransport
-from conda_package_supply_chain_monitor.core.transport import TransportError
+from conda_sentinel.core import collection
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import COLLECTION_FAILED_EVENT
+from conda_sentinel.core.collection import COLLECTION_NOT_APPLICABLE_EVENT
+from conda_sentinel.core.collection import COLLECTION_NOT_MODIFIED_EVENT
+from conda_sentinel.core.collection import COLLECTION_NOT_REMEMBERED_EVENT
+from conda_sentinel.core.collection import COLLECTION_PARTIAL_EVENT
+from conda_sentinel.core.collection import COLLECTION_REFUSED_EVENT
+from conda_sentinel.core.collection import COLLECTION_SKIPPED_EVENT
+from conda_sentinel.core.collection import EVENT_KEYS
+from conda_sentinel.core.collection import NO_CACHE
+from conda_sentinel.core.collection import NO_WINDOW
+from conda_sentinel.core.collection import CollectionWriteError
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.rate_limit import RateLimit
+from conda_sentinel.core.response_cache import CachedResponse
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import RequestsTransport
+from conda_sentinel.core.transport import TransportError
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_CACHED_BODY
 from tests.collectors import A_FABRICATED_ROW_COUNT
@@ -159,9 +159,9 @@ if TYPE_CHECKING:
     from pytest_django import DjangoDbBlocker
     from structlog.typing import EventDict
 
-    from conda_package_supply_chain_monitor.core.collection import Collector
-    from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-    from conda_package_supply_chain_monitor.core.transport import Payload
+    from conda_sentinel.core.collection import Collector
+    from conda_sentinel.core.models import AppendOnlyModel
+    from conda_sentinel.core.transport import Payload
 
 #: The package every case collects. One arbitrary primary key -- and, since
 #: `CPM-EVIDENCE-S09` made `CollectionRun.package` a real relation, a key that

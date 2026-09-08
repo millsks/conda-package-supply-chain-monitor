@@ -51,9 +51,9 @@ from django.db import connection
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.models import AppendOnlyError
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.models import AppendOnlyError
+from conda_sentinel.core.models import AppendOnlyModel
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 
     from pytest_django import DjangoDbBlocker
 
-    from conda_package_supply_chain_monitor.core.clock import Clock
+    from conda_sentinel.core.clock import Clock
 
 #: The table name the fixture model is given, rather than the `core_observation`
 #: Django would derive from `core` and `Observation`.

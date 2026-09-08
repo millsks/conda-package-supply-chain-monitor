@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeVocabularyError
-from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
-from conda_package_supply_chain_monitor.core.runs import TERMINAL_STATES
-from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeVocabularyError
+from conda_sentinel.core.outcomes import verify_sentinels
+from conda_sentinel.core.runs import TERMINAL_STATES
+from conda_sentinel.core.runs import RunState
 
 #: The five members, name to value, written out rather than derived.
 #:

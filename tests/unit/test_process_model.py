@@ -70,7 +70,7 @@ from typing import Final
 import pytest
 from django.core.management import get_commands
 
-from conda_package_supply_chain_monitor.core.queues import Queue
+from conda_sentinel.core.queues import Queue
 from config.component import ComponentDeclaration
 from config.component import load_component_declaration
 from config.locality import PROCESS_ENV_VAR

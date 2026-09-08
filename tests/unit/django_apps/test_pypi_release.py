@@ -34,52 +34,52 @@ from typing import Final
 import pytest
 from django.conf import settings
 
-from conda_package_supply_chain_monitor.collectors import agent
-from conda_package_supply_chain_monitor.collectors import pypi_release
-from conda_package_supply_chain_monitor.collectors import source_release
-from conda_package_supply_chain_monitor.collectors.agent import USER_AGENT
-from conda_package_supply_chain_monitor.collectors.models import PyPIReleaseSnapshot
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import INFO_FIELD
-from conda_package_supply_chain_monitor.collectors.pypi_release import MAX_DOCUMENT_CHARACTERS
-from conda_package_supply_chain_monitor.collectors.pypi_release import NO_RELEASE_DETAIL
-from conda_package_supply_chain_monitor.collectors.pypi_release import PURL_TYPE
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_HOST
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_CACHE_TTL
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_CADENCE
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_HEADERS
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_OBSERVATION_WINDOW
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_RATE_LIMIT
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_RETRIES
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_TIMEOUT
-from conda_package_supply_chain_monitor.collectors.pypi_release import RELEASES_FIELD
-from conda_package_supply_chain_monitor.collectors.pypi_release import REQUIRES_PYTHON_FIELD
-from conda_package_supply_chain_monitor.collectors.pypi_release import TOLERATED_MISSED_RUNS
-from conda_package_supply_chain_monitor.collectors.pypi_release import UNDATED_VERSION_DETAIL
-from conda_package_supply_chain_monitor.collectors.pypi_release import UPLOAD_TIME_FIELD
-from conda_package_supply_chain_monitor.collectors.pypi_release import VERSION_FIELD
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIDocumentError
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPILocatorError
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
-from conda_package_supply_chain_monitor.collectors.pypi_release import ReleaseIdentity
-from conda_package_supply_chain_monitor.collectors.pypi_release import asks_about
-from conda_package_supply_chain_monitor.collectors.pypi_release import inapplicability_of
-from conda_package_supply_chain_monitor.collectors.pypi_release import project_locator
-from conda_package_supply_chain_monitor.collectors.pypi_release import project_name
-from conda_package_supply_chain_monitor.collectors.pypi_release import pypi_facts
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import collect_pypi_release
-from conda_package_supply_chain_monitor.core import transport
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
-from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
-from conda_package_supply_chain_monitor.core.transport import worst_case_call_seconds
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
+from conda_sentinel.collectors import agent
+from conda_sentinel.collectors import pypi_release
+from conda_sentinel.collectors import source_release
+from conda_sentinel.collectors.agent import USER_AGENT
+from conda_sentinel.collectors.models import PyPIReleaseSnapshot
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME
+from conda_sentinel.collectors.pypi_release import INFO_FIELD
+from conda_sentinel.collectors.pypi_release import MAX_DOCUMENT_CHARACTERS
+from conda_sentinel.collectors.pypi_release import NO_RELEASE_DETAIL
+from conda_sentinel.collectors.pypi_release import PURL_TYPE
+from conda_sentinel.collectors.pypi_release import PYPI_HOST
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_CACHE_TTL
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_CADENCE
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_FRESHNESS_TARGET
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_HEADERS
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_OBSERVATION_WINDOW
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_RATE_LIMIT
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_RETRIES
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_TIMEOUT
+from conda_sentinel.collectors.pypi_release import RELEASES_FIELD
+from conda_sentinel.collectors.pypi_release import REQUIRES_PYTHON_FIELD
+from conda_sentinel.collectors.pypi_release import TOLERATED_MISSED_RUNS
+from conda_sentinel.collectors.pypi_release import UNDATED_VERSION_DETAIL
+from conda_sentinel.collectors.pypi_release import UPLOAD_TIME_FIELD
+from conda_sentinel.collectors.pypi_release import VERSION_FIELD
+from conda_sentinel.collectors.pypi_release import PyPIDocumentError
+from conda_sentinel.collectors.pypi_release import PyPILocatorError
+from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.pypi_release import ReleaseIdentity
+from conda_sentinel.collectors.pypi_release import asks_about
+from conda_sentinel.collectors.pypi_release import inapplicability_of
+from conda_sentinel.collectors.pypi_release import project_locator
+from conda_sentinel.collectors.pypi_release import project_name
+from conda_sentinel.collectors.pypi_release import pypi_facts
+from conda_sentinel.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
+from conda_sentinel.collectors.tasks import collect_pypi_release
+from conda_sentinel.core import transport
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import CONDITIONAL_HEADERS
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
+from conda_sentinel.core.transport import MAX_TIMEOUT
+from conda_sentinel.core.transport import worst_case_call_seconds
+from conda_sentinel.identity.models import ESTABLISHED
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import recorded_payload
 from tests.source_scan import SRC_ROOT
@@ -89,10 +89,10 @@ from tests.source_scan import parse
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from conda_package_supply_chain_monitor.core.transport import Payload
+    from conda_sentinel.core.transport import Payload
 
 #: The module this file's source sweeps are about, relative to `src/`.
-PYPI_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/pypi_release.py"
+PYPI_MODULE: Final[str] = "django_apps/conda_sentinel/collectors/pypi_release.py"
 
 #: The identity model this collector reads, and the write methods it may not
 #: reach for. `CPM-AD-7` says a collector "reads only `identity`", and this one

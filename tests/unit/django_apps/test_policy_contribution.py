@@ -39,17 +39,17 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import policy_run as policy_run_module
-from conda_package_supply_chain_monitor.core import rollup as rollup_module
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeVocabularyError
-from conda_package_supply_chain_monitor.core.outcomes import outcome_type
-from conda_package_supply_chain_monitor.core.policy import PolicyPassError
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
-from conda_package_supply_chain_monitor.core.rollup import permitted_values
-from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.core import policy_run as policy_run_module
+from conda_sentinel.core import rollup as rollup_module
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeVocabularyError
+from conda_sentinel.core.outcomes import outcome_type
+from conda_sentinel.core.policy import PolicyPassError
+from conda_sentinel.core.rollup import contributable_columns
+from conda_sentinel.core.rollup import permitted_values
+from conda_sentinel.policies.currency import ROLLUP_COLUMN
+from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import FIRST_DOMAIN
 from tests.passes import rollup_with_a_domain_column

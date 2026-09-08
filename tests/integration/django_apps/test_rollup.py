@@ -40,32 +40,32 @@ from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import ProtectedError
 
-from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
-from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
-from conda_package_supply_chain_monitor.core import rollup as rollup_module
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.confidence import GATED_VALUE
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.models import PolicyRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.policy_run import execute_policy_run
-from conda_package_supply_chain_monitor.core.rollup import ROLLUP_WRITE_FAILED_EVENT
-from conda_package_supply_chain_monitor.core.rollup import ROLLUP_WRITTEN_EVENT
-from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.outcomes import BEHIND
-from conda_package_supply_chain_monitor.policies.outcomes import PRESENT_AND_MAINTAINED
-from conda_package_supply_chain_monitor.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_sentinel.collectors.models import FeedstockSnapshot
+from conda_sentinel.collectors.models import SourceReleaseSnapshot
+from conda_sentinel.core import rollup as rollup_module
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.confidence import GATED_VALUE
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.models import PolicyRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.policy_run import execute_policy_run
+from conda_sentinel.core.rollup import ROLLUP_WRITE_FAILED_EVENT
+from conda_sentinel.core.rollup import ROLLUP_WRITTEN_EVENT
+from conda_sentinel.core.rollup import STAMP_COLUMNS
+from conda_sentinel.core.rollup import contributable_columns
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import Package
+from conda_sentinel.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_sentinel.policies.currency import ROLLUP_COLUMN
+from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
+from conda_sentinel.policies.outcomes import BEHIND
+from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
+from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP

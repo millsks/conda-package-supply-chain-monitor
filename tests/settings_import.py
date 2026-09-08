@@ -67,7 +67,7 @@ SETTINGS_MODULES: Final[tuple[str, ...]] = (BASE_SETTINGS, LOCAL_SETTINGS, PRODU
 #: The prefixes a fresh import is allowed to read, and therefore the ones a
 #: caller has to state rather than inherit. `CPM_` is the product's own -- the
 #: three role-group names `config/settings/base.py` reads through
-#: `conda_package_supply_chain_monitor.core.roles`. A prefix missing from this
+#: `conda_sentinel.core.roles`. A prefix missing from this
 #: tuple is a prefix a developer's shell still reaches, which is how an assertion
 #: about a fresh import passes on a value the caller never stated.
 CONFIGURATION_PREFIXES: Final[tuple[str, ...]] = ("DJANGO_", "COMPONENT_", "CPM_")

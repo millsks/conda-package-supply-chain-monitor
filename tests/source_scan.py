@@ -127,13 +127,18 @@ SKIPPED_SYMLINKS: set[str] = set()
 
 
 @cache
-def project_files(root: Path, suffix: str = ".py", *, skip_migrations: bool = False) -> tuple[Path, ...]:
+def project_files(root: Path, suffix: str | None = ".py", *, skip_migrations: bool = False) -> tuple[Path, ...]:
     """Return every file under `root` that counts as this project's source.
 
     Args:
         root: The directory to walk. `REPO_ROOT` for a repository-wide scan,
             `SRC_ROOT` for one about shipped code only.
-        suffix: The file extension to collect, leading dot included.
+        suffix: The file extension to collect, leading dot included. `None`
+            collects every file whatever its extension, which is what a scan
+            over *text* rather than over syntax needs:
+            `tests/unit/test_former_import_root.py` has to see a name that has
+            crept into a template, a CSV or a Markdown file beside the code, and
+            a walk keyed on `".py"` reports those trees clean.
         skip_migrations: Drop files under any `migrations/` directory. Generated
             code is not a declaration anybody made.
 
@@ -159,7 +164,7 @@ def project_files(root: Path, suffix: str = ".py", *, skip_migrations: bool = Fa
                     SKIPPED_SYMLINKS.add(str(entry))
                 elif not _excluded(entry.name) and not (skip_migrations and entry.name == MIGRATIONS_DIRECTORY):
                     pending.append(entry)
-            elif entry.suffix == suffix:
+            elif suffix is None or entry.suffix == suffix:
                 found.append(entry)
     return tuple(sorted(found))
 

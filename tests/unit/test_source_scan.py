@@ -163,9 +163,9 @@ def test_a_directory_name_suffix_is_excluded_as_well_as_an_exact_name() -> None:
     same reason, which is the evidence that these directories really do appear.
     """
     for suffix in EXCLUDED_DIRECTORY_SUFFIXES:
-        assert source_scan._excluded(f"conda_package_supply_chain_monitor{suffix}"), suffix  # noqa: SLF001
+        assert source_scan._excluded(f"conda_sentinel{suffix}"), suffix  # noqa: SLF001
 
-    assert not source_scan._excluded("conda_package_supply_chain_monitor")  # noqa: SLF001
+    assert not source_scan._excluded("conda_sentinel")  # noqa: SLF001
 
 
 def test_skipping_migrations_drops_generated_modules_and_nothing_else() -> None:
@@ -201,6 +201,22 @@ def test_a_different_suffix_collects_a_different_file_set() -> None:
     assert REPO_ROOT / "pixi.toml" in manifests
     assert set(modules).isdisjoint(manifests)
     assert all(path.suffix == ".toml" for path in manifests)
+
+
+def test_no_suffix_collects_every_file_whatever_its_extension() -> None:
+    """`test_former_import_root.py` asks this walk for the whole tree, not for modules.
+
+    That caller matches on bytes rather than on syntax, because `CPM-RENAME-S01`
+    forbids its subject in a template and a CSV exactly as much as in an import.
+    A suffix filter that had quietly kept filtering would report those files clean
+    without ever opening them, so the property asserted here is that the `None`
+    result is a strict superset carrying suffixes the `".py"` result cannot.
+    """
+    modules = project_files(SRC_ROOT)
+    everything = project_files(SRC_ROOT, suffix=None)
+
+    assert set(modules) < set(everything)
+    assert {".css", ".csv", ".html", ".ico", ".md", ".toml"} <= {path.suffix for path in everything}
 
 
 def test_the_walk_read_every_directory_it_entered() -> None:

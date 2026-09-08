@@ -50,41 +50,41 @@ import pytest
 from django.apps import apps
 from django.db import connection
 
-from conda_package_supply_chain_monitor.collectors.models import SNAPSHOT_KEY_INDEX
-from conda_package_supply_chain_monitor.collectors.models import SNAPSHOT_READ_INDEX
-from conda_package_supply_chain_monitor.collectors.models import InventorySnapshot
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import INGEST_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import INVENTORY_SOURCE
-from conda_package_supply_chain_monitor.collectors.tasks import MAX_COUNT
-from conda_package_supply_chain_monitor.collectors.tasks import OPTIONAL_SIGNALS
-from conda_package_supply_chain_monitor.collectors.tasks import PACKAGE_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import RECORD_FIELDS
-from conda_package_supply_chain_monitor.collectors.tasks import REQUIRED_SIGNALS
-from conda_package_supply_chain_monitor.collectors.tasks import SOURCE_PACKAGE_KEY
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryAdapterError
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecord
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryRecordError
-from conda_package_supply_chain_monitor.collectors.tasks import declare_inventory_adapter
-from conda_package_supply_chain_monitor.collectors.tasks import declared_inventory_adapter
-from conda_package_supply_chain_monitor.collectors.tasks import ingest_inventory
-from conda_package_supply_chain_monitor.collectors.tasks import inventory_adapter
-from conda_package_supply_chain_monitor.collectors.tasks import records_in
-from conda_package_supply_chain_monitor.collectors.tasks import withdraw_inventory_adapter
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import NO_CACHE
-from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.collection import SweepOutcome
-from conda_package_supply_chain_monitor.core.collection import window_query
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
-from conda_package_supply_chain_monitor.core.registry import registrations
-from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
-from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
+from conda_sentinel.collectors.models import SNAPSHOT_KEY_INDEX
+from conda_sentinel.collectors.models import SNAPSHOT_READ_INDEX
+from conda_sentinel.collectors.models import InventorySnapshot
+from conda_sentinel.collectors.tasks import COLLECTOR_NAME
+from conda_sentinel.collectors.tasks import INGEST_TASK_NAME
+from conda_sentinel.collectors.tasks import INVENTORY_SOURCE
+from conda_sentinel.collectors.tasks import MAX_COUNT
+from conda_sentinel.collectors.tasks import OPTIONAL_SIGNALS
+from conda_sentinel.collectors.tasks import PACKAGE_NAME
+from conda_sentinel.collectors.tasks import RECORD_FIELDS
+from conda_sentinel.collectors.tasks import REQUIRED_SIGNALS
+from conda_sentinel.collectors.tasks import SOURCE_PACKAGE_KEY
+from conda_sentinel.collectors.tasks import InventoryAdapterError
+from conda_sentinel.collectors.tasks import InventoryIngestionCollector
+from conda_sentinel.collectors.tasks import InventoryRecord
+from conda_sentinel.collectors.tasks import InventoryRecordError
+from conda_sentinel.collectors.tasks import declare_inventory_adapter
+from conda_sentinel.collectors.tasks import declared_inventory_adapter
+from conda_sentinel.collectors.tasks import ingest_inventory
+from conda_sentinel.collectors.tasks import inventory_adapter
+from conda_sentinel.collectors.tasks import records_in
+from conda_sentinel.collectors.tasks import withdraw_inventory_adapter
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import NO_CACHE
+from conda_sentinel.core.collection import NO_WINDOW
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.collection import SweepOutcome
+from conda_sentinel.core.collection import window_query
+from conda_sentinel.core.models import AppendOnlyModel
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.rate_limit import RateLimit
+from conda_sentinel.core.registry import registrations
+from conda_sentinel.core.transport import MAX_TIMEOUT
+from conda_sentinel.identity.services import ASSOCIATOR_KEY_LENGTH
+from conda_sentinel.identity.services import CANONICAL_NAME_LENGTH
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import RecordedTransport
 from tests.collectors import collector_class
@@ -101,7 +101,7 @@ if TYPE_CHECKING:
 #: The module every structural sweep below reads, relative to `src/`. Named once
 #: because three cases parse it and a path spelled three times is a sweep that can
 #: be pointed at the wrong file twice.
-INGESTION_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/tasks.py"
+INGESTION_MODULE: Final[str] = "django_apps/conda_sentinel/collectors/tasks.py"
 
 #: The model this collector must never write, by the name an import of it would
 #: bind. The sweep is on the *name* rather than on a call, and that is the wider
@@ -350,7 +350,7 @@ def test_the_task_declares_a_collect_namespace_name() -> None:
 
     Asserted against the *registered* name rather than against the constant
     alone: a decorator that dropped its `name=` would register under
-    `conda_package_supply_chain_monitor.collectors.tasks.ingest_inventory`, which
+    `conda_sentinel.collectors.tasks.ingest_inventory`, which
     routes to no product queue at all and would be published to a queue nobody
     drains.
     """

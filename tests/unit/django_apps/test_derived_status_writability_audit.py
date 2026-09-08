@@ -271,29 +271,29 @@ ORM_WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: `editable=False` regardless, and it is written in the same visible `create()`
 #: call as the one recorded here.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
-    "django_apps/conda_package_supply_chain_monitor/core/ledger.py": {
+    "django_apps/conda_sentinel/core/ledger.py": {
         ASSIGNMENT_FORM.format(name="status"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/identity/services.py": {
+    "django_apps/conda_sentinel/identity/services.py": {
         ASSIGNMENT_FORM.format(name="outcome"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/policies/currency.py": {
+    "django_apps/conda_sentinel/policies/currency.py": {
         KEYWORD_FORM.format(name="source_status", method="create"): 1,
         KEYWORD_FORM.format(name="pypi_status", method="create"): 1,
         KEYWORD_FORM.format(name="feedstock_status", method="create"): 1,
         KEYWORD_FORM.format(name="conda_package_status", method="create"): 1,
         KEYWORD_FORM.format(name="overall_status", method="create"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/policies/feedstock.py": {
+    "django_apps/conda_sentinel/policies/feedstock.py": {
         KEYWORD_FORM.format(name="presence_status", method="create"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/policies/vulnerability.py": {
+    "django_apps/conda_sentinel/policies/vulnerability.py": {
         KEYWORD_FORM.format(name="vulnerability_status", method="create"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/policies/licence.py": {
+    "django_apps/conda_sentinel/policies/licence.py": {
         KEYWORD_FORM.format(name="license_outcome", method="create"): 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/policies/remediation.py": {
+    "django_apps/conda_sentinel/policies/remediation.py": {
         KEYWORD_FORM.format(name="readiness_status", method="create"): 1,
     },
 }
@@ -301,7 +301,7 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
 #: The one module `CPM-AD-11` permits to write current package health, named so
 #: the scan can be asserted to still reach it. See `RECORDED_EXEMPTIONS` above
 #: for why it carries no entry today.
-THE_ROLLUP_WRITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rollup.py"
+THE_ROLLUP_WRITER: Final[str] = "django_apps/conda_sentinel/core/rollup.py"
 
 #: The rollup itself, by `app_label.ModelName`. `derived_state_models()` was
 #: empty when this module was written and `CPM-EVIDENCE-S07` is the story named
@@ -311,7 +311,7 @@ THE_ROLLUP_MODEL_LABEL: Final[str] = "core.PackageHealth"
 
 #: The module the exemption table above is about, asserted to be reachable by the
 #: scan so that an exclusion added later cannot quietly take it out of view.
-A_MODULE_THAT_WRITES_A_RUN_STATUS: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/ledger.py"
+A_MODULE_THAT_WRITES_A_RUN_STATUS: Final[str] = "django_apps/conda_sentinel/core/ledger.py"
 
 # Synthetic declarations the detectors are measured against. Parsed here rather
 # than placed under `src/`: a fixture module in the source tree would be found by

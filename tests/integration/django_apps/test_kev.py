@@ -51,62 +51,62 @@ import pytest
 from django.db import IntegrityError
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.collectors import kev as kev_module
-from conda_package_supply_chain_monitor.collectors import tasks as collector_tasks
-from conda_package_supply_chain_monitor.collectors.advisories import declare_advisory_source
-from conda_package_supply_chain_monitor.collectors.advisories import declared_advisory_source
-from conda_package_supply_chain_monitor.collectors.advisories import withdraw_advisory_source
-from conda_package_supply_chain_monitor.collectors.kev import ADVISORY_ID_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import ALIASES_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.kev import DATE_ADDED_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import ENTRIES_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import KEV_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.kev import KEV_HEADERS
-from conda_package_supply_chain_monitor.collectors.kev import KEV_OBSERVATION_WINDOW
-from conda_package_supply_chain_monitor.collectors.kev import KEV_RETRIES
-from conda_package_supply_chain_monitor.collectors.kev import KEV_SOURCE_LOCATOR
-from conda_package_supply_chain_monitor.collectors.kev import NO_ADVISORY_SOURCE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import NO_CATALOG_DATE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import NOT_LISTED_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import NOTHING_MATCHED_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import NOTHING_OBSERVED_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import ONLY_STALE_FINDINGS_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNKNOWN_LOCATOR_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNKNOWN_SCHEME_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNREADABLE_CATALOG_DATE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import KevCollector
-from conda_package_supply_chain_monitor.collectors.kev import KevDocumentError
-from conda_package_supply_chain_monitor.collectors.kev import KevEvidenceError
-from conda_package_supply_chain_monitor.collectors.kev import KevSourceError
-from conda_package_supply_chain_monitor.collectors.kev import current_findings
-from conda_package_supply_chain_monitor.collectors.kev import declare_kev_source
-from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
-from conda_package_supply_chain_monitor.collectors.kev import withdraw_kev_source
-from conda_package_supply_chain_monitor.collectors.match_confidence import MatchConfidence
-from conda_package_supply_chain_monitor.collectors.models import KEV_APPLICABILITY_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import KEV_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import KevFinding
-from conda_package_supply_chain_monitor.collectors.models import VulnerabilityFinding
-from conda_package_supply_chain_monitor.collectors.outcomes import KEV_NOT_APPLICABLE
-from conda_package_supply_chain_monitor.collectors.outcomes import KEV_UNKNOWN
-from conda_package_supply_chain_monitor.collectors.outcomes import LISTED
-from conda_package_supply_chain_monitor.collectors.outcomes import MATCHED
-from conda_package_supply_chain_monitor.collectors.outcomes import NOT_LISTED
-from conda_package_supply_chain_monitor.collectors.outcomes import VULNERABILITY_UNKNOWN
-from conda_package_supply_chain_monitor.collectors.sweep import dispatch
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_KEV_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import collect_kev
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import AppendOnlyError
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.collectors import kev as kev_module
+from conda_sentinel.collectors import tasks as collector_tasks
+from conda_sentinel.collectors.advisories import declare_advisory_source
+from conda_sentinel.collectors.advisories import declared_advisory_source
+from conda_sentinel.collectors.advisories import withdraw_advisory_source
+from conda_sentinel.collectors.kev import ADVISORY_ID_FIELD
+from conda_sentinel.collectors.kev import ALIASES_FIELD
+from conda_sentinel.collectors.kev import COLLECTOR_NAME
+from conda_sentinel.collectors.kev import DATE_ADDED_FIELD
+from conda_sentinel.collectors.kev import ENTRIES_FIELD
+from conda_sentinel.collectors.kev import KEV_FRESHNESS_TARGET
+from conda_sentinel.collectors.kev import KEV_HEADERS
+from conda_sentinel.collectors.kev import KEV_OBSERVATION_WINDOW
+from conda_sentinel.collectors.kev import KEV_RETRIES
+from conda_sentinel.collectors.kev import KEV_SOURCE_LOCATOR
+from conda_sentinel.collectors.kev import NO_ADVISORY_SOURCE_DETAIL
+from conda_sentinel.collectors.kev import NO_CATALOG_DATE_DETAIL
+from conda_sentinel.collectors.kev import NOT_LISTED_DETAIL
+from conda_sentinel.collectors.kev import NOTHING_MATCHED_DETAIL
+from conda_sentinel.collectors.kev import NOTHING_OBSERVED_DETAIL
+from conda_sentinel.collectors.kev import ONLY_STALE_FINDINGS_DETAIL
+from conda_sentinel.collectors.kev import UNKNOWN_LOCATOR_DETAIL
+from conda_sentinel.collectors.kev import UNKNOWN_SCHEME_DETAIL
+from conda_sentinel.collectors.kev import UNREADABLE_CATALOG_DATE_DETAIL
+from conda_sentinel.collectors.kev import KevCollector
+from conda_sentinel.collectors.kev import KevDocumentError
+from conda_sentinel.collectors.kev import KevEvidenceError
+from conda_sentinel.collectors.kev import KevSourceError
+from conda_sentinel.collectors.kev import current_findings
+from conda_sentinel.collectors.kev import declare_kev_source
+from conda_sentinel.collectors.kev import declared_kev_source
+from conda_sentinel.collectors.kev import withdraw_kev_source
+from conda_sentinel.collectors.match_confidence import MatchConfidence
+from conda_sentinel.collectors.models import KEV_APPLICABILITY_CONSTRAINT
+from conda_sentinel.collectors.models import KEV_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import KevFinding
+from conda_sentinel.collectors.models import VulnerabilityFinding
+from conda_sentinel.collectors.outcomes import KEV_NOT_APPLICABLE
+from conda_sentinel.collectors.outcomes import KEV_UNKNOWN
+from conda_sentinel.collectors.outcomes import LISTED
+from conda_sentinel.collectors.outcomes import MATCHED
+from conda_sentinel.collectors.outcomes import NOT_LISTED
+from conda_sentinel.collectors.outcomes import VULNERABILITY_UNKNOWN
+from conda_sentinel.collectors.sweep import dispatch
+from conda_sentinel.collectors.tasks import COLLECT_KEV_TASK_NAME
+from conda_sentinel.collectors.tasks import collect_kev
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import AppendOnlyError
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import Package
 from config.celery_app import app
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
@@ -117,10 +117,10 @@ from tests.collectors import recorded_payload
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.collection import CollectionResult
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The package the cases ask about, and the identity it carries. Nothing this
 #: collector does reads the purl -- the catalog is a document about advisories --

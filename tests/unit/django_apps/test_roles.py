@@ -28,18 +28,18 @@ import environ
 import pytest
 from django.conf import settings
 
-from conda_package_supply_chain_monitor.core import roles
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_APP_LABEL
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
-from conda_package_supply_chain_monitor.core.roles import LEADERSHIP
-from conda_package_supply_chain_monitor.core.roles import PACKAGING_ENGINEER
-from conda_package_supply_chain_monitor.core.roles import ROLE_ENVIRONMENT_VARIABLES
-from conda_package_supply_chain_monitor.core.roles import ROLE_GROUP_PERMISSIONS
-from conda_package_supply_chain_monitor.core.roles import SECURITY_REVIEWER
-from conda_package_supply_chain_monitor.core.roles import RoleContract
-from conda_package_supply_chain_monitor.core.roles import load_role_contract
-from conda_package_supply_chain_monitor.core.roles import role_group_permissions
+from conda_sentinel.core import roles
+from conda_sentinel.core.roles import IDENTITY_APP_LABEL
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_PERMISSION
+from conda_sentinel.core.roles import LEADERSHIP
+from conda_sentinel.core.roles import PACKAGING_ENGINEER
+from conda_sentinel.core.roles import ROLE_ENVIRONMENT_VARIABLES
+from conda_sentinel.core.roles import ROLE_GROUP_PERMISSIONS
+from conda_sentinel.core.roles import SECURITY_REVIEWER
+from conda_sentinel.core.roles import RoleContract
+from conda_sentinel.core.roles import load_role_contract
+from conda_sentinel.core.roles import role_group_permissions
 
 # The three slots the brief's role table names, written out rather than derived
 # from the module under test -- a derived set would agree with whatever it found.

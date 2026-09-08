@@ -18,7 +18,7 @@ body. Its `apps` parameter is that seam and nothing more.
 `provision_groups` takes group *names*, and `provision_designated_groups` is the
 claims contract's reader in front of it. The split is what lets a second
 contract -- the product's three role groups, in
-`conda_package_supply_chain_monitor.core.roles` -- be provisioned through the one
+`conda_sentinel.core.roles` -- be provisioned through the one
 writer without this platform module learning a single product concept, and
 without changing what any existing caller of `provision_designated_groups` gets.
 Deciding which groups a contract asks for belongs to whoever owns that contract;

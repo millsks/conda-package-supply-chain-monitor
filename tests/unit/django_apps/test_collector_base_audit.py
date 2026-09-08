@@ -86,7 +86,7 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.registry import registrations
+from conda_sentinel.core.registry import registrations
 from tests.source_scan import SRC_ROOT
 from tests.source_scan import dotted_name
 from tests.source_scan import parse
@@ -190,12 +190,10 @@ EVIDENCE_WRITE_METHODS: Final[frozenset[str]] = frozenset({"abulk_create", "acre
 #: and `tests/unit/django_apps/test_inventory_ingestion.py` makes both of those
 #: claims over the same file, plus the one this rule cannot: that the module has
 #: no direct write at all.
-TRANSACTIONAL_WRITE_MODULES: Final[tuple[str, ...]] = (
-    "django_apps/conda_package_supply_chain_monitor/core/collection.py",
-)
+TRANSACTIONAL_WRITE_MODULES: Final[tuple[str, ...]] = ("django_apps/conda_sentinel/core/collection.py",)
 
 #: The two run recorders, by their canonical import paths.
-LEDGER_MODULE: Final[str] = "conda_package_supply_chain_monitor.core.ledger"
+LEDGER_MODULE: Final[str] = "conda_sentinel.core.ledger"
 RECORDER_FORMS: Final[frozenset[str]] = frozenset(
     {f"{LEDGER_MODULE}.collection_run", f"{LEDGER_MODULE}.policy_run"},
 )
@@ -248,18 +246,18 @@ UNBOUNDED_TIMEOUT_FORM: Final[str] = "timeout=None"
 # would have before this story recorded it.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "config/authorization/jwks.py": {"requests.get(...)": 1, STATED_TIMEOUT_FORM: 1},
-    "django_apps/conda_package_supply_chain_monitor/core/collection.py": {STATED_TIMEOUT_FORM: 1},
-    "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py": {
+    "django_apps/conda_sentinel/core/collection.py": {STATED_TIMEOUT_FORM: 1},
+    "django_apps/conda_sentinel/core/rate_limit.py": {
         "cache.add(...)": 1,
         "cache.incr(...)": 1,
         "cache.set(...)": 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/core/response_cache.py": {
+    "django_apps/conda_sentinel/core/response_cache.py": {
         "cache.delete(...)": 2,
         "cache.get(...)": 1,
         "cache.set(...)": 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/core/transport.py": {
+    "django_apps/conda_sentinel/core/transport.py": {
         "requests.Session(...)": 1,
         "requests.adapters.HTTPAdapter(...)": 1,
         "requests.adapters.Retry(...)": 1,
@@ -285,10 +283,10 @@ AN_INHERITED_OUTBOUND_CALL: Final[str] = "config/authorization/jwks.py"
 #: `test_the_detectors_find_what_the_named_modules_actually_contain` measures the
 #: detectors against them -- and reaching them by tuple index made adding a
 #: fourth module a silent change of subject.
-THE_LIMITER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py"
-THE_RESPONSE_CACHE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/response_cache.py"
-THE_TRANSPORT: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/transport.py"
-THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/tasks.py"
+THE_LIMITER: Final[str] = "django_apps/conda_sentinel/core/rate_limit.py"
+THE_RESPONSE_CACHE: Final[str] = "django_apps/conda_sentinel/core/response_cache.py"
+THE_TRANSPORT: Final[str] = "django_apps/conda_sentinel/core/transport.py"
+THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/tasks.py"
 
 #: `CPM-CURRENCY-S01`'s collector, and the first module in this tree that reads a
 #: *remote* source through the base. Named for a reason the ingestion collector's
@@ -297,27 +295,27 @@ THE_INGESTION_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_mo
 #: one. This module has every reason -- a URL, a host, a page size and an API
 #: version -- and reaches all of it through the injected transport, which is the
 #: claim `CPM-AD-27` actually makes and the one an anchor here keeps in view.
-THE_RELEASE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/source_release.py"
+THE_RELEASE_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/source_release.py"
 
 #: `CPM-CURRENCY-S02`'s collector, and the second remote reader. Named for the
 #: reason the first is, and for one more: it is the first collector that reads
 #: `identity` through a join rather than a single column, and reaches its host
 #: through the injected transport with a locator it built from a purl -- every
 #: reason to open a connection of its own, and none taken.
-THE_PYPI_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/pypi_release.py"
+THE_PYPI_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/pypi_release.py"
 
 #: `CPM-CURRENCY-S03`'s collector, and the third remote reader. Named for the
 #: reasons the first two are, and for one more: it is the first collector that
 #: reads *two* hosts and makes a second call on **either** branch, so it has more
 #: ways to reach a socket of its own than anything before it -- and takes none.
-THE_FEEDSTOCK_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/feedstock.py"
+THE_FEEDSTOCK_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/feedstock.py"
 
 #: `CPM-CURRENCY-S04`'s collector, and the fourth remote reader. Named for the
 #: reasons the first three are, and for one more: it is the first collector
 #: whose *number* of calls is configuration rather than code -- one per
 #: monitored channel -- so it has a call site inside a loop and still reaches
 #: every one of them through the injected transport.
-THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py"
+THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/conda_package.py"
 
 #: `CPM-CURRENCY-S05`'s dispatch, and the first module in this subtree that is
 #: *not* a collector. Named for a reason none of the collectors above covers: it walks
@@ -326,7 +324,7 @@ THE_CONDA_PACKAGE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chai
 #: (`CPM-AD-23`), for a row of its own (`CPM-AD-7`) or for a call of its own
 #: (`CPM-AD-27`) -- and takes none. A scan that stopped reaching it would report a
 #: clean repository over the one module here that collects nothing.
-THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/sweep.py"
+THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_sentinel/collectors/sweep.py"
 
 #: `CPM-SECURITY-S01`'s collector, and the fifth remote reader. Named for the
 #: reasons the first four are, and for one more: it is the first collector whose
@@ -334,7 +332,7 @@ THE_SWEEP_DISPATCH: Final[str] = "django_apps/conda_package_supply_chain_monitor
 #: (`CPM-AD-29`), so nothing in it names a URL to be tempted by -- which makes it
 #: the module where a reader most needs to see that the seam is the transport's
 #: and not a second one this collector opened for itself.
-THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/vulnerability.py"
+THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/vulnerability.py"
 
 #: `CPM-SECURITY-S02`'s collector, and the sixth remote reader. Named for the
 #: reasons the first five are, and for one more: it is the only collector that
@@ -342,7 +340,7 @@ THE_VULNERABILITY_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chai
 #: grant and `CPM-SECURITY-S02`'s Spec Change Log records -- so it is the module
 #: where a reader most needs to see that the *write* path is still the base's
 #: alone and that no transaction, no socket and no second writer came with it.
-THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/kev.py"
+THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/kev.py"
 
 #: `CPM-SECURITY-S03`'s collector, and the seventh remote reader. Named for the
 #: reasons the first six are, and for one more: it reads the *same document* a
@@ -351,9 +349,9 @@ THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/
 #: reaching into `conda_package_snapshots` for a licence that is already sitting
 #: there. `CPM-AD-7` forbids that read and this collector does not take it, which
 #: `MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE` holds it to by name.
-THE_LICENSE_COLLECTOR: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/license.py"
+THE_LICENSE_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/license.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
-    "django_apps/conda_package_supply_chain_monitor/core/collection.py",
+    "django_apps/conda_sentinel/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
     THE_FEEDSTOCK_COLLECTOR,
     THE_INGESTION_COLLECTOR,
@@ -502,7 +500,7 @@ used = caches["default"].incr("key")
 A_RECORDER_INSIDE_ATOMIC = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run
+from conda_sentinel.core.ledger import collection_run
 
 
 def collect(clock):
@@ -514,7 +512,7 @@ def collect(clock):
 AN_ALIASED_RECORDER_INSIDE_ATOMIC = """
 from django.db.transaction import atomic
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run as recorded
+from conda_sentinel.core.ledger import collection_run as recorded
 
 
 def collect(clock):
@@ -526,7 +524,7 @@ def collect(clock):
 A_DECORATED_RECORDER = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import policy_run
+from conda_sentinel.core.ledger import policy_run
 
 
 @transaction.atomic
@@ -538,7 +536,7 @@ def compose(clock, cutoff):
 A_COMPACT_RECORDER_INSIDE_ATOMIC = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run
+from conda_sentinel.core.ledger import collection_run
 
 
 def collect(clock):
@@ -581,7 +579,7 @@ def write(model, rows):
 THE_CORRECT_NESTING = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run
+from conda_sentinel.core.ledger import collection_run
 
 
 def collect(clock, model, rows):
@@ -594,7 +592,7 @@ def collect(clock, model, rows):
 THE_CORRECT_COMPACT_NESTING = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run
+from conda_sentinel.core.ledger import collection_run
 
 
 def collect(clock, model, rows):
@@ -605,7 +603,7 @@ def collect(clock, model, rows):
 AN_ATOMIC_BESIDE_A_RECORDER = """
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.core.ledger import collection_run
+from conda_sentinel.core.ledger import collection_run
 
 
 def collect(clock, model, rows):

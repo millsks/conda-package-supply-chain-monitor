@@ -49,81 +49,81 @@ import pytest
 from django.conf import settings
 from structlog.testing import capture_logs
 
-from conda_package_supply_chain_monitor.collectors import kev as kev_module
-from conda_package_supply_chain_monitor.collectors.agent import USER_AGENT
-from conda_package_supply_chain_monitor.collectors.kev import ADVISORY_ID_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import ALIASES_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import CATALOG_ABSENT_EVENT
-from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.kev import DATE_ADDED_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import DOCUMENT_FIELDS
-from conda_package_supply_chain_monitor.collectors.kev import EARLIEST_CATALOG_DATE
-from conda_package_supply_chain_monitor.collectors.kev import ENTRIES_FIELD
-from conda_package_supply_chain_monitor.collectors.kev import ENTRY_FIELDS
-from conda_package_supply_chain_monitor.collectors.kev import KEV_CACHE_TTL
-from conda_package_supply_chain_monitor.collectors.kev import KEV_CADENCE
-from conda_package_supply_chain_monitor.collectors.kev import KEV_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.kev import KEV_HEADERS
-from conda_package_supply_chain_monitor.collectors.kev import KEV_OBSERVATION_WINDOW
-from conda_package_supply_chain_monitor.collectors.kev import KEV_RATE_LIMIT
-from conda_package_supply_chain_monitor.collectors.kev import KEV_RETRIES
-from conda_package_supply_chain_monitor.collectors.kev import KEV_SOURCE_LOCATOR
-from conda_package_supply_chain_monitor.collectors.kev import KEV_TIMEOUT
-from conda_package_supply_chain_monitor.collectors.kev import LATEST_CATALOG_DATE
-from conda_package_supply_chain_monitor.collectors.kev import MAX_ALIASES
-from conda_package_supply_chain_monitor.collectors.kev import MAX_CATALOG_CHARACTERS
-from conda_package_supply_chain_monitor.collectors.kev import MAX_CROSS_REFERENCES
-from conda_package_supply_chain_monitor.collectors.kev import MAX_ECHOED_CHARACTERS
-from conda_package_supply_chain_monitor.collectors.kev import MAX_ENTRIES
-from conda_package_supply_chain_monitor.collectors.kev import MAX_SENTINEL_DETAIL_CHARACTERS
-from conda_package_supply_chain_monitor.collectors.kev import NO_CATALOG_DATE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import NO_KEV_SOURCE_EVENT
-from conda_package_supply_chain_monitor.collectors.kev import NOT_LISTED_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import OUT_OF_RANGE_CATALOG_DATE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import SHORTENED_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNKNOWN_LOCATOR_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNKNOWN_SCHEME_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import UNREADABLE_CATALOG_DATE_DETAIL
-from conda_package_supply_chain_monitor.collectors.kev import Catalog
-from conda_package_supply_chain_monitor.collectors.kev import CatalogEntry
-from conda_package_supply_chain_monitor.collectors.kev import CrossReference
-from conda_package_supply_chain_monitor.collectors.kev import CurrentFinding
-from conda_package_supply_chain_monitor.collectors.kev import KevCollector
-from conda_package_supply_chain_monitor.collectors.kev import KevDocumentError
-from conda_package_supply_chain_monitor.collectors.kev import KevSourceError
-from conda_package_supply_chain_monitor.collectors.kev import catalog_in
-from conda_package_supply_chain_monitor.collectors.kev import cross_reference
-from conda_package_supply_chain_monitor.collectors.kev import declare_kev_source
-from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
-from conda_package_supply_chain_monitor.collectors.kev import kev_source
-from conda_package_supply_chain_monitor.collectors.kev import stale_clause
-from conda_package_supply_chain_monitor.collectors.kev import withdraw_kev_source
-from conda_package_supply_chain_monitor.collectors.models import KevFinding
-from conda_package_supply_chain_monitor.collectors.models import VulnerabilityFinding
-from conda_package_supply_chain_monitor.collectors.outcomes import KEV_UNKNOWN
-from conda_package_supply_chain_monitor.collectors.outcomes import LISTED
-from conda_package_supply_chain_monitor.collectors.outcomes import LISTED_MEMBER
-from conda_package_supply_chain_monitor.collectors.outcomes import MATCHED
-from conda_package_supply_chain_monitor.collectors.outcomes import NOT_LISTED
-from conda_package_supply_chain_monitor.collectors.outcomes import NOT_LISTED_MEMBER
-from conda_package_supply_chain_monitor.collectors.outcomes import KevOutcome
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_KEV_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import collect_kev
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
-from conda_package_supply_chain_monitor.core.collection import NO_CACHE
-from conda_package_supply_chain_monitor.core.collection import Collector
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeVocabularyError
-from conda_package_supply_chain_monitor.core.outcomes import aggregate
-from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
-from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
-from conda_package_supply_chain_monitor.core.transport import worst_case_call_seconds
+from conda_sentinel.collectors import kev as kev_module
+from conda_sentinel.collectors.agent import USER_AGENT
+from conda_sentinel.collectors.kev import ADVISORY_ID_FIELD
+from conda_sentinel.collectors.kev import ALIASES_FIELD
+from conda_sentinel.collectors.kev import CATALOG_ABSENT_EVENT
+from conda_sentinel.collectors.kev import COLLECTOR_NAME
+from conda_sentinel.collectors.kev import DATE_ADDED_FIELD
+from conda_sentinel.collectors.kev import DOCUMENT_FIELDS
+from conda_sentinel.collectors.kev import EARLIEST_CATALOG_DATE
+from conda_sentinel.collectors.kev import ENTRIES_FIELD
+from conda_sentinel.collectors.kev import ENTRY_FIELDS
+from conda_sentinel.collectors.kev import KEV_CACHE_TTL
+from conda_sentinel.collectors.kev import KEV_CADENCE
+from conda_sentinel.collectors.kev import KEV_FRESHNESS_TARGET
+from conda_sentinel.collectors.kev import KEV_HEADERS
+from conda_sentinel.collectors.kev import KEV_OBSERVATION_WINDOW
+from conda_sentinel.collectors.kev import KEV_RATE_LIMIT
+from conda_sentinel.collectors.kev import KEV_RETRIES
+from conda_sentinel.collectors.kev import KEV_SOURCE_LOCATOR
+from conda_sentinel.collectors.kev import KEV_TIMEOUT
+from conda_sentinel.collectors.kev import LATEST_CATALOG_DATE
+from conda_sentinel.collectors.kev import MAX_ALIASES
+from conda_sentinel.collectors.kev import MAX_CATALOG_CHARACTERS
+from conda_sentinel.collectors.kev import MAX_CROSS_REFERENCES
+from conda_sentinel.collectors.kev import MAX_ECHOED_CHARACTERS
+from conda_sentinel.collectors.kev import MAX_ENTRIES
+from conda_sentinel.collectors.kev import MAX_SENTINEL_DETAIL_CHARACTERS
+from conda_sentinel.collectors.kev import NO_CATALOG_DATE_DETAIL
+from conda_sentinel.collectors.kev import NO_KEV_SOURCE_EVENT
+from conda_sentinel.collectors.kev import NOT_LISTED_DETAIL
+from conda_sentinel.collectors.kev import OUT_OF_RANGE_CATALOG_DATE_DETAIL
+from conda_sentinel.collectors.kev import SHORTENED_DETAIL
+from conda_sentinel.collectors.kev import UNKNOWN_LOCATOR_DETAIL
+from conda_sentinel.collectors.kev import UNKNOWN_SCHEME_DETAIL
+from conda_sentinel.collectors.kev import UNREADABLE_CATALOG_DATE_DETAIL
+from conda_sentinel.collectors.kev import Catalog
+from conda_sentinel.collectors.kev import CatalogEntry
+from conda_sentinel.collectors.kev import CrossReference
+from conda_sentinel.collectors.kev import CurrentFinding
+from conda_sentinel.collectors.kev import KevCollector
+from conda_sentinel.collectors.kev import KevDocumentError
+from conda_sentinel.collectors.kev import KevSourceError
+from conda_sentinel.collectors.kev import catalog_in
+from conda_sentinel.collectors.kev import cross_reference
+from conda_sentinel.collectors.kev import declare_kev_source
+from conda_sentinel.collectors.kev import declared_kev_source
+from conda_sentinel.collectors.kev import kev_source
+from conda_sentinel.collectors.kev import stale_clause
+from conda_sentinel.collectors.kev import withdraw_kev_source
+from conda_sentinel.collectors.models import KevFinding
+from conda_sentinel.collectors.models import VulnerabilityFinding
+from conda_sentinel.collectors.outcomes import KEV_UNKNOWN
+from conda_sentinel.collectors.outcomes import LISTED
+from conda_sentinel.collectors.outcomes import LISTED_MEMBER
+from conda_sentinel.collectors.outcomes import MATCHED
+from conda_sentinel.collectors.outcomes import NOT_LISTED
+from conda_sentinel.collectors.outcomes import NOT_LISTED_MEMBER
+from conda_sentinel.collectors.outcomes import KevOutcome
+from conda_sentinel.collectors.tasks import COLLECT_KEV_TASK_NAME
+from conda_sentinel.collectors.tasks import collect_kev
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import CONDITIONAL_HEADERS
+from conda_sentinel.core.collection import NO_CACHE
+from conda_sentinel.core.collection import Collector
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeVocabularyError
+from conda_sentinel.core.outcomes import aggregate
+from conda_sentinel.core.outcomes import verify_sentinels
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
+from conda_sentinel.core.transport import DEFAULT_RETRIES
+from conda_sentinel.core.transport import MAX_TIMEOUT
+from conda_sentinel.core.transport import worst_case_call_seconds
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import RecordedTransport
 from tests.source_scan import SRC_ROOT
@@ -135,7 +135,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 #: The module this file's source sweeps are about, relative to `src/`.
-KEV_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/kev.py"
+KEV_MODULE: Final[str] = "django_apps/conda_sentinel/collectors/kev.py"
 
 #: The two models this collector may name, and the write methods it may not reach
 #: for on either. `CPM-AD-7` says a collector "reads only `identity`"; this one
@@ -654,9 +654,7 @@ def test_the_kev_slot_is_a_second_slot_and_not_a_second_use_of_the_advisory_one(
     autouse fixture guards the KEV slot alone and a module-level import of the
     advisory slot would invite a case here to leave that one occupied.
     """
-    from conda_package_supply_chain_monitor.collectors.advisories import (  # noqa: PLC0415 - see above
-        declared_advisory_source,
-    )
+    from conda_sentinel.collectors.advisories import declared_advisory_source  # noqa: PLC0415 - see above
 
     declare_kev_source(RecordedTransport())
 

@@ -283,10 +283,10 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     present-and-empty by `test_a_present_but_empty_adopted_app_list_loads_as_empty`
     and absent by `test_an_absent_adopted_app_list_loads_as_empty`, which are
     different inputs and are asserted separately. What this asserts is the repository's
-    own state: `conda_package_supply_chain_monitor.core` and
-    `conda_package_supply_chain_monitor.identity` and
-    `conda_package_supply_chain_monitor.collectors` and
-    `conda_package_supply_chain_monitor.policies` are adopted, which is the
+    own state: `conda_sentinel.core` and
+    `conda_sentinel.identity` and
+    `conda_sentinel.collectors` and
+    `conda_sentinel.policies` are adopted, which is the
     declaration half of the adoption whose installing half is `LOCAL_APPS` in
     `src/config/settings/base.py`.
 
@@ -297,10 +297,10 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     """
     assert isinstance(document["adopted_apps"], list)
     assert document["adopted_apps"] == [
-        "conda_package_supply_chain_monitor.core",
-        "conda_package_supply_chain_monitor.identity",
-        "conda_package_supply_chain_monitor.collectors",
-        "conda_package_supply_chain_monitor.policies",
+        "conda_sentinel.core",
+        "conda_sentinel.identity",
+        "conda_sentinel.collectors",
+        "conda_sentinel.policies",
     ]
 
 
@@ -522,10 +522,10 @@ def test_the_loader_reads_the_repositorys_own_declaration(declaration: Component
     """The no-argument path resolves the root file without importing settings."""
     assert declaration.name == "conda-package-supply-chain-monitor"
     assert declaration.adopted_apps == (
-        "conda_package_supply_chain_monitor.core",
-        "conda_package_supply_chain_monitor.identity",
-        "conda_package_supply_chain_monitor.collectors",
-        "conda_package_supply_chain_monitor.policies",
+        "conda_sentinel.core",
+        "conda_sentinel.identity",
+        "conda_sentinel.collectors",
+        "conda_sentinel.policies",
     )
     assert declaration.selected_features == REFERENCE_FEATURES
     assert tuple(process.name for process in declaration.processes) == EXPECTED_PROCESSES

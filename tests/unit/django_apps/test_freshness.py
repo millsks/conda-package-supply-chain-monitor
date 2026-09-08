@@ -39,14 +39,14 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.freshness import FreshnessError
-from conda_package_supply_chain_monitor.core.freshness import FreshnessReport
-from conda_package_supply_chain_monitor.core.freshness import freshness_of
-from conda_package_supply_chain_monitor.core.freshness import is_stale
-from conda_package_supply_chain_monitor.core.freshness import latest_observation
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.freshness import FreshnessError
+from conda_sentinel.core.freshness import FreshnessReport
+from conda_sentinel.core.freshness import freshness_of
+from conda_sentinel.core.freshness import is_stale
+from conda_sentinel.core.freshness import latest_observation
+from conda_sentinel.core.models import AppendOnlyModel
+from conda_sentinel.core.outcomes import OutcomeState
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_NAIVE_INSTANT
 from tests.collectors import DETERMINATE_VALUE

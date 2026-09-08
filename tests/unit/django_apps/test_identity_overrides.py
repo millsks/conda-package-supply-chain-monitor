@@ -57,26 +57,26 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.models import AppendOnlyManager
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_APP_LABEL
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
-from conda_package_supply_chain_monitor.identity.models import OVERRIDE_READ_INDEX
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import IdentityOverride
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_FIELD
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
-from conda_package_supply_chain_monitor.identity.services import DISPLAY_NAME_FIELD
-from conda_package_supply_chain_monitor.identity.services import DISPLAY_NAME_LENGTH
-from conda_package_supply_chain_monitor.identity.services import OVERRIDE_PERMISSION_MISSING
-from conda_package_supply_chain_monitor.identity.services import OVERRIDE_REFUSED_EVENT
-from conda_package_supply_chain_monitor.identity.services import Correction
-from conda_package_supply_chain_monitor.identity.services import OverrideError
-from conda_package_supply_chain_monitor.identity.services import ResolutionError
-from conda_package_supply_chain_monitor.identity.services import override_identity
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.models import AppendOnlyManager
+from conda_sentinel.core.models import AppendOnlyModel
+from conda_sentinel.core.roles import IDENTITY_APP_LABEL
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_PERMISSION
+from conda_sentinel.identity.models import OVERRIDE_READ_INDEX
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityOverride
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.services import CANONICAL_NAME_FIELD
+from conda_sentinel.identity.services import CANONICAL_NAME_LENGTH
+from conda_sentinel.identity.services import DISPLAY_NAME_FIELD
+from conda_sentinel.identity.services import DISPLAY_NAME_LENGTH
+from conda_sentinel.identity.services import OVERRIDE_PERMISSION_MISSING
+from conda_sentinel.identity.services import OVERRIDE_REFUSED_EVENT
+from conda_sentinel.identity.services import Correction
+from conda_sentinel.identity.services import OverrideError
+from conda_sentinel.identity.services import ResolutionError
+from conda_sentinel.identity.services import override_identity
 from django_service.users.models import User
 from tests.clocks import FIXED_INSTANT
 from tests.model_registry import OBSERVED_AT_FIELD
@@ -122,7 +122,7 @@ RELATION_FIELDS: Final[tuple[str, ...]] = ("package", "actor")
 
 #: The service module every structural sweep below parses, relative to `src/`.
 #: Named once because three cases read it.
-SERVICES_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/identity/services.py"
+SERVICES_MODULE: Final[str] = "django_apps/conda_sentinel/identity/services.py"
 
 #: The transaction opener the atomicity claim is about, and the two forms
 #: `CPM-AD-23` forbids in its place -- a callback that runs *after* the commit,

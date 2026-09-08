@@ -41,14 +41,14 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.collectors.models import InventoryReadError
-from conda_package_supply_chain_monitor.collectors.selection import RESOLVED_CONFIDENCES
-from conda_package_supply_chain_monitor.collectors.selection import UNRESOLVED_CONFIDENCES
-from conda_package_supply_chain_monitor.collectors.selection import UnresolvedPackage
-from conda_package_supply_chain_monitor.collectors.selection import _breadth_ordering_key
-from conda_package_supply_chain_monitor.collectors.selection import unresolved_packages
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.collectors.models import InventoryReadError
+from conda_sentinel.collectors.selection import RESOLVED_CONFIDENCES
+from conda_sentinel.collectors.selection import UNRESOLVED_CONFIDENCES
+from conda_sentinel.collectors.selection import UnresolvedPackage
+from conda_sentinel.collectors.selection import _breadth_ordering_key
+from conda_sentinel.collectors.selection import unresolved_packages
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 
 #: A surrogate key, standing in for a real one. Any integer does: the key's role

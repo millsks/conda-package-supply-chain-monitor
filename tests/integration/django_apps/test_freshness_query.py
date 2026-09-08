@@ -39,9 +39,9 @@ from typing import Final
 import pytest
 from django.db import connection
 
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import FreshnessReport
-from conda_package_supply_chain_monitor.core.freshness import latest_observation
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import FreshnessReport
+from conda_sentinel.core.freshness import latest_observation
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import DETERMINATE_VALUE
 from tests.collectors import FIXTURE_FRESHNESS_TARGET
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
     from pytest_django import DjangoDbBlocker
 
-    from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+    from conda_sentinel.core.models import AppendOnlyModel
 
 #: The package the cases ask about.
 A_PACKAGE: Final[int] = 11

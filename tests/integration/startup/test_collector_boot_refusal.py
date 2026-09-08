@@ -40,10 +40,10 @@ import sys
 from typing import TYPE_CHECKING
 from typing import Final
 
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_CADENCE
-from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_CADENCE
+from conda_sentinel.collectors.sweep import COLLECTOR_KWARG
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
 from config.locality import LOCAL
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR

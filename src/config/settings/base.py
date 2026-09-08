@@ -10,9 +10,9 @@ from typing import Any
 import environ
 from django.urls import reverse_lazy
 
-from conda_package_supply_chain_monitor.collectors.watchlist import watchlist_path
-from conda_package_supply_chain_monitor.core import queues
-from conda_package_supply_chain_monitor.core.roles import load_role_contract
+from conda_sentinel.collectors.watchlist import watchlist_path
+from conda_sentinel.core import queues
+from conda_sentinel.core.roles import load_role_contract
 from config.authorization.claims import load_claims_contract
 from config.locality import is_local
 from config.observability.logging import build_logging_config
@@ -201,14 +201,14 @@ LOCAL_APPS = [
     # adoption, but nothing consumes it into INSTALLED_APPS yet (that
     # composition step is Epic 9), so the entry here is what actually installs
     # the application today.
-    "conda_package_supply_chain_monitor.core",
-    "conda_package_supply_chain_monitor.identity",
+    "conda_sentinel.core",
+    "conda_sentinel.identity",
     # The collectors application, and the first adopted application declaring a
     # `ready()` (CPM-IDENTITY-S06). It adopts its collectors into `core`'s
     # registry, which is what CPM-AD-28's stage-2 sweep walks -- so it has to
     # stay after the stage-2 owner exactly as the two above do, which appending
     # is what guarantees.
-    "conda_package_supply_chain_monitor.collectors",
+    "conda_sentinel.collectors",
     # The policy application, and the second adopted application declaring a
     # `ready()` (CPM-CURRENCY-S06). It adopts its passes into `core`'s policy
     # registry, which is what the orchestrating policy run walks -- so it has to
@@ -216,7 +216,7 @@ LOCAL_APPS = [
     # is what guarantees. Last, because `CPM-AD-21` keeps the pass registry in
     # declaration order: a later pass may read an earlier pass's derived rows, so
     # the order applications are adopted in is part of what is declared.
-    "conda_package_supply_chain_monitor.policies",
+    "conda_sentinel.policies",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -281,14 +281,14 @@ CLAIMS_CONTRACT = load_claims_contract(env)
 # on it. An app reading its own configuration would be a second read of a file
 # this module has already consumed and a second place a deployment's
 # configuration lives. The application owns the contract's *shape* --
-# `conda_package_supply_chain_monitor.core.roles` declares the slots, the
+# `conda_sentinel.core.roles` declares the slots, the
 # variable names and the loader -- and the settings module owns the read, which
 # is the same division `config/authorization/claims.py` is on the other side of.
 #
 # The import is legal in the direction it runs: `config` may import a domain
 # application, and `roles.py` imports nothing from `django.apps` or
 # `django.contrib.auth`, so it loads before the app registry exists.
-# See src/django_apps/conda_package_supply_chain_monitor/core/roles.py and
+# See src/django_apps/conda_sentinel/core/roles.py and
 # docs/authentication.md.
 ROLE_CONTRACT = load_role_contract(env)
 # The inventory source's file (CPM-AD-29, CPM-FR-42): the versioned watchlist the
@@ -310,7 +310,7 @@ ROLE_CONTRACT = load_role_contract(env)
 # Read at settings-import time, so it freezes for the process. That is what a
 # declared adapter is: CollectorsConfig.ready() binds one file at boot, and a
 # component that has to read a different one restarts.
-# See src/django_apps/conda_package_supply_chain_monitor/collectors/watchlist.py.
+# See src/django_apps/conda_sentinel/collectors/watchlist.py.
 INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
 # The conda channels and platforms the published-package collector observes
 # (CPM-FR-10, CPM-CURRENCY-S04). Both ship EMPTY, and that is the decision rather
@@ -337,7 +337,7 @@ INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
 # api.anaconda.org serves a package under ("conda-forge"), and a platform is a
 # conda subdir ("linux-64", "osx-arm64", "noarch"). An entry that is blank, not a
 # string, duplicated, or carries a path separator is refused rather than encoded.
-# See src/django_apps/conda_package_supply_chain_monitor/collectors/conda_package.py.
+# See src/django_apps/conda_sentinel/collectors/conda_package.py.
 CPM_MONITORED_CHANNELS: tuple[str, ...] = ()
 CPM_MONITORED_PLATFORMS: tuple[str, ...] = ()
 
@@ -566,7 +566,7 @@ CELERY_TASK_TIME_LIMIT = 5 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 60
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-routes
 # CPM-AD-20's three workload queues, routed by task-name namespace. The table is
-# `conda_package_supply_chain_monitor.core.queues`' -- the three queue names are
+# `conda_sentinel.core.queues`' -- the three queue names are
 # declared there once and every reader resolves them from it, because a second
 # literal spelling of "collect" is exactly what this repository's audits exist to
 # catch.

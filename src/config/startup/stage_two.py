@@ -46,7 +46,7 @@ module-scope import of either raises
 `django.core.exceptions.AppRegistryNotReady` and takes the whole boot down with
 something that is not `ImproperlyConfigured`. The collector registry sweep is the
 third, and it is worth saying why rather than leaving it to look like caution:
-`conda_package_supply_chain_monitor.core.registry` holds no model itself, but it
+`conda_sentinel.core.registry` holds no model itself, but it
 imports the collector base, which imports `core.models`, which *defines*
 `CollectionRun` and `PolicyRun`. It therefore fails in exactly the same way, and
 a reader who checked only the imported module for a model class would move the
@@ -645,8 +645,8 @@ def _refuse_collector_without_freshness_target() -> None:
     # loading, and `core.collection` reaches `core.models`, which defines model
     # classes. A module-scope import would raise `AppRegistryNotReady` and take
     # the boot down with something that is not `ImproperlyConfigured`.
-    from conda_package_supply_chain_monitor.core.collection import freshness_target_fault  # noqa: PLC0415
-    from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
+    from conda_sentinel.core.collection import freshness_target_fault  # noqa: PLC0415
+    from conda_sentinel.core.registry import registered_collectors  # noqa: PLC0415
 
     fault = freshness_target_fault(registered_collectors())
     if fault:
@@ -704,10 +704,8 @@ def _refuse_unreconciled_cadence() -> None:
     """
     from django.conf import settings  # noqa: PLC0415 - see the module docstring
 
-    from conda_package_supply_chain_monitor.collectors.sweep import (  # noqa: PLC0415 - see the module docstring
-        cadence_reconciliation_fault,
-    )
-    from conda_package_supply_chain_monitor.core.registry import registered_collectors  # noqa: PLC0415
+    from conda_sentinel.collectors.sweep import cadence_reconciliation_fault  # noqa: PLC0415 - see the module docstring
+    from conda_sentinel.core.registry import registered_collectors  # noqa: PLC0415
 
     fault = cadence_reconciliation_fault(
         registered_collectors(),

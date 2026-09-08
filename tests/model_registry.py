@@ -92,7 +92,7 @@ from typing import Final
 
 from django.apps import apps
 
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+from conda_sentinel.core.models import AppendOnlyModel
 from tests.source_scan import SRC_ROOT
 
 if TYPE_CHECKING:
@@ -147,10 +147,10 @@ RUN_LEDGER_MODEL_LABELS: Final[frozenset[str]] = frozenset({"core.CollectionRun"
 #: derived from `first_party_app_names()` would agree with the predicate it is
 #: meant to anchor, which is the vacuum every audit here exists to close.
 FIRST_PARTY_APP_NAMES: Final[tuple[str, ...]] = (
-    "conda_package_supply_chain_monitor.collectors",
-    "conda_package_supply_chain_monitor.core",
-    "conda_package_supply_chain_monitor.identity",
-    "conda_package_supply_chain_monitor.policies",
+    "conda_sentinel.collectors",
+    "conda_sentinel.core",
+    "conda_sentinel.identity",
+    "conda_sentinel.policies",
     "django_service.users",
 )
 
@@ -164,7 +164,7 @@ A_THIRD_PARTY_APP_NAME: Final[str] = "allauth.account"
 #: when the label is not itself the thing under test. Declared once here because
 #: four test modules build fixture models and a per-module copy is how two of
 #: them come to register into different registries.
-FIXTURE_APP: Final[str] = "conda_package_supply_chain_monitor.core"
+FIXTURE_APP: Final[str] = "conda_sentinel.core"
 FIXTURE_LABEL: Final[str] = "core"
 
 #: The fact the fixture evidence models observe. One ordinary value, so that

@@ -35,9 +35,9 @@ import pytest
 from django.db import IntegrityError
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.identity.models import Feedstock
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.identity.models import Feedstock
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 
 #: The package the cases resolve, and the second one the per-package constraint

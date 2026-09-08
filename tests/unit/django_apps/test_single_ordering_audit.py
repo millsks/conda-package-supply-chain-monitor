@@ -67,7 +67,7 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import outcomes
+from conda_sentinel.core import outcomes
 from tests.source_scan import REPO_ROOT
 from tests.source_scan import SRC_ROOT
 from tests.source_scan import dotted_name
@@ -88,7 +88,7 @@ if _DECLARING_SOURCE is None:
     # simply is not this module -- so a `or ""` fallback would silently
     # mis-identify the one file this whole audit exempts, and every assertion
     # here would keep passing.
-    _MISSING = "conda_package_supply_chain_monitor.core.outcomes has no __file__; the ordering audit cannot run"
+    _MISSING = "conda_sentinel.core.outcomes has no __file__; the ordering audit cannot run"
     raise RuntimeError(_MISSING)
 DECLARING_MODULE: Final[Path] = Path(_DECLARING_SOURCE).resolve()
 
@@ -122,19 +122,19 @@ SEQUENCE_CONSTRUCTORS: Final[frozenset[str]] = frozenset({"frozenset", "list", "
 # would be found by the scan itself and would have to be exempted from the ban it
 # exists to demonstrate.
 A_SECOND_ORDER = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 ROLLUP_ORDER = (OutcomeState.UNKNOWN, OutcomeState.ERROR, OutcomeState.OK)
 """
 
 A_SECOND_ORDER_THROUGH_A_MODULE_ALIAS = """
-from conda_package_supply_chain_monitor.core import outcomes as vocabulary
+from conda_sentinel.core import outcomes as vocabulary
 
 SEVERITY = [vocabulary.OutcomeState.ERROR, vocabulary.OutcomeState.NOT_FOUND]
 """
 
 A_SECOND_ORDER_THROUGH_A_CLASS_ALIAS = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState as State
+from conda_sentinel.core.outcomes import OutcomeState as State
 
 
 class Serializer:
@@ -142,13 +142,13 @@ class Serializer:
 """
 
 A_SECOND_ORDER_INSIDE_A_WRAPPER = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 RANKS = frozenset([OutcomeState.ERROR, OutcomeState.OK])
 """
 
 A_SECOND_ORDER_AS_A_RANK_MAP = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 ROLLUP_RANK = {
     OutcomeState.ERROR: 0,
@@ -160,7 +160,7 @@ ROLLUP_RANK = {
 """
 
 A_SECOND_ORDER_AS_A_RANK_MAP_BY_VALUE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 BY_RANK = {0: OutcomeState.ERROR, 1: OutcomeState.UNKNOWN}
 """
@@ -168,14 +168,14 @@ BY_RANK = {0: OutcomeState.ERROR, 1: OutcomeState.UNKNOWN}
 A_SECOND_ORDER_INSIDE_A_CONDITIONAL = """
 from typing import TYPE_CHECKING
 
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 if TYPE_CHECKING:
     SEVERITY = (OutcomeState.ERROR, OutcomeState.UNKNOWN)
 """
 
 A_SECOND_ORDER_INSIDE_A_TRY = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 try:
     import orjson
@@ -184,20 +184,20 @@ except ImportError:
 """
 
 AN_ANNOTATED_SECOND_ORDER = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 SEVERITY: tuple[OutcomeState, ...] = (OutcomeState.NOT_FOUND, OutcomeState.OK)
 """
 
 ONE_MEMBER_REFERENCE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 DEFAULT = OutcomeState.UNKNOWN
 FALLBACK = (OutcomeState.UNKNOWN,)
 """
 
 AN_ORDER_INSIDE_A_FUNCTION = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 
 def worst_of(states):
@@ -206,14 +206,14 @@ def worst_of(states):
 """
 
 A_SINGLE_ENTRY_MAP = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 DEFAULTS = {OutcomeState.UNKNOWN: 0}
 """
 
 A_PAIR_PASSED_TO_A_CALL = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import aggregate
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import aggregate
 
 WORST = aggregate([OutcomeState.NOT_APPLICABLE, OutcomeState.OK])
 """
@@ -554,7 +554,7 @@ def _recorded_key(path: Path) -> str:
 #: the entry must still describe a real declaration under that name, and no
 #: unrecorded module may declare one.
 RECORDED_ORDERINGS: Final[dict[str, str]] = {
-    "django_apps/conda_package_supply_chain_monitor/policies/outcomes.py": "CURRENCY_PRECEDENCE",
+    "django_apps/conda_sentinel/policies/outcomes.py": "CURRENCY_PRECEDENCE",
 }
 
 #: Every module the ban applies to: the repository, less the one module that
