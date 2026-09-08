@@ -622,6 +622,26 @@ def test_a_specifier_that_cannot_admit_the_series_is_read_as_excluding_it(specif
         ">=" + ".".join("1" * (MAX_RELEASE_SEGMENTS + 1)),
         ",".join([">=3.9"] * (MAX_CLAUSES + 1)),
     ],
+    # Explicit ids for the same reason as the document-shape case below: the last
+    # two are generated, and a node id built from a generated specifier is what
+    # overran Windows' 32 767-character environment-variable limit.
+    ids=[
+        "arbitrary-equality",
+        "epoch",
+        "pre-release",
+        "post-release",
+        "development-release",
+        "local-version",
+        "bare-operator",
+        "no-operator",
+        "trailing-comma",
+        "wildcard-without-release",
+        "wildcard-mid-release",
+        "compatible-release-too-short",
+        "compatible-release-wildcard",
+        "too-many-release-segments",
+        "too-many-clauses",
+    ],
 )
 def test_a_specifier_shape_this_product_will_not_read_is_undecidable_and_never_excluding(specifier: str) -> None:
     """`CPM-PY314-S01`'s Block If: an unreadable claim is not a negative claim.
@@ -752,6 +772,20 @@ def test_a_project_that_declared_nothing_is_read_rather_than_refused(document: d
         json.dumps(_project(classifiers="a string")),
         json.dumps(_project(classifiers=[1])),
         json.dumps(_project(classifiers=[THE_CLASSIFIER] * (MAX_CLASSIFIERS + 1))),
+    ],
+    # Explicit ids because two of these bodies are generated and long. pytest
+    # would otherwise build a node id from the body itself, and on Windows the
+    # runner puts that id in an environment variable, which caps at 32 767
+    # characters -- the suite then errors before the case runs.
+    ids=[
+        "not-json",
+        "a-list",
+        "a-string",
+        "info-is-a-list",
+        "requires-python-is-a-number",
+        "classifiers-is-a-string",
+        "classifiers-holds-a-number",
+        "too-many-classifiers",
     ],
 )
 def test_a_document_whose_shape_has_changed_is_refused_rather_than_read_past(body: str) -> None:
