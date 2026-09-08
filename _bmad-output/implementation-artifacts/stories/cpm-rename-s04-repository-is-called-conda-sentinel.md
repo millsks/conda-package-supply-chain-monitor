@@ -1,6 +1,6 @@
 # CPM-RENAME-S04: The repository is called conda-sentinel
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-RENAME` — The product is called Conda-Sentinel
 
@@ -192,3 +192,51 @@ time this story runs.
 ### Completion Notes List
 
 ### File List
+
+## Auto Run Result
+
+**Outcome:** done. Both halves ran — the operator half by the user, the tracked-file half here —
+and `CPM-EP-RENAME` is complete.
+
+**Half one, operator-run.** `gh repo rename conda-sentinel`, `git remote set-url`, then the
+local directory move with `pixi clean` and `pixi install`. All three worked.
+
+**The environment trap was real, and worth recording as observed rather than predicted.**
+Between the directory move and `pixi clean`, **97 executables** under `.pixi/envs/dev/bin`
+still carried the old absolute path on their interpreter line — `python` itself is a binary and
+kept working, which is what makes the state deceptive: `pixi run python -c "import
+conda_sentinel"` succeeded while the console scripts were broken. That is exactly why this
+story's runbook removes the environment *before* the move rather than repairing it after. The
+clean and reinstall cleared all 97.
+
+**Half two, the tracked files.** 19 files, 35 references: the release workflow's clone URL and
+two changelog links, four issue-template links, the README's CI and SonarCloud badges, the doc
+site's repository link, the collector agent's `PROJECT_URL`, the packaging `git-cliff` samples,
+seven BMAD configs, and three absolute paths in `.github/copilot/settings.json` that the
+directory move had actively broken.
+
+**The Sonar decision was taken, not deferred.** The key moves to `millsks_conda-sentinel` with
+both badge URLs in the same commit. The cost is accepted and recorded: the project's prior
+analysis history is orphaned, and the badges render broken until the key is renamed in the
+SonarCloud UI — which fails nothing in CI. The story required this to be decided either way
+rather than left open, and it was.
+
+**Four passages became false the moment the repository moved.** The guard's module docstring,
+its near-miss constant's comment, its separation case, and the collector's own note all said
+**two** live examples under `src/` carry the former hyphenated name — one of them `PROJECT_URL`.
+That one moved with the repository, so exactly one remains: `telemetry.py`'s
+`DEFAULT_SERVICE_NAME`, deliberately kept because it is emitted on every span and dashboards are
+keyed on it.
+
+This is the fourth time in this epic that prose *about* a rename needed re-reading rather than
+substituting, and the most consequential place for it: the guard's docstring is where a future
+story would look before "finishing the job" on the trace identity and silently breaking every
+dashboard keyed on the old service name.
+
+**What still carries the former name, on purpose.** `telemetry.py`'s `DEFAULT_SERVICE_NAME`, the
+guard's own near-miss fixture, and — under `_bmad-output/` — the four dated planning-artifact
+directories and 27 merged story records, all recorded by `CPM-RENAME-S03`.
+
+**Verification:** `pixi run ci` exit 0 — 7506 passed, 2 skipped, coverage 99.17%, run against
+the renamed repository in a freshly installed environment. Staged by explicit path, with
+`git ls-files --others --exclude-standard` confirmed empty first.
