@@ -60,9 +60,9 @@ from django.test import override_settings
 from django.urls import include
 from django.urls import path
 
-from conda_package_supply_chain_monitor.collectors.tasks import declared_inventory_adapter
-from conda_package_supply_chain_monitor.collectors.tasks import withdraw_inventory_adapter
-from conda_package_supply_chain_monitor.identity import services as identity_services
+from conda_sentinel.collectors.tasks import declared_inventory_adapter
+from conda_sentinel.collectors.tasks import withdraw_inventory_adapter
+from conda_sentinel.identity import services as identity_services
 from config import urls as config_urls
 from config.authorization.claims import ClaimsContract
 from config.locality import RUNTIME_ENV_VAR

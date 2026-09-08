@@ -43,73 +43,73 @@ from opentelemetry.trace import NonRecordingSpan
 from opentelemetry.trace import SpanContext
 from opentelemetry.trace import TraceFlags
 
-from conda_package_supply_chain_monitor.collectors import conda_package as conda_package_module
-from conda_package_supply_chain_monitor.collectors import license as license_module
-from conda_package_supply_chain_monitor.collectors.agent import USER_AGENT
-from conda_package_supply_chain_monitor.collectors.license import ABSENT_FROM_CHANNEL_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import CHANNELS_SETTING
-from conda_package_supply_chain_monitor.collectors.license import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_CACHE_TTL
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_CADENCE
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_DISPATCH_OFFSET
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_FIELD
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_HEADERS
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_OBSERVATION_WINDOW
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_RATE_LIMIT
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_RETRIES
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_TIMEOUT
-from conda_package_supply_chain_monitor.collectors.license import MAX_MONITORED_CHANNELS
-from conda_package_supply_chain_monitor.collectors.license import MAX_SENTINEL_DETAIL_CHARACTERS
-from conda_package_supply_chain_monitor.collectors.license import NO_LICENSE_FIELD_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import NO_LICENSE_STATED_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import NOTHING_MONITORED
-from conda_package_supply_chain_monitor.collectors.license import SHORTENED_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import TOLERATED_MISSED_RUNS
-from conda_package_supply_chain_monitor.collectors.license import UNNORMALIZABLE_LICENSE_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import UNREAD_CHANNEL_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import UNRECOGNISED_LICENSE_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import ChannelLicense
-from conda_package_supply_chain_monitor.collectors.license import LicenseChannelError
-from conda_package_supply_chain_monitor.collectors.license import LicenseCollector
-from conda_package_supply_chain_monitor.collectors.license import LicenseDocumentError
-from conda_package_supply_chain_monitor.collectors.license import channel_license
-from conda_package_supply_chain_monitor.collectors.license import declaration_fault
-from conda_package_supply_chain_monitor.collectors.license import monitored_channels
-from conda_package_supply_chain_monitor.collectors.license import package_locator
-from conda_package_supply_chain_monitor.collectors.license import stated_license
-from conda_package_supply_chain_monitor.collectors.models import LicenseFinding
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_ERROR
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_NOT_APPLICABLE
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_NOT_FOUND
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_UNKNOWN
-from conda_package_supply_chain_monitor.collectors.outcomes import NORMALIZED
-from conda_package_supply_chain_monitor.collectors.outcomes import NORMALIZED_MEMBER
-from conda_package_supply_chain_monitor.collectors.outcomes import LicenseOutcome
-from conda_package_supply_chain_monitor.collectors.spdx import OPERATORS
-from conda_package_supply_chain_monitor.collectors.spdx import RECOGNISED_LICENSES
-from conda_package_supply_chain_monitor.collectors.spdx import SPELLINGS
-from conda_package_supply_chain_monitor.collectors.spdx import DetectionMethod
-from conda_package_supply_chain_monitor.collectors.spdx import LicenseNormalizationError
-from conda_package_supply_chain_monitor.collectors.spdx import Normalized
-from conda_package_supply_chain_monitor.collectors.spdx import normalize
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_LICENSE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import collect_license
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.ledger import TRACE_ID_FORMAT
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeVocabularyError
-from conda_package_supply_chain_monitor.core.outcomes import aggregate
-from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
-from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.core.transport import worst_case_call_seconds
+from conda_sentinel.collectors import conda_package as conda_package_module
+from conda_sentinel.collectors import license as license_module
+from conda_sentinel.collectors.agent import USER_AGENT
+from conda_sentinel.collectors.license import ABSENT_FROM_CHANNEL_DETAIL
+from conda_sentinel.collectors.license import CHANNELS_SETTING
+from conda_sentinel.collectors.license import COLLECTOR_NAME
+from conda_sentinel.collectors.license import LICENSE_CACHE_TTL
+from conda_sentinel.collectors.license import LICENSE_CADENCE
+from conda_sentinel.collectors.license import LICENSE_DISPATCH_OFFSET
+from conda_sentinel.collectors.license import LICENSE_FIELD
+from conda_sentinel.collectors.license import LICENSE_FRESHNESS_TARGET
+from conda_sentinel.collectors.license import LICENSE_HEADERS
+from conda_sentinel.collectors.license import LICENSE_OBSERVATION_WINDOW
+from conda_sentinel.collectors.license import LICENSE_RATE_LIMIT
+from conda_sentinel.collectors.license import LICENSE_RETRIES
+from conda_sentinel.collectors.license import LICENSE_TIMEOUT
+from conda_sentinel.collectors.license import MAX_MONITORED_CHANNELS
+from conda_sentinel.collectors.license import MAX_SENTINEL_DETAIL_CHARACTERS
+from conda_sentinel.collectors.license import NO_LICENSE_FIELD_DETAIL
+from conda_sentinel.collectors.license import NO_LICENSE_STATED_DETAIL
+from conda_sentinel.collectors.license import NOTHING_MONITORED
+from conda_sentinel.collectors.license import SHORTENED_DETAIL
+from conda_sentinel.collectors.license import TOLERATED_MISSED_RUNS
+from conda_sentinel.collectors.license import UNNORMALIZABLE_LICENSE_DETAIL
+from conda_sentinel.collectors.license import UNREAD_CHANNEL_DETAIL
+from conda_sentinel.collectors.license import UNRECOGNISED_LICENSE_DETAIL
+from conda_sentinel.collectors.license import ChannelLicense
+from conda_sentinel.collectors.license import LicenseChannelError
+from conda_sentinel.collectors.license import LicenseCollector
+from conda_sentinel.collectors.license import LicenseDocumentError
+from conda_sentinel.collectors.license import channel_license
+from conda_sentinel.collectors.license import declaration_fault
+from conda_sentinel.collectors.license import monitored_channels
+from conda_sentinel.collectors.license import package_locator
+from conda_sentinel.collectors.license import stated_license
+from conda_sentinel.collectors.models import LicenseFinding
+from conda_sentinel.collectors.outcomes import LICENSE_ERROR
+from conda_sentinel.collectors.outcomes import LICENSE_NOT_APPLICABLE
+from conda_sentinel.collectors.outcomes import LICENSE_NOT_FOUND
+from conda_sentinel.collectors.outcomes import LICENSE_UNKNOWN
+from conda_sentinel.collectors.outcomes import NORMALIZED
+from conda_sentinel.collectors.outcomes import NORMALIZED_MEMBER
+from conda_sentinel.collectors.outcomes import LicenseOutcome
+from conda_sentinel.collectors.spdx import OPERATORS
+from conda_sentinel.collectors.spdx import RECOGNISED_LICENSES
+from conda_sentinel.collectors.spdx import SPELLINGS
+from conda_sentinel.collectors.spdx import DetectionMethod
+from conda_sentinel.collectors.spdx import LicenseNormalizationError
+from conda_sentinel.collectors.spdx import Normalized
+from conda_sentinel.collectors.spdx import normalize
+from conda_sentinel.collectors.tasks import COLLECT_LICENSE_TASK_NAME
+from conda_sentinel.collectors.tasks import collect_license
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import CONDITIONAL_HEADERS
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.ledger import TRACE_ID_FORMAT
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeVocabularyError
+from conda_sentinel.core.outcomes import aggregate
+from conda_sentinel.core.outcomes import verify_sentinels
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
+from conda_sentinel.core.transport import DEFAULT_RETRIES
+from conda_sentinel.core.transport import MAX_TIMEOUT
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.core.transport import worst_case_call_seconds
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import ScriptedTransport
 from tests.collectors import recorded_payload
@@ -121,11 +121,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from conda_package_supply_chain_monitor.core.transport import Payload
+    from conda_sentinel.core.transport import Payload
 
 #: The two modules this file's source sweeps are about, relative to `src/`.
-LICENSE_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/license.py"
-SPDX_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/collectors/spdx.py"
+LICENSE_MODULE: Final[str] = "django_apps/conda_sentinel/collectors/license.py"
+SPDX_MODULE: Final[str] = "django_apps/conda_sentinel/collectors/spdx.py"
 
 #: The identity model this collector reads, the evidence model it may not read,
 #: and the write methods it may not reach for on any of them.
@@ -1984,7 +1984,7 @@ def test_the_normalization_module_is_a_leaf_that_reaches_no_model_and_no_collect
         if isinstance(node, ast.ImportFrom) and node.module is not None
     }
 
-    assert not any(module.startswith("conda_package_supply_chain_monitor") for module in imported), imported
+    assert not any(module.startswith("conda_sentinel") for module in imported), imported
     assert "django.db" in imported
 
 

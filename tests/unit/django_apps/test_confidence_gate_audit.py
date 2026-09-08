@@ -126,9 +126,9 @@ from typing import NamedTuple
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import confidence as confidence_module
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core import confidence as confidence_module
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 from tests.source_scan import REPO_ROOT
 from tests.source_scan import SRC_ROOT
 from tests.source_scan import dotted_name
@@ -301,7 +301,7 @@ class Finding(NamedTuple):
 #: would be silently permitted -- and an entry keyed by file and count alone would
 #: survive the exempted rule being deleted and a different one taking its place.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
-    "django_apps/conda_package_supply_chain_monitor/identity/services.py": {
+    "django_apps/conda_sentinel/identity/services.py": {
         f"{COMPARISON_FORM} in _require_confidence_is_earned": 1,
         f"{COMPARISON_FORM} in record_resolution": 2,
     },
@@ -319,7 +319,7 @@ RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
 #: extracted to prevent. Rather than import one test module into another, the two
 #: are reconciled below by reading the sibling's source -- the idiom that module
 #: already uses for the derived-status convention it shares with a third audit.
-THE_GATES_ONE_CALLER: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rollup.py"
+THE_GATES_ONE_CALLER: Final[str] = "django_apps/conda_sentinel/core/rollup.py"
 
 #: The sibling that binds the same path, and the name it binds it to.
 SIBLING_AUDIT: Final[str] = "test_derived_status_writability_audit.py"
@@ -334,8 +334,8 @@ SIBLING_NAME: Final[str] = "THE_ROLLUP_WRITER"
 # to create -- and interpolating means these cases follow the value if it is ever
 # respelled, instead of quietly becoming cases about nothing.
 A_SECOND_GATE_BY_MEMBER = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def currency_status(package, verdict):
@@ -353,8 +353,8 @@ def currency_status(package, verdict):
 '''
 
 A_SECOND_GATE_THROUGH_A_MODULE_ALIAS = """
-from conda_package_supply_chain_monitor.core import outcomes as vocabulary
-from conda_package_supply_chain_monitor.identity import models as identity_models
+from conda_sentinel.core import outcomes as vocabulary
+from conda_sentinel.identity import models as identity_models
 
 
 def licence_status(package, verdict):
@@ -364,8 +364,8 @@ def licence_status(package, verdict):
 """
 
 A_SECOND_GATE_THROUGH_A_PACKAGE_ATTRIBUTE = """
-from conda_package_supply_chain_monitor import core
-from conda_package_supply_chain_monitor import identity
+from conda_sentinel import core
+from conda_sentinel import identity
 
 
 def feedstock_status(package, verdict):
@@ -386,8 +386,8 @@ def readiness_status(package, verdict):
 """
 
 A_SECOND_GATE_FROM_THE_TRUSTED_SIDE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 TRUSTED = {IdentityConfidence.VERIFIED, IdentityConfidence.INVENTORY_DERIVED}
 
@@ -399,8 +399,8 @@ def priority_status(package, verdict):
 """
 
 A_SECOND_GATE_BY_INEQUALITY = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def vulnerability_status(package, verdict):
@@ -410,8 +410,8 @@ def vulnerability_status(package, verdict):
 """
 
 A_SECOND_GATE_BY_MATCH = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def currency_status(package, verdict):
@@ -432,8 +432,8 @@ def currency_status(package, verdict):
 """
 
 A_SECOND_GATE_AS_A_TABLE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 CLAIMABLE = {
     IdentityConfidence.UNMAPPED: OutcomeState.UNKNOWN,
@@ -442,29 +442,29 @@ CLAIMABLE = {
 """
 
 A_SECOND_GATE_AS_A_TABLE_BUILT_BY_DICT = f"""
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 CLAIMABLE = dict({GATED_CONFIDENCE}=OutcomeState.UNKNOWN.value)
 """
 
 A_SECOND_GATE_AS_A_TABLE_COMPREHENSION = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 CLAIMABLE = {confidence: OutcomeState.UNKNOWN.value for confidence in IdentityConfidence}
 """
 
 A_SECOND_GATE_AS_A_TABLE_WITH_AN_EXPANSION = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 BASE = {}
 CLAIMABLE = {**BASE, IdentityConfidence.UNMAPPED: OutcomeState.UNKNOWN.value}
 """
 
 A_SECOND_GATE_AS_A_CONDITIONAL_EXPRESSION = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def readiness_status(package, verdict):
@@ -472,8 +472,8 @@ def readiness_status(package, verdict):
 """
 
 A_SECOND_GATE_SHORT_CIRCUITED = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def licence_status(package, verdict):
@@ -481,8 +481,8 @@ def licence_status(package, verdict):
 """
 
 A_SECOND_GATE_IN_A_LOOP = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def drain(packages, verdicts):
@@ -492,8 +492,8 @@ def drain(packages, verdicts):
 """
 
 A_SECOND_GATE_THROUGH_A_BOUND_CONFIDENCE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 UNMAPPED = IdentityConfidence.UNMAPPED
 
@@ -505,8 +505,8 @@ def currency_status(package, verdict):
 """
 
 A_SECOND_GATE_BY_MEMBERSHIP_IN_A_BOUND_TUPLE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 GATED = (IdentityConfidence.UNMAPPED,)
 DEGRADED = OutcomeState.UNKNOWN.value
@@ -520,7 +520,7 @@ def licence_status(package, verdict):
 """
 
 A_SECOND_GATE_ON_A_COMPOSED_TYPE = """
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityConfidence
 
 from policies.licence.outcomes import LicenceOutcome
 
@@ -532,8 +532,8 @@ def licence_status(package, verdict):
 """
 
 A_SECOND_GATE_INSIDE_A_RETURNED_MAPPING = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def evaluate(package, verdict):
@@ -543,7 +543,7 @@ def evaluate(package, verdict):
 """
 
 A_SECOND_GATE_THROUGH_A_HELPER_CALL = """
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityConfidence
 
 from policies.licence.outcomes import LicenceOutcome
 
@@ -555,8 +555,8 @@ def evaluate(package, verdict, degrade):
 """
 
 A_SECOND_GATE_ACCUMULATED = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def evaluate(package):
@@ -567,7 +567,7 @@ def evaluate(package):
 """
 
 A_SECOND_GATE_BUILT_FROM_THE_FIRST = f"""
-from conda_package_supply_chain_monitor.core.confidence import GATED_VALUE
+from conda_sentinel.core.confidence import GATED_VALUE
 
 
 def feedstock_status(package, verdict):
@@ -577,8 +577,8 @@ def feedstock_status(package, verdict):
 """
 
 A_SECOND_GATE_BUILT_FROM_THE_FIRSTS_MODULE = """
-from conda_package_supply_chain_monitor.core import confidence as gate
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core import confidence as gate
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def feedstock_status(package, verdict):
@@ -588,7 +588,7 @@ def feedstock_status(package, verdict):
 """
 
 CALLS_THE_GATE = """
-from conda_package_supply_chain_monitor.core.confidence import gated_status
+from conda_sentinel.core.confidence import gated_status
 
 
 def currency_status(package, verdict):
@@ -596,7 +596,7 @@ def currency_status(package, verdict):
 """
 
 A_RESOLUTION_TIME_RULE = """
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def require_confidence_is_earned(confidence, established):
@@ -606,7 +606,7 @@ def require_confidence_is_earned(confidence, established):
 """
 
 AN_ASSERTION_ABOUT_A_CONFIDENCE = """
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import IdentityConfidence
 
 
 def test_a_shell_is_unmapped(package):
@@ -616,7 +616,7 @@ def test_a_shell_is_unmapped(package):
 """
 
 A_STATUS_CHOSEN_FOR_ANOTHER_REASON = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 
 def currency_status(evidence, verdict):
@@ -626,7 +626,7 @@ def currency_status(evidence, verdict):
 """
 
 A_MATCH_ON_SOMETHING_ELSE = """
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeState
 
 
 def evidence_status(kind, verdict):

@@ -77,8 +77,8 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.runs import RunState
 from tests.clocks import FIXED_INSTANT
 
 if TYPE_CHECKING:

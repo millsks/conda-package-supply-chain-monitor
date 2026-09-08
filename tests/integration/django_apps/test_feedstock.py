@@ -52,45 +52,45 @@ import pytest
 from django.db import IntegrityError
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.collectors import feedstock as feedstock_module
-from conda_package_supply_chain_monitor.collectors import tasks as collector_tasks
-from conda_package_supply_chain_monitor.collectors.feedstock import ABSENT_FEEDSTOCK_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.feedstock import FEEDSTOCK_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.feedstock import FEEDSTOCK_HEADERS
-from conda_package_supply_chain_monitor.collectors.feedstock import FEEDSTOCK_RETRIES
-from conda_package_supply_chain_monitor.collectors.feedstock import NEITHER_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import NO_STAGED_RECIPE_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import OVERFULL_QUEUE_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import SEARCH_RESULTS_PER_PAGE
-from conda_package_supply_chain_monitor.collectors.feedstock import UNCHECKED_FEEDSTOCK_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import UNCHECKED_QUEUE_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import UNREADABLE_RECIPE_DETAIL
-from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
-from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockDocumentError
-from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockLocatorError
-from conda_package_supply_chain_monitor.collectors.feedstock import recipe_locator
-from conda_package_supply_chain_monitor.collectors.feedstock import repository_locator
-from conda_package_supply_chain_monitor.collectors.feedstock import staged_recipes_locator
-from conda_package_supply_chain_monitor.collectors.models import ESTABLISHED_ABSENCE_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import FEEDSTOCK_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import STAGED_RECIPE_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import FeedstockSnapshot
-from conda_package_supply_chain_monitor.collectors.tasks import collect_feedstock
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import Feedstock
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.collectors import feedstock as feedstock_module
+from conda_sentinel.collectors import tasks as collector_tasks
+from conda_sentinel.collectors.feedstock import ABSENT_FEEDSTOCK_DETAIL
+from conda_sentinel.collectors.feedstock import COLLECTOR_NAME
+from conda_sentinel.collectors.feedstock import FEEDSTOCK_FRESHNESS_TARGET
+from conda_sentinel.collectors.feedstock import FEEDSTOCK_HEADERS
+from conda_sentinel.collectors.feedstock import FEEDSTOCK_RETRIES
+from conda_sentinel.collectors.feedstock import NEITHER_DETAIL
+from conda_sentinel.collectors.feedstock import NO_STAGED_RECIPE_DETAIL
+from conda_sentinel.collectors.feedstock import OVERFULL_QUEUE_DETAIL
+from conda_sentinel.collectors.feedstock import SEARCH_RESULTS_PER_PAGE
+from conda_sentinel.collectors.feedstock import UNCHECKED_FEEDSTOCK_DETAIL
+from conda_sentinel.collectors.feedstock import UNCHECKED_QUEUE_DETAIL
+from conda_sentinel.collectors.feedstock import UNREADABLE_RECIPE_DETAIL
+from conda_sentinel.collectors.feedstock import FeedstockCollector
+from conda_sentinel.collectors.feedstock import FeedstockDocumentError
+from conda_sentinel.collectors.feedstock import FeedstockLocatorError
+from conda_sentinel.collectors.feedstock import recipe_locator
+from conda_sentinel.collectors.feedstock import repository_locator
+from conda_sentinel.collectors.feedstock import staged_recipes_locator
+from conda_sentinel.collectors.models import ESTABLISHED_ABSENCE_CONSTRAINT
+from conda_sentinel.collectors.models import FEEDSTOCK_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import STAGED_RECIPE_CONSTRAINT
+from conda_sentinel.collectors.models import FeedstockSnapshot
+from conda_sentinel.collectors.tasks import collect_feedstock
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import Feedstock
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordingResponseCache
@@ -99,10 +99,10 @@ from tests.collectors import cached_response
 from tests.collectors import recorded_payload
 
 if TYPE_CHECKING:
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.collection import CollectionResult
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The package the cases ask about, and the three locators its name produces.
 #: Derived rather than written out: a case here is about what a *run* does with a

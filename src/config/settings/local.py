@@ -1,6 +1,6 @@
 import sys
 
-from conda_package_supply_chain_monitor.core.roles import RoleContract
+from conda_sentinel.core.roles import RoleContract
 from config.authorization.claims import ClaimsContract
 from config.local_dev.keys import DEV_KEY_DIR
 from config.local_dev.keys import JWKS_FILENAME
@@ -181,7 +181,7 @@ CLAIMS_CONTRACT = ClaimsContract(
 # that gets copied next is the right one.
 #
 # Pointing a local run at a real identity realm's role groups is still done with
-# the three `CPM_*` variables that `conda_package_supply_chain_monitor.core.roles`
+# the three `CPM_*` variables that `conda_sentinel.core.roles`
 # declares; this block does not re-spell their names, and anything the
 # environment supplied survives untouched.
 ROLE_CONTRACT = RoleContract(

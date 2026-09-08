@@ -24,12 +24,12 @@ from __future__ import annotations
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.collection import Collector
-from conda_package_supply_chain_monitor.core.registry import CollectorRegistryError
-from conda_package_supply_chain_monitor.core.registry import register
-from conda_package_supply_chain_monitor.core.registry import registered_collectors
-from conda_package_supply_chain_monitor.core.registry import registrations
-from conda_package_supply_chain_monitor.core.registry import unregister
+from conda_sentinel.core.collection import Collector
+from conda_sentinel.core.registry import CollectorRegistryError
+from conda_sentinel.core.registry import register
+from conda_sentinel.core.registry import registered_collectors
+from conda_sentinel.core.registry import registrations
+from conda_sentinel.core.registry import unregister
 from tests.collectors import FIXTURE_COLLECTOR
 from tests.collectors import OTHER_FIXTURE_COLLECTOR
 from tests.collectors import collector_class

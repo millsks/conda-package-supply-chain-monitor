@@ -49,32 +49,32 @@ import pytest
 from django.db import IntegrityError
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.collectors import tasks as collector_tasks
-from conda_package_supply_chain_monitor.collectors.models import PYPI_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import PyPIReleaseSnapshot
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import NO_RELEASE_DETAIL
-from conda_package_supply_chain_monitor.collectors.pypi_release import PURL_TYPE
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.pypi_release import PYPI_RELEASE_HEADERS
-from conda_package_supply_chain_monitor.collectors.pypi_release import UNDATED_VERSION_DETAIL
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIDocumentError
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPILocatorError
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
-from conda_package_supply_chain_monitor.collectors.pypi_release import project_locator
-from conda_package_supply_chain_monitor.collectors.tasks import collect_pypi_release
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.models import PackageMapping
+from conda_sentinel.collectors import tasks as collector_tasks
+from conda_sentinel.collectors.models import PYPI_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import PyPIReleaseSnapshot
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME
+from conda_sentinel.collectors.pypi_release import NO_RELEASE_DETAIL
+from conda_sentinel.collectors.pypi_release import PURL_TYPE
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_FRESHNESS_TARGET
+from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_HEADERS
+from conda_sentinel.collectors.pypi_release import UNDATED_VERSION_DETAIL
+from conda_sentinel.collectors.pypi_release import PyPIDocumentError
+from conda_sentinel.collectors.pypi_release import PyPILocatorError
+from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.pypi_release import project_locator
+from conda_sentinel.collectors.tasks import collect_pypi_release
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.models import PackageMapping
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordedTransport
@@ -83,10 +83,10 @@ from tests.collectors import cached_response
 from tests.collectors import recorded_payload
 
 if TYPE_CHECKING:
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.collection import CollectionResult
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The purl the packages in this module are resolved to, and the locator it
 #: produces. Derived rather than written out: a case here is about what a *run*

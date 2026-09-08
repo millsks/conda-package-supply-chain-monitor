@@ -50,21 +50,21 @@ from django.core.cache import cache
 from django.core.cache import caches
 from django.core.cache.backends.base import CacheKeyWarning
 
-from conda_package_supply_chain_monitor.core import response_cache
-from conda_package_supply_chain_monitor.core.rate_limit import KEY_PREFIX as LIMITER_KEY_PREFIX
-from conda_package_supply_chain_monitor.core.response_cache import BODY_FIELD
-from conda_package_supply_chain_monitor.core.response_cache import ETAG_FIELD
-from conda_package_supply_chain_monitor.core.response_cache import KEY_PREFIX
-from conda_package_supply_chain_monitor.core.response_cache import LAST_MODIFIED_FIELD
-from conda_package_supply_chain_monitor.core.response_cache import RESPONSE_CACHE_UNUSABLE_EVENT
-from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
-from conda_package_supply_chain_monitor.core.response_cache import CacheResponseCache
-from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-from conda_package_supply_chain_monitor.core.response_cache import ResponseCacheError
-from conda_package_supply_chain_monitor.core.response_cache import conditional_headers
-from conda_package_supply_chain_monitor.core.response_cache import response_key
-from conda_package_supply_chain_monitor.core.transport import IF_MODIFIED_SINCE_HEADER
-from conda_package_supply_chain_monitor.core.transport import IF_NONE_MATCH_HEADER
+from conda_sentinel.core import response_cache
+from conda_sentinel.core.rate_limit import KEY_PREFIX as LIMITER_KEY_PREFIX
+from conda_sentinel.core.response_cache import BODY_FIELD
+from conda_sentinel.core.response_cache import ETAG_FIELD
+from conda_sentinel.core.response_cache import KEY_PREFIX
+from conda_sentinel.core.response_cache import LAST_MODIFIED_FIELD
+from conda_sentinel.core.response_cache import RESPONSE_CACHE_UNUSABLE_EVENT
+from conda_sentinel.core.response_cache import CachedResponse
+from conda_sentinel.core.response_cache import CacheResponseCache
+from conda_sentinel.core.response_cache import ResponseCache
+from conda_sentinel.core.response_cache import ResponseCacheError
+from conda_sentinel.core.response_cache import conditional_headers
+from conda_sentinel.core.response_cache import response_key
+from conda_sentinel.core.transport import IF_MODIFIED_SINCE_HEADER
+from conda_sentinel.core.transport import IF_NONE_MATCH_HEADER
 from tests.collectors import A_CACHED_BODY
 from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import AN_ETAG
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     from structlog.typing import EventDict
 
 #: The module this file is about, relative to `src/`.
-RESPONSE_CACHE_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/response_cache.py"
+RESPONSE_CACHE_MODULE: Final[str] = "django_apps/conda_sentinel/core/response_cache.py"
 
 #: The cache methods the response cache is permitted to call.
 #:

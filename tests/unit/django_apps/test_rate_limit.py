@@ -44,14 +44,14 @@ import pytest
 import structlog
 from django.core.cache import cache
 
-from conda_package_supply_chain_monitor.core import rate_limit
-from conda_package_supply_chain_monitor.core.rate_limit import KEY_PREFIX
-from conda_package_supply_chain_monitor.core.rate_limit import WINDOW_EXPIRED_EVENT
-from conda_package_supply_chain_monitor.core.rate_limit import CacheRateLimiter
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimitError
-from conda_package_supply_chain_monitor.core.rate_limit import window_key
+from conda_sentinel.core import rate_limit
+from conda_sentinel.core.rate_limit import KEY_PREFIX
+from conda_sentinel.core.rate_limit import WINDOW_EXPIRED_EVENT
+from conda_sentinel.core.rate_limit import CacheRateLimiter
+from conda_sentinel.core.rate_limit import RateLimit
+from conda_sentinel.core.rate_limit import RateLimiter
+from conda_sentinel.core.rate_limit import RateLimitError
+from conda_sentinel.core.rate_limit import window_key
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_NAIVE_INSTANT
 from tests.collectors import cleared_cache
@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from structlog.typing import EventDict
 
 #: The module this file is about, relative to `src/`.
-LIMITER_MODULE: Final[str] = "django_apps/conda_package_supply_chain_monitor/core/rate_limit.py"
+LIMITER_MODULE: Final[str] = "django_apps/conda_sentinel/core/rate_limit.py"
 
 #: The cache methods the limiter is permitted to call.
 #:

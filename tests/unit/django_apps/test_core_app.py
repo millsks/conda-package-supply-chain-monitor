@@ -34,7 +34,7 @@ import pytest
 from django.apps import apps
 from django.conf import settings
 
-from conda_package_supply_chain_monitor.core.apps import CoreConfig
+from conda_sentinel.core.apps import CoreConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -47,7 +47,7 @@ APPLICATION_ROOT = REPO_ROOT / "src" / ROOT_NAME
 
 # The dotted name the application is installed and imported as. `django_apps`
 # is absent from it on purpose -- see the module docstring.
-APPLICATION_NAME = "conda_package_supply_chain_monitor.core"
+APPLICATION_NAME = "conda_sentinel.core"
 
 # Derived by Django from the last segment of the name.
 APPLICATION_LABEL = "core"
@@ -66,8 +66,8 @@ def test_the_application_resolves_from_the_second_import_root() -> None:
 
     Nothing is on `sys.path` for this. `dev-mode-exact = true` makes the
     editable install a redirecting finder that maps
-    `conda_package_supply_chain_monitor` straight onto
-    `src/django_apps/conda_package_supply_chain_monitor/__init__.py`, and the
+    `conda_sentinel` straight onto
+    `src/django_apps/conda_sentinel/__init__.py`, and the
     application resolves as a subpackage through that. The finder is generated
     from `[tool.hatch.build.targets.wheel]` and nothing else in this repository
     may resolve the name -- `tests/unit/test_import_roots.py` asserts the
@@ -80,7 +80,7 @@ def test_the_application_resolves_from_the_second_import_root() -> None:
     module = importlib.import_module(APPLICATION_NAME)
 
     assert module.__file__ is not None
-    assert Path(module.__file__).is_relative_to(APPLICATION_ROOT / "conda_package_supply_chain_monitor" / "core")
+    assert Path(module.__file__).is_relative_to(APPLICATION_ROOT / "conda_sentinel" / "core")
 
 
 def test_the_import_root_is_not_a_package() -> None:
@@ -89,7 +89,7 @@ def test_the_import_root_is_not_a_package() -> None:
     It carries no `__init__.py` and is mapped onto the wheel root, so there is
     no second, silently-working spelling of any application. If this import
     started succeeding, the root would have become importable and
-    `django_apps.conda_package_supply_chain_monitor.core` would resolve too --
+    `django_apps.conda_sentinel.core` would resolve too --
     which is what it did under hatchling's default editable mode, where
     `<repo>/src` goes on `sys.path` and makes `django_apps` an implicit
     namespace package.

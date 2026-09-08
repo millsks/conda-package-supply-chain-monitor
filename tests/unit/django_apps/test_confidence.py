@@ -24,11 +24,11 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.confidence import GATED_VALUE
-from conda_package_supply_chain_monitor.core.confidence import ConfidenceError
-from conda_package_supply_chain_monitor.core.confidence import gated_status
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
+from conda_sentinel.core.confidence import GATED_VALUE
+from conda_sentinel.core.confidence import ConfidenceError
+from conda_sentinel.core.confidence import gated_status
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import IdentityConfidence
 
 #: A determinate verdict, which is what the two undegraded rows must return
 #: unchanged. The generic determinate value rather than a per-status verdict,

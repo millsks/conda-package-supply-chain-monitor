@@ -32,18 +32,18 @@ from typing import Final
 import pytest
 import structlog
 
-from conda_package_supply_chain_monitor.core import policy_run as policy_run_module
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.models import PolicyRun
-from conda_package_supply_chain_monitor.core.policy_run import EVALUATION_FAILED_EVENT
-from conda_package_supply_chain_monitor.core.policy_run import PolicyRunError
-from conda_package_supply_chain_monitor.core.policy_run import choose_evidence_cutoff
-from conda_package_supply_chain_monitor.core.policy_run import execute_policy_run
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.tasks import run_policy
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.core import policy_run as policy_run_module
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.models import PolicyRun
+from conda_sentinel.core.policy_run import EVALUATION_FAILED_EVENT
+from conda_sentinel.core.policy_run import PolicyRunError
+from conda_sentinel.core.policy_run import choose_evidence_cutoff
+from conda_sentinel.core.policy_run import execute_policy_run
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.tasks import run_policy
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP

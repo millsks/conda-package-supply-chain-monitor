@@ -94,10 +94,10 @@ from django.db import models
 from django.db.models.fields import NOT_PROVIDED
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import outcome_type
-from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import outcome_type
+from conda_sentinel.core.runs import RunState
 from tests.model_registry import A_THIRD_PARTY_APP_NAME
 from tests.model_registry import FIRST_PARTY_APP_NAMES
 from tests.model_registry import FIXTURE_APP

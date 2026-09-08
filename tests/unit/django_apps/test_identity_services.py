@@ -42,27 +42,27 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.identity.models import ESTABLISHED
-from conda_package_supply_chain_monitor.identity.models import Feedstock
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import MappingKind
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_FIELD
-from conda_package_supply_chain_monitor.identity.services import ASSOCIATOR_KEY_LENGTH
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_FIELD
-from conda_package_supply_chain_monitor.identity.services import CANONICAL_NAME_LENGTH
-from conda_package_supply_chain_monitor.identity.services import FEEDSTOCK_NAME_FIELD
-from conda_package_supply_chain_monitor.identity.services import FEEDSTOCK_NAME_LENGTH
-from conda_package_supply_chain_monitor.identity.services import FEEDSTOCK_URL_LENGTHS
-from conda_package_supply_chain_monitor.identity.services import PACKAGE_FIELD_LENGTHS
-from conda_package_supply_chain_monitor.identity.services import FeedstockMapping
-from conda_package_supply_chain_monitor.identity.services import Resolution
-from conda_package_supply_chain_monitor.identity.services import ResolutionError
-from conda_package_supply_chain_monitor.identity.services import record_resolution
-from conda_package_supply_chain_monitor.identity.services import resolve_package_shell
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.identity.models import ESTABLISHED
+from conda_sentinel.identity.models import Feedstock
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import MappingKind
+from conda_sentinel.identity.models import Package
+from conda_sentinel.identity.services import ASSOCIATOR_KEY_FIELD
+from conda_sentinel.identity.services import ASSOCIATOR_KEY_LENGTH
+from conda_sentinel.identity.services import CANONICAL_NAME_FIELD
+from conda_sentinel.identity.services import CANONICAL_NAME_LENGTH
+from conda_sentinel.identity.services import FEEDSTOCK_NAME_FIELD
+from conda_sentinel.identity.services import FEEDSTOCK_NAME_LENGTH
+from conda_sentinel.identity.services import FEEDSTOCK_URL_LENGTHS
+from conda_sentinel.identity.services import PACKAGE_FIELD_LENGTHS
+from conda_sentinel.identity.services import FeedstockMapping
+from conda_sentinel.identity.services import Resolution
+from conda_sentinel.identity.services import ResolutionError
+from conda_sentinel.identity.services import record_resolution
+from conda_sentinel.identity.services import resolve_package_shell
 from tests.clocks import FIXED_INSTANT
 
 if TYPE_CHECKING:

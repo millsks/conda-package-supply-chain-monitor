@@ -33,13 +33,13 @@ import pytest
 from django.conf import settings
 from django.db import migrations
 
-from conda_package_supply_chain_monitor.core import roles
+from conda_sentinel.core import roles
 from tests.group_writers import group_creation_verbs
 
 if TYPE_CHECKING:
     from types import ModuleType
 
-MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0001_provision_role_groups"
+MIGRATION_MODULE = "conda_sentinel.core.migrations.0001_provision_role_groups"
 
 # `auth` carries `Group`; `users.0003` is the one writer's own migration.
 EXPECTED_DEPENDENCIES = [
@@ -51,7 +51,7 @@ EXPECTED_DEPENDENCIES = [
 # the one above: a data migration that has already run against a deployed
 # database is not re-run by editing it, so a grant added to `0001` would reach no
 # environment that had migrated before it.
-GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0005_grant_identity_override"
+GRANT_MIGRATION_MODULE = "conda_sentinel.core.migrations.0005_grant_identity_override"
 
 # Five entries, and the shape of the graph rather than decoration. See
 # `test_the_grant_migration_runs_after_the_model_and_after_the_role_groups`.

@@ -53,31 +53,31 @@ from typing import Final
 import pytest
 from django.apps import apps
 
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
-from conda_package_supply_chain_monitor.collectors.feedstock import FeedstockCollector
-from conda_package_supply_chain_monitor.collectors.kev import KevCollector
-from conda_package_supply_chain_monitor.collectors.pypi_release import PyPIReleaseCollector
-from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
-from conda_package_supply_chain_monitor.collectors.tasks import InventoryIngestionCollector
-from conda_package_supply_chain_monitor.collectors.vulnerability import VulnerabilityCollector
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.collection import CONDITIONAL_HEADERS
-from conda_package_supply_chain_monitor.core.collection import NO_CACHE
-from conda_package_supply_chain_monitor.core.collection import NO_WINDOW
-from conda_package_supply_chain_monitor.core.collection import STATE_FIELD
-from conda_package_supply_chain_monitor.core.collection import SUPPRESSING_STATES
-from conda_package_supply_chain_monitor.core.collection import CollectionResult
-from conda_package_supply_chain_monitor.core.collection import Collector
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.collection import request_headers
-from conda_package_supply_chain_monitor.core.collection import window_query
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimitError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
-from conda_package_supply_chain_monitor.core.transport import RequestsTransport
+from conda_sentinel.collectors.conda_package import CondaPackageCollector
+from conda_sentinel.collectors.feedstock import FeedstockCollector
+from conda_sentinel.collectors.kev import KevCollector
+from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.source_release import SourceReleaseCollector
+from conda_sentinel.collectors.tasks import InventoryIngestionCollector
+from conda_sentinel.collectors.vulnerability import VulnerabilityCollector
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.collection import CONDITIONAL_HEADERS
+from conda_sentinel.core.collection import NO_CACHE
+from conda_sentinel.core.collection import NO_WINDOW
+from conda_sentinel.core.collection import STATE_FIELD
+from conda_sentinel.core.collection import SUPPRESSING_STATES
+from conda_sentinel.core.collection import CollectionResult
+from conda_sentinel.core.collection import Collector
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.collection import request_headers
+from conda_sentinel.core.collection import window_query
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.rate_limit import RateLimit
+from conda_sentinel.core.rate_limit import RateLimitError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import DEFAULT_RETRIES
+from conda_sentinel.core.transport import RequestsTransport
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import A_LAST_MODIFIED
 from tests.collectors import AN_ETAG
@@ -101,7 +101,7 @@ from tests.collectors import several_sentinels_collector_class
 from tests.collectors import unsequenced_sentinel_collector_class
 
 if TYPE_CHECKING:
-    from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
+    from conda_sentinel.core.response_cache import CachedResponse
 
 #: The package every case names. One arbitrary primary key; nothing here depends
 #: on its value.

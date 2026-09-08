@@ -42,19 +42,19 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.policy import PolicyPassError
-from conda_package_supply_chain_monitor.core.policy import column_owners
-from conda_package_supply_chain_monitor.core.policy import pass_registrations
-from conda_package_supply_chain_monitor.core.policy import register_pass
-from conda_package_supply_chain_monitor.core.policy import registered_passes
-from conda_package_supply_chain_monitor.core.rollup import ROLLUP_MODEL
-from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
-from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.policy import PolicyPassError
+from conda_sentinel.core.policy import column_owners
+from conda_sentinel.core.policy import pass_registrations
+from conda_sentinel.core.policy import register_pass
+from conda_sentinel.core.policy import registered_passes
+from conda_sentinel.core.rollup import ROLLUP_MODEL
+from conda_sentinel.core.rollup import STAMP_COLUMNS
+from conda_sentinel.core.rollup import contributable_columns
+from conda_sentinel.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_sentinel.policies.currency import ROLLUP_COLUMN
+from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import ADOPTED_PASS_NAMES
 from tests.passes import FIRST_DOMAIN
@@ -68,7 +68,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Iterator
 
-    from conda_package_supply_chain_monitor.core.policy import PolicyPass
+    from conda_sentinel.core.policy import PolicyPass
 
 #: The column the substituted rollup offers, for the cases that need a
 #: contributable column *nobody owns* -- the real rollup's two columns,

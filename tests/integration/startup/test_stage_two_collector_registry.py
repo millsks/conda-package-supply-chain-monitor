@@ -70,18 +70,18 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
-from conda_package_supply_chain_monitor.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
-from conda_package_supply_chain_monitor.collectors.kev import COLLECTOR_NAME as KEV_NAME
-from conda_package_supply_chain_monitor.collectors.license import COLLECTOR_NAME as LICENSE_NAME
-from conda_package_supply_chain_monitor.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
-from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
-from conda_package_supply_chain_monitor.core import registry
-from conda_package_supply_chain_monitor.core.registry import registrations
+from conda_sentinel.collectors.conda_package import COLLECTOR_NAME as CONDA_PACKAGE_NAME
+from conda_sentinel.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
+from conda_sentinel.collectors.kev import COLLECTOR_NAME as KEV_NAME
+from conda_sentinel.collectors.license import COLLECTOR_NAME as LICENSE_NAME
+from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
+from conda_sentinel.collectors.sweep import COLLECTOR_KWARG
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
+from conda_sentinel.collectors.vulnerability import COLLECTOR_NAME as VULNERABILITY_NAME
+from conda_sentinel.core import registry
+from conda_sentinel.core.registry import registrations
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR
 from config.startup import run_stage_two
@@ -95,7 +95,7 @@ from tests.conftest import deployed_url_patterns
 from tests.conftest import temporary_root_urlconf
 
 if TYPE_CHECKING:
-    from conda_package_supply_chain_monitor.core.collection import Collector
+    from conda_sentinel.core.collection import Collector
 
 
 @pytest.fixture(autouse=True)

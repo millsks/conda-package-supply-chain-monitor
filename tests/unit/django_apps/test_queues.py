@@ -32,14 +32,14 @@ from pathlib import Path
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import queues
-from conda_package_supply_chain_monitor.core.queues import CELERY_TASK_ROUTES
-from conda_package_supply_chain_monitor.core.queues import CONTRIBUTED_SETTING_KEY
-from conda_package_supply_chain_monitor.core.queues import QUEUE_BY_NAMESPACE
-from conda_package_supply_chain_monitor.core.queues import TASK_NAMESPACE_PREFIX
-from conda_package_supply_chain_monitor.core.queues import Queue
-from conda_package_supply_chain_monitor.core.queues import queue_for
-from conda_package_supply_chain_monitor.core.queues import route_pattern
+from conda_sentinel.core import queues
+from conda_sentinel.core.queues import CELERY_TASK_ROUTES
+from conda_sentinel.core.queues import CONTRIBUTED_SETTING_KEY
+from conda_sentinel.core.queues import QUEUE_BY_NAMESPACE
+from conda_sentinel.core.queues import TASK_NAMESPACE_PREFIX
+from conda_sentinel.core.queues import Queue
+from conda_sentinel.core.queues import queue_for
+from conda_sentinel.core.queues import route_pattern
 from config.startup.allowlist import CONTRIBUTABLE_KEYS
 
 #: The three names `CPM-AD-20` fixes, written out here and nowhere else in the

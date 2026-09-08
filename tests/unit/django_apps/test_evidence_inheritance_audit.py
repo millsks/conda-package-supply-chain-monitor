@@ -60,8 +60,8 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.models import AppendOnlyManager
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
+from conda_sentinel.core.models import AppendOnlyManager
+from conda_sentinel.core.models import AppendOnlyModel
 from tests.model_registry import EVIDENCE_APP_LABEL
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL

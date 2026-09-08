@@ -42,16 +42,16 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core import rollup as rollup_module
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.models import PolicyRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.rollup import STAMP_COLUMNS
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
-from conda_package_supply_chain_monitor.identity.models import IdentityConfidence
-from conda_package_supply_chain_monitor.identity.models import Package
-from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.core import rollup as rollup_module
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.models import PolicyRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.rollup import STAMP_COLUMNS
+from conda_sentinel.core.rollup import contributable_columns
+from conda_sentinel.identity.models import IdentityConfidence
+from conda_sentinel.identity.models import Package
+from conda_sentinel.policies.currency import ROLLUP_COLUMN
+from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.passes import A_DOMAIN_STATUS

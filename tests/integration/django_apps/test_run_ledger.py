@@ -59,16 +59,16 @@ from django.db import DatabaseError
 from django.db.models import ProtectedError
 from opentelemetry import trace
 
-from conda_package_supply_chain_monitor.core import ledger
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.ledger import FINALIZATION_FAILED_EVENT
-from conda_package_supply_chain_monitor.core.ledger import collection_run
-from conda_package_supply_chain_monitor.core.ledger import policy_run
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.models import PolicyRun
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.core import ledger
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.ledger import FINALIZATION_FAILED_EVENT
+from conda_sentinel.core.ledger import collection_run
+from conda_sentinel.core.ledger import policy_run
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.models import PolicyRun
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.identity.models import Package
 from config.observability.logging import add_otel_context
 from tests.clocks import FIXED_INSTANT
 from tests.packages import packages_fixture

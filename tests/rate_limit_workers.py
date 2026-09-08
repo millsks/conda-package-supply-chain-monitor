@@ -109,8 +109,8 @@ def main(argv: list[str]) -> int:
 
     django.setup()
 
-    from conda_package_supply_chain_monitor.core.rate_limit import CacheRateLimiter  # noqa: PLC0415 - as above
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimit  # noqa: PLC0415 - as above
+    from conda_sentinel.core.rate_limit import CacheRateLimiter  # noqa: PLC0415 - as above
+    from conda_sentinel.core.rate_limit import RateLimit  # noqa: PLC0415 - as above
 
     permitted = CacheRateLimiter().acquire(
         collector=collector,

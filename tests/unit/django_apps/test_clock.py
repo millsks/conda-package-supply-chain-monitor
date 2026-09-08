@@ -22,9 +22,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.clock import SystemClock
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.clock import SystemClock
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP

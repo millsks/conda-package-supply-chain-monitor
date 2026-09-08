@@ -46,40 +46,40 @@ from django.db import IntegrityError
 from django.db import transaction
 from django.test import override_settings
 
-from conda_package_supply_chain_monitor.collectors.license import CHANNELS_SETTING
-from conda_package_supply_chain_monitor.collectors.license import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_FIELD
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.license import LICENSE_HEADERS
-from conda_package_supply_chain_monitor.collectors.license import NO_LICENSE_FIELD_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import NO_LICENSE_STATED_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import UNNORMALIZABLE_LICENSE_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import UNREAD_CHANNEL_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import UNRECOGNISED_LICENSE_DETAIL
-from conda_package_supply_chain_monitor.collectors.license import LicenseChannelError
-from conda_package_supply_chain_monitor.collectors.license import LicenseCollector
-from conda_package_supply_chain_monitor.collectors.license import LicenseDocumentError
-from conda_package_supply_chain_monitor.collectors.license import package_locator
-from conda_package_supply_chain_monitor.collectors.models import LICENSE_APPLICABILITY_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import LICENSE_CHANNEL_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import LICENSE_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import LicenseFinding
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_NOT_APPLICABLE
-from conda_package_supply_chain_monitor.collectors.outcomes import LICENSE_UNKNOWN
-from conda_package_supply_chain_monitor.collectors.outcomes import NORMALIZED
-from conda_package_supply_chain_monitor.collectors.spdx import DetectionMethod
-from conda_package_supply_chain_monitor.collectors.sweep import dispatch
-from conda_package_supply_chain_monitor.collectors.tasks import COLLECT_LICENSE_TASK_NAME
-from conda_package_supply_chain_monitor.collectors.tasks import collect_license
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.collectors.license import CHANNELS_SETTING
+from conda_sentinel.collectors.license import COLLECTOR_NAME
+from conda_sentinel.collectors.license import LICENSE_FIELD
+from conda_sentinel.collectors.license import LICENSE_FRESHNESS_TARGET
+from conda_sentinel.collectors.license import LICENSE_HEADERS
+from conda_sentinel.collectors.license import NO_LICENSE_FIELD_DETAIL
+from conda_sentinel.collectors.license import NO_LICENSE_STATED_DETAIL
+from conda_sentinel.collectors.license import UNNORMALIZABLE_LICENSE_DETAIL
+from conda_sentinel.collectors.license import UNREAD_CHANNEL_DETAIL
+from conda_sentinel.collectors.license import UNRECOGNISED_LICENSE_DETAIL
+from conda_sentinel.collectors.license import LicenseChannelError
+from conda_sentinel.collectors.license import LicenseCollector
+from conda_sentinel.collectors.license import LicenseDocumentError
+from conda_sentinel.collectors.license import package_locator
+from conda_sentinel.collectors.models import LICENSE_APPLICABILITY_CONSTRAINT
+from conda_sentinel.collectors.models import LICENSE_CHANNEL_CONSTRAINT
+from conda_sentinel.collectors.models import LICENSE_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import LicenseFinding
+from conda_sentinel.collectors.outcomes import LICENSE_NOT_APPLICABLE
+from conda_sentinel.collectors.outcomes import LICENSE_UNKNOWN
+from conda_sentinel.collectors.outcomes import NORMALIZED
+from conda_sentinel.collectors.spdx import DetectionMethod
+from conda_sentinel.collectors.sweep import dispatch
+from conda_sentinel.collectors.tasks import COLLECT_LICENSE_TASK_NAME
+from conda_sentinel.collectors.tasks import collect_license
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import Package
 from config.celery_app import app
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
@@ -90,7 +90,7 @@ from tests.collectors import recorded_payload
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
+    from conda_sentinel.core.collection import CollectionResult
 
 #: The package the cases ask about, the channels they monitor, and the locators
 #: those produce. Derived rather than written out: a case here is about what a

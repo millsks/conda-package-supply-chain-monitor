@@ -85,23 +85,23 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core import rollup as rollup_module
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.policy import PolicyPass
-from conda_package_supply_chain_monitor.core.policy import PolicyPassError
-from conda_package_supply_chain_monitor.core.policy import pass_registrations
-from conda_package_supply_chain_monitor.core.policy import register_pass
-from conda_package_supply_chain_monitor.core.policy import unregister_pass
-from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
-from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
-from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.licence import LicensePass
-from conda_package_supply_chain_monitor.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.remediation import RemediationPass
-from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
+from conda_sentinel.core import rollup as rollup_module
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.policy import PolicyPass
+from conda_sentinel.core.policy import PolicyPassError
+from conda_sentinel.core.policy import pass_registrations
+from conda_sentinel.core.policy import register_pass
+from conda_sentinel.core.policy import unregister_pass
+from conda_sentinel.policies.currency import POLICY_NAME as CURRENCY_POLICY_NAME
+from conda_sentinel.policies.currency import CurrencyPass
+from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_sentinel.policies.feedstock import FeedstockPresencePass
+from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
+from conda_sentinel.policies.licence import LicensePass
+from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
+from conda_sentinel.policies.remediation import RemediationPass
+from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_sentinel.policies.vulnerability import VulnerabilityPass
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -111,8 +111,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
-    from conda_package_supply_chain_monitor.core.models import PolicyRun
-    from conda_package_supply_chain_monitor.identity.models import Package
+    from conda_sentinel.core.models import PolicyRun
+    from conda_sentinel.identity.models import Package
 
 #: The names the fixture passes declare, and therefore what the rollup's
 #: per-domain version map is keyed by. Prefixed so they cannot be confused with a

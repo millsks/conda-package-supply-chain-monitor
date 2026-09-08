@@ -51,10 +51,10 @@ from django.contrib.auth.models import Group
 from django.contrib.auth.models import Permission
 from django.db import connection
 
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_CODENAME
-from conda_package_supply_chain_monitor.core.roles import IDENTITY_OVERRIDE_PERMISSION
-from conda_package_supply_chain_monitor.core.roles import RoleContract
-from conda_package_supply_chain_monitor.core.roles import role_group_permissions
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_CODENAME
+from conda_sentinel.core.roles import IDENTITY_OVERRIDE_PERMISSION
+from conda_sentinel.core.roles import RoleContract
+from conda_sentinel.core.roles import role_group_permissions
 from config.authorization.exceptions import ClaimsRejected
 from config.authorization.mapper import sync_authorization
 from django_service.users import provisioning
@@ -67,11 +67,11 @@ if TYPE_CHECKING:
 
     from django_service.users.models import User
 
-MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0001_provision_role_groups"
+MIGRATION_MODULE = "conda_sentinel.core.migrations.0001_provision_role_groups"
 
 # `CPM-IDENTITY-S05`'s grant. `tests/unit/django_apps/test_role_migration.py`
 # holds its shape; what is here is the half only a run can show.
-GRANT_MIGRATION_MODULE = "conda_package_supply_chain_monitor.core.migrations.0005_grant_identity_override"
+GRANT_MIGRATION_MODULE = "conda_sentinel.core.migrations.0005_grant_identity_override"
 
 # The leadership group the suite is configured with, bound once so the
 # unconfigured-contract case can still name the row after it has replaced the

@@ -69,9 +69,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.urls import path
 from rest_framework.authtoken.views import obtain_auth_token
 
-from conda_package_supply_chain_monitor.collectors.sweep import COLLECTOR_KWARG
-from conda_package_supply_chain_monitor.collectors.sweep import SWEEP_TASK_NAME
-from conda_package_supply_chain_monitor.core import registry
+from conda_sentinel.collectors.sweep import COLLECTOR_KWARG
+from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
+from conda_sentinel.core import registry
 from config.authorization.claims import ClaimsContract
 from config.local_dev import views as local_dev_views
 from config.locality import PROCESS_ENV_VAR

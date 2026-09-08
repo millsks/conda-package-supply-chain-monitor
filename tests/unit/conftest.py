@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.clock import FixedClock
+from conda_sentinel.core.clock import FixedClock
 from tests.clocks import FIXED_INSTANT
 
 

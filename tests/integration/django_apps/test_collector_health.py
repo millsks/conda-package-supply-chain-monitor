@@ -42,8 +42,8 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.runs import RunState
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.runs import RunState
 from tests.clocks import FIXED_INSTANT
 from tests.packages import packages_fixture
 

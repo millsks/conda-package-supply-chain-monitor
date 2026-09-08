@@ -53,29 +53,29 @@ import pytest
 from django.db import IntegrityError
 from django.db import transaction
 
-from conda_package_supply_chain_monitor.collectors import tasks as collector_tasks
-from conda_package_supply_chain_monitor.collectors.models import RELEASE_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import SourceReleaseSnapshot
-from conda_package_supply_chain_monitor.collectors.source_release import ABSENT_CAVEAT
-from conda_package_supply_chain_monitor.collectors.source_release import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.source_release import NO_RELEASES_DETAIL
-from conda_package_supply_chain_monitor.collectors.source_release import NO_TAGS_DETAIL
-from conda_package_supply_chain_monitor.collectors.source_release import SOURCE_RELEASE_HEADERS
-from conda_package_supply_chain_monitor.collectors.source_release import TAGGED_DETAIL
-from conda_package_supply_chain_monitor.collectors.source_release import SourceLocatorError
-from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseCollector
-from conda_package_supply_chain_monitor.collectors.source_release import SourceReleaseDocumentError
-from conda_package_supply_chain_monitor.collectors.source_release import releases_locator
-from conda_package_supply_chain_monitor.collectors.source_release import tags_locator
-from conda_package_supply_chain_monitor.collectors.tasks import collect_source_release
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.collectors import tasks as collector_tasks
+from conda_sentinel.collectors.models import RELEASE_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import SourceReleaseSnapshot
+from conda_sentinel.collectors.source_release import ABSENT_CAVEAT
+from conda_sentinel.collectors.source_release import COLLECTOR_NAME
+from conda_sentinel.collectors.source_release import NO_RELEASES_DETAIL
+from conda_sentinel.collectors.source_release import NO_TAGS_DETAIL
+from conda_sentinel.collectors.source_release import SOURCE_RELEASE_HEADERS
+from conda_sentinel.collectors.source_release import TAGGED_DETAIL
+from conda_sentinel.collectors.source_release import SourceLocatorError
+from conda_sentinel.collectors.source_release import SourceReleaseCollector
+from conda_sentinel.collectors.source_release import SourceReleaseDocumentError
+from conda_sentinel.collectors.source_release import releases_locator
+from conda_sentinel.collectors.source_release import tags_locator
+from conda_sentinel.collectors.tasks import collect_source_release
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordingResponseCache
@@ -84,10 +84,10 @@ from tests.collectors import cached_response
 from tests.collectors import recorded_payload
 
 if TYPE_CHECKING:
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.collection import CollectionResult
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The repository the packages in this module are resolved to, and the two
 #: locators it produces. Derived rather than written out: a case here is about

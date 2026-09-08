@@ -40,22 +40,22 @@ from typing import get_type_hints
 import pytest
 import requests
 
-from conda_package_supply_chain_monitor.core.transport import ABSENT_STATUSES
-from conda_package_supply_chain_monitor.core.transport import ALLOWED_SCHEMES
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_BACKOFF_FACTOR
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_ENCODING
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRY_STATUSES
-from conda_package_supply_chain_monitor.core.transport import FOLLOW_REDIRECTS
-from conda_package_supply_chain_monitor.core.transport import MAX_TIMEOUT
-from conda_package_supply_chain_monitor.core.transport import MOUNTED_PREFIXES
-from conda_package_supply_chain_monitor.core.transport import NOT_MODIFIED_STATUS
-from conda_package_supply_chain_monitor.core.transport import RETRIED_METHODS
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import RequestsTransport
-from conda_package_supply_chain_monitor.core.transport import Transport
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.core.transport import _declared_charset
+from conda_sentinel.core.transport import ABSENT_STATUSES
+from conda_sentinel.core.transport import ALLOWED_SCHEMES
+from conda_sentinel.core.transport import DEFAULT_BACKOFF_FACTOR
+from conda_sentinel.core.transport import DEFAULT_ENCODING
+from conda_sentinel.core.transport import DEFAULT_RETRIES
+from conda_sentinel.core.transport import DEFAULT_RETRY_STATUSES
+from conda_sentinel.core.transport import FOLLOW_REDIRECTS
+from conda_sentinel.core.transport import MAX_TIMEOUT
+from conda_sentinel.core.transport import MOUNTED_PREFIXES
+from conda_sentinel.core.transport import NOT_MODIFIED_STATUS
+from conda_sentinel.core.transport import RETRIED_METHODS
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import RequestsTransport
+from conda_sentinel.core.transport import Transport
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.core.transport import _declared_charset
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

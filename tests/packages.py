@@ -49,7 +49,7 @@ from typing import Final
 
 import pytest
 
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 
 if TYPE_CHECKING:

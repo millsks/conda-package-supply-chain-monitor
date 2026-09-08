@@ -42,25 +42,25 @@ from typing import Final
 from django.apps import apps
 from django.conf import settings
 
-from conda_package_supply_chain_monitor.core.policy import column_owners
-from conda_package_supply_chain_monitor.core.policy import pass_registrations
-from conda_package_supply_chain_monitor.core.policy import registered_passes
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
-from conda_package_supply_chain_monitor.policies.apps import PoliciesConfig
-from conda_package_supply_chain_monitor.policies.currency import POLICY_NAME
-from conda_package_supply_chain_monitor.policies.currency import ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.currency import CurrencyPass
-from conda_package_supply_chain_monitor.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
-from conda_package_supply_chain_monitor.policies.feedstock import FeedstockPresencePass
-from conda_package_supply_chain_monitor.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.licence import LicensePass
-from conda_package_supply_chain_monitor.policies.parameters import parameters_directory
-from conda_package_supply_chain_monitor.policies.parameters import parameters_file
-from conda_package_supply_chain_monitor.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.remediation import RemediationPass
-from conda_package_supply_chain_monitor.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
-from conda_package_supply_chain_monitor.policies.vulnerability import VulnerabilityPass
+from conda_sentinel.core.policy import column_owners
+from conda_sentinel.core.policy import pass_registrations
+from conda_sentinel.core.policy import registered_passes
+from conda_sentinel.core.rollup import contributable_columns
+from conda_sentinel.policies.apps import PoliciesConfig
+from conda_sentinel.policies.currency import POLICY_NAME
+from conda_sentinel.policies.currency import ROLLUP_COLUMN
+from conda_sentinel.policies.currency import CurrencyPass
+from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NAME
+from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.policies.feedstock import FeedstockPresencePass
+from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
+from conda_sentinel.policies.licence import LicensePass
+from conda_sentinel.policies.parameters import parameters_directory
+from conda_sentinel.policies.parameters import parameters_file
+from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
+from conda_sentinel.policies.remediation import RemediationPass
+from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_sentinel.policies.vulnerability import VulnerabilityPass
 from tests.passes import ADOPTED_PASS_NAMES
 
 #: This repository's root, four levels up from `tests/unit/django_apps/`.
@@ -72,7 +72,7 @@ APPLICATION_ROOT: Final[Path] = REPO_ROOT / "src" / "django_apps"
 
 #: The dotted name the application is installed and imported as. `django_apps` is
 #: absent from it on purpose -- it is a path root, not a package.
-APPLICATION_NAME: Final[str] = "conda_package_supply_chain_monitor.policies"
+APPLICATION_NAME: Final[str] = "conda_sentinel.policies"
 
 #: Derived by Django from the last segment of the name.
 APPLICATION_LABEL: Final[str] = "policies"
@@ -82,7 +82,7 @@ APPLICATION_LABEL: Final[str] = "policies"
 #: than assumed -- and the pass registry keeps *declaration* order (`CPM-AD-21`),
 #: so where this application sits is part of what is declared about which pass
 #: may read which.
-PRECEDING_APPLICATION_NAME: Final[str] = "conda_package_supply_chain_monitor.collectors"
+PRECEDING_APPLICATION_NAME: Final[str] = "conda_sentinel.collectors"
 
 #: The stage-2 owner (AD-26). No adopted application may precede it.
 STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
@@ -164,8 +164,8 @@ def test_the_application_resolves_from_the_second_import_root() -> None:
     """The import that the second root exists to make work.
 
     Nothing is on `sys.path` for this. The editable install's redirecting finder
-    maps `conda_package_supply_chain_monitor` straight onto
-    `src/django_apps/conda_package_supply_chain_monitor/__init__.py`, and the
+    maps `conda_sentinel` straight onto
+    `src/django_apps/conda_sentinel/__init__.py`, and the
     application resolves as a subpackage through that.
 
     The assertion is on the resolved file's location, which is what makes this
@@ -176,7 +176,7 @@ def test_the_application_resolves_from_the_second_import_root() -> None:
 
     assert module.__file__ is not None
     assert Path(module.__file__).is_relative_to(
-        APPLICATION_ROOT / "conda_package_supply_chain_monitor" / APPLICATION_LABEL,
+        APPLICATION_ROOT / "conda_sentinel" / APPLICATION_LABEL,
     )
 
 

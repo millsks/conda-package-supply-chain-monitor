@@ -44,15 +44,15 @@ from typing import Final
 import pytest
 from django.db import models
 
-from conda_package_supply_chain_monitor.core.models import PackageHealth
-from conda_package_supply_chain_monitor.core.policy import PolicyPass
-from conda_package_supply_chain_monitor.core.policy import PolicyPassError
-from conda_package_supply_chain_monitor.core.policy import column_owners
-from conda_package_supply_chain_monitor.core.policy import pass_registrations
-from conda_package_supply_chain_monitor.core.policy import register_pass
-from conda_package_supply_chain_monitor.core.policy import registered_passes
-from conda_package_supply_chain_monitor.core.policy import unregister_pass
-from conda_package_supply_chain_monitor.core.rollup import contributable_columns
+from conda_sentinel.core.models import PackageHealth
+from conda_sentinel.core.policy import PolicyPass
+from conda_sentinel.core.policy import PolicyPassError
+from conda_sentinel.core.policy import column_owners
+from conda_sentinel.core.policy import pass_registrations
+from conda_sentinel.core.policy import register_pass
+from conda_sentinel.core.policy import registered_passes
+from conda_sentinel.core.policy import unregister_pass
+from conda_sentinel.core.rollup import contributable_columns
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import AN_UNDECLARED_COLUMN
 from tests.passes import FIRST_DOMAIN

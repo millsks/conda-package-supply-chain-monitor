@@ -151,7 +151,7 @@ BANNED_FIELD_KEYWORDS: Final[frozenset[str]] = frozenset({"auto_now", "auto_now_
 # it -- a failing gate.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
     "config/local_dev/tokens.py": {"datetime.now(...)": 1},
-    "django_apps/conda_package_supply_chain_monitor/core/clock.py": {"timezone.now(...)": 1},
+    "django_apps/conda_sentinel/core/clock.py": {"timezone.now(...)": 1},
     "django_service/users/management/commands/prune_expired_state.py": {"timezone.now(...)": 1},
     "django_service/users/models.py": {"auto_now_add=True": 1},
 }
@@ -287,7 +287,7 @@ class Collector:
 """
 
 AN_INJECTED_READ_AS_A_DEFAULT = """
-from conda_package_supply_chain_monitor.core.clock import SystemClock
+from conda_sentinel.core.clock import SystemClock
 
 
 def observe(clock=SystemClock()):

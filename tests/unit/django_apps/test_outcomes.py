@@ -29,15 +29,15 @@ from itertools import product
 import pytest
 from django.db import models
 
-from conda_package_supply_chain_monitor.core.outcomes import DETERMINATE
-from conda_package_supply_chain_monitor.core.outcomes import EMPTY_AGGREGATE
-from conda_package_supply_chain_monitor.core.outcomes import PRECEDENCE
-from conda_package_supply_chain_monitor.core.outcomes import SENTINEL_MEMBERS
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeVocabularyError
-from conda_package_supply_chain_monitor.core.outcomes import aggregate
-from conda_package_supply_chain_monitor.core.outcomes import outcome_type
-from conda_package_supply_chain_monitor.core.outcomes import verify_sentinels
+from conda_sentinel.core.outcomes import DETERMINATE
+from conda_sentinel.core.outcomes import EMPTY_AGGREGATE
+from conda_sentinel.core.outcomes import PRECEDENCE
+from conda_sentinel.core.outcomes import SENTINEL_MEMBERS
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.outcomes import OutcomeVocabularyError
+from conda_sentinel.core.outcomes import aggregate
+from conda_sentinel.core.outcomes import outcome_type
+from conda_sentinel.core.outcomes import verify_sentinels
 
 # The four sentinel names and the exact strings `CPM-AD-5` fixes them to,
 # written out rather than read back from the module under test. A derived table

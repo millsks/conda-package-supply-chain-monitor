@@ -247,10 +247,10 @@ CONNECTION_SOURCES: Final[dict[str, frozenset[str]]] = {"django.db": frozenset({
 # `tests/integration/django_apps/test_run_ledger_migration.py` asserts what the
 # step does to a populated table.
 RECORDED_EXEMPTIONS: Final[dict[str, dict[str, int]]] = {
-    "django_apps/conda_package_supply_chain_monitor/core/migrations/0001_provision_role_groups.py": {
+    "django_apps/conda_sentinel/core/migrations/0001_provision_role_groups.py": {
         "objects.delete(...)": 1,
     },
-    "django_apps/conda_package_supply_chain_monitor/core/migrations/0004_collection_run_package.py": {
+    "django_apps/conda_sentinel/core/migrations/0004_collection_run_package.py": {
         "objects.update(...)": 1,
     },
     "django_service/users/migrations/0003_provision_designated_groups.py": {"objects.delete(...)": 1},

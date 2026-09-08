@@ -12,7 +12,7 @@ from celery.signals import worker_ready
 from django_structlog.celery.receivers import CeleryReceiver
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
-from conda_package_supply_chain_monitor.core.queues import CELERY_TASK_ROUTES
+from conda_sentinel.core.queues import CELERY_TASK_ROUTES
 from config.celery_app import app
 from config.celery_app import config_loggers
 from config.celery_app import install_drain_handler

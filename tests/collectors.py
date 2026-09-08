@@ -100,19 +100,19 @@ from django.db import models
 from django.db import transaction
 from django.test.utils import isolate_apps
 
-from conda_package_supply_chain_monitor.core.collection import Collector
-from conda_package_supply_chain_monitor.core.collection import CollectorConfigurationError
-from conda_package_supply_chain_monitor.core.collection import SweepOutcome
-from conda_package_supply_chain_monitor.core.models import AppendOnlyModel
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.rate_limit import RateLimit
-from conda_package_supply_chain_monitor.core.registry import CollectorRegistryError
-from conda_package_supply_chain_monitor.core.registry import register
-from conda_package_supply_chain_monitor.core.registry import unregister
-from conda_package_supply_chain_monitor.core.response_cache import CachedResponse
-from conda_package_supply_chain_monitor.core.transport import DEFAULT_RETRIES
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import TransportError
+from conda_sentinel.core.collection import Collector
+from conda_sentinel.core.collection import CollectorConfigurationError
+from conda_sentinel.core.collection import SweepOutcome
+from conda_sentinel.core.models import AppendOnlyModel
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.rate_limit import RateLimit
+from conda_sentinel.core.registry import CollectorRegistryError
+from conda_sentinel.core.registry import register
+from conda_sentinel.core.registry import unregister
+from conda_sentinel.core.response_cache import CachedResponse
+from conda_sentinel.core.transport import DEFAULT_RETRIES
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import TransportError
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -122,10 +122,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from collections.abc import Sequence
 
-    from conda_package_supply_chain_monitor.core.clock import Clock
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.clock import Clock
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The name every fixture collector declares, and therefore what its ledger rows
 #: and its rate-limit cache keys carry. Prefixed so it cannot be confused with a

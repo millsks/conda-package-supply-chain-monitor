@@ -43,7 +43,7 @@ from django.db import models
 if TYPE_CHECKING:
     from types import ModuleType
 
-MIGRATION_MODULE: Final[str] = "conda_package_supply_chain_monitor.core.migrations.0004_collection_run_package"
+MIGRATION_MODULE: Final[str] = "conda_sentinel.core.migrations.0004_collection_run_package"
 
 #: The model and column the conversion is about, spelled once so a case reads as
 #: a claim about the run ledger rather than as three repeated literals.

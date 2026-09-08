@@ -48,36 +48,36 @@ from django.db import IntegrityError
 from django.db import transaction
 from django.test import override_settings
 
-from conda_package_supply_chain_monitor.collectors import conda_package as conda_package_module
-from conda_package_supply_chain_monitor.collectors import tasks as collector_tasks
-from conda_package_supply_chain_monitor.collectors.conda_package import CHANNELS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import COLLECTOR_NAME
-from conda_package_supply_chain_monitor.collectors.conda_package import CONDA_PACKAGE_FRESHNESS_TARGET
-from conda_package_supply_chain_monitor.collectors.conda_package import CONDA_PACKAGE_HEADERS
-from conda_package_supply_chain_monitor.collectors.conda_package import CONDA_PACKAGE_RETRIES
-from conda_package_supply_chain_monitor.collectors.conda_package import MAX_MONITORED_CHANNELS
-from conda_package_supply_chain_monitor.collectors.conda_package import NO_LATEST_VERSION_DETAIL
-from conda_package_supply_chain_monitor.collectors.conda_package import NO_PUBLISHED_FILE_DETAIL
-from conda_package_supply_chain_monitor.collectors.conda_package import PLATFORMS_SETTING
-from conda_package_supply_chain_monitor.collectors.conda_package import UNREAD_CHANNEL_DETAIL
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaChannelError
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaDocumentError
-from conda_package_supply_chain_monitor.collectors.conda_package import CondaPackageCollector
-from conda_package_supply_chain_monitor.collectors.conda_package import package_locator
-from conda_package_supply_chain_monitor.collectors.models import CHANNEL_AND_PLATFORM_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import CONDA_PACKAGE_FACTS_CONSTRAINT
-from conda_package_supply_chain_monitor.collectors.models import CondaPackageSnapshot
-from conda_package_supply_chain_monitor.collectors.tasks import collect_conda_package
-from conda_package_supply_chain_monitor.core.clock import Clock
-from conda_package_supply_chain_monitor.core.clock import FixedClock
-from conda_package_supply_chain_monitor.core.freshness import UNOBSERVED_STATUS
-from conda_package_supply_chain_monitor.core.models import CollectionRun
-from conda_package_supply_chain_monitor.core.outcomes import OutcomeState
-from conda_package_supply_chain_monitor.core.runs import RunLedgerError
-from conda_package_supply_chain_monitor.core.runs import RunState
-from conda_package_supply_chain_monitor.core.transport import Payload
-from conda_package_supply_chain_monitor.core.transport import TransportError
-from conda_package_supply_chain_monitor.identity.models import Package
+from conda_sentinel.collectors import conda_package as conda_package_module
+from conda_sentinel.collectors import tasks as collector_tasks
+from conda_sentinel.collectors.conda_package import CHANNELS_SETTING
+from conda_sentinel.collectors.conda_package import COLLECTOR_NAME
+from conda_sentinel.collectors.conda_package import CONDA_PACKAGE_FRESHNESS_TARGET
+from conda_sentinel.collectors.conda_package import CONDA_PACKAGE_HEADERS
+from conda_sentinel.collectors.conda_package import CONDA_PACKAGE_RETRIES
+from conda_sentinel.collectors.conda_package import MAX_MONITORED_CHANNELS
+from conda_sentinel.collectors.conda_package import NO_LATEST_VERSION_DETAIL
+from conda_sentinel.collectors.conda_package import NO_PUBLISHED_FILE_DETAIL
+from conda_sentinel.collectors.conda_package import PLATFORMS_SETTING
+from conda_sentinel.collectors.conda_package import UNREAD_CHANNEL_DETAIL
+from conda_sentinel.collectors.conda_package import CondaChannelError
+from conda_sentinel.collectors.conda_package import CondaDocumentError
+from conda_sentinel.collectors.conda_package import CondaPackageCollector
+from conda_sentinel.collectors.conda_package import package_locator
+from conda_sentinel.collectors.models import CHANNEL_AND_PLATFORM_CONSTRAINT
+from conda_sentinel.collectors.models import CONDA_PACKAGE_FACTS_CONSTRAINT
+from conda_sentinel.collectors.models import CondaPackageSnapshot
+from conda_sentinel.collectors.tasks import collect_conda_package
+from conda_sentinel.core.clock import Clock
+from conda_sentinel.core.clock import FixedClock
+from conda_sentinel.core.freshness import UNOBSERVED_STATUS
+from conda_sentinel.core.models import CollectionRun
+from conda_sentinel.core.outcomes import OutcomeState
+from conda_sentinel.core.runs import RunLedgerError
+from conda_sentinel.core.runs import RunState
+from conda_sentinel.core.transport import Payload
+from conda_sentinel.core.transport import TransportError
+from conda_sentinel.identity.models import Package
 from tests.clocks import FIXED_INSTANT
 from tests.collectors import FixedLimiter
 from tests.collectors import RecordingResponseCache
@@ -88,10 +88,10 @@ from tests.collectors import recorded_payload
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from conda_package_supply_chain_monitor.core.collection import CollectionResult
-    from conda_package_supply_chain_monitor.core.rate_limit import RateLimiter
-    from conda_package_supply_chain_monitor.core.response_cache import ResponseCache
-    from conda_package_supply_chain_monitor.core.transport import Transport
+    from conda_sentinel.core.collection import CollectionResult
+    from conda_sentinel.core.rate_limit import RateLimiter
+    from conda_sentinel.core.response_cache import ResponseCache
+    from conda_sentinel.core.transport import Transport
 
 #: The package the cases ask about, the surfaces they monitor, and the locators
 #: those produce. Derived rather than written out: a case here is about what a
