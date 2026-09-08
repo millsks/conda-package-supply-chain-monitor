@@ -195,7 +195,10 @@ def _offending_lines(path: Path) -> list[str]:
 @pytest.mark.parametrize(
     "path",
     SUBJECT_FILES,
-    ids=lambda path: str(path.relative_to(REPO_ROOT)),
+    # `as_posix()` so a case id names the same file on every runner: `str()`
+    # would report `src\config\...` on Windows and `src/config/...` elsewhere,
+    # and a guard whose failures are grepped wants one spelling.
+    ids=lambda path: path.relative_to(REPO_ROOT).as_posix(),
 )
 def test_no_file_under_src_or_tests_names_the_former_import_root(path: Path) -> None:
     """AC 1: the former identifier appears nowhere in either tree.
@@ -224,7 +227,11 @@ def test_the_scan_reaches_the_files_it_claims_to() -> None:
     empty scan also reports. The named files are the ones an exclusion added
     later would most plausibly take out of view.
     """
-    scanned = {str(path.relative_to(REPO_ROOT)) for path in SUBJECT_FILES}
+    # `as_posix()` rather than `str()`: the named files above are written with
+    # forward slashes, and `str()` on a Windows path yields backslashes, so the
+    # comparison would fail on the compatibility runner for a reason that has
+    # nothing to do with what this case is about.
+    scanned = {path.relative_to(REPO_ROOT).as_posix() for path in SUBJECT_FILES}
 
     assert set(NAMED_FILES_THE_SCAN_MUST_REACH) <= scanned
 
