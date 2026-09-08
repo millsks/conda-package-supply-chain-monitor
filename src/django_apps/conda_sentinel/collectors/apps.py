@@ -200,6 +200,7 @@ class CollectorsConfig(AppConfig):
         from conda_sentinel.collectors.kev import KevCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.license import LicenseCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector  # noqa: PLC0415 - see above
+        from conda_sentinel.collectors.python_readiness import PythonReadinessCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.source_release import SourceReleaseCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.sweep import cadence_reconciliation_fault  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.tasks import InventoryIngestionCollector  # noqa: PLC0415 - see above
@@ -221,6 +222,7 @@ class CollectorsConfig(AppConfig):
             VulnerabilityCollector,
             KevCollector,
             LicenseCollector,
+            PythonReadinessCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)

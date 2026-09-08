@@ -54,6 +54,9 @@ from conda_sentinel.collectors.license import LicenseCollector
 from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_sentinel.collectors.pypi_release import PYPI_RELEASE_CADENCE
 from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.python_readiness import COLLECTOR_NAME as PYTHON_READINESS_NAME
+from conda_sentinel.collectors.python_readiness import READINESS_CADENCE
+from conda_sentinel.collectors.python_readiness import PythonReadinessCollector
 from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
 from conda_sentinel.collectors.source_release import SOURCE_RELEASE_CADENCE
 from conda_sentinel.collectors.source_release import SourceReleaseCollector
@@ -76,6 +79,7 @@ from conda_sentinel.collectors.tasks import COLLECT_FEEDSTOCK_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECT_KEV_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECT_LICENSE_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECT_PYPI_RELEASE_TASK_NAME
+from conda_sentinel.collectors.tasks import COLLECT_PYTHON_READINESS_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECT_SOURCE_RELEASE_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECT_VULNERABILITY_TASK_NAME
 from conda_sentinel.collectors.tasks import COLLECTOR_NAME as INVENTORY_COLLECTOR_NAME
@@ -111,10 +115,10 @@ SWEEP_MODULE: Final[Path] = (
     Path(__file__).resolve().parents[3] / "src" / "django_apps" / "conda_sentinel" / "collectors" / "sweep.py"
 )
 
-#: The seven per-package collectors and the cadence each declares, as one table
-#: the cases below parametrize over. A tuple of triples rather than seven cases,
+#: The eight per-package collectors and the cadence each declares, as one table
+#: the cases below parametrize over. A tuple of triples rather than eight cases,
 #: because every one of the assertions is the same sentence about a different
-#: collector and writing it out seven times is how six of them stop being
+#: collector and writing it out eight times is how seven of them stop being
 #: updated.
 PER_PACKAGE_COLLECTORS: Final[tuple[tuple[type[Collector], str, timedelta], ...]] = (
     (SourceReleaseCollector, SOURCE_RELEASE_NAME, SOURCE_RELEASE_CADENCE),
@@ -124,6 +128,7 @@ PER_PACKAGE_COLLECTORS: Final[tuple[tuple[type[Collector], str, timedelta], ...]
     (VulnerabilityCollector, VULNERABILITY_NAME, VULNERABILITY_CADENCE),
     (KevCollector, KEV_NAME, KEV_CADENCE),
     (LicenseCollector, LICENSE_NAME, LICENSE_CADENCE),
+    (PythonReadinessCollector, PYTHON_READINESS_NAME, READINESS_CADENCE),
 )
 
 #: The calls a dispatch may not make, and each is a different rule.
@@ -197,6 +202,7 @@ def test_the_dispatch_task_takes_its_collector_under_the_keyword_the_module_name
         (VulnerabilityCollector, COLLECT_VULNERABILITY_TASK_NAME),
         (KevCollector, COLLECT_KEV_TASK_NAME),
         (LicenseCollector, COLLECT_LICENSE_TASK_NAME),
+        (PythonReadinessCollector, COLLECT_PYTHON_READINESS_TASK_NAME),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )

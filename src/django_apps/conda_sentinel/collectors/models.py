@@ -5,20 +5,21 @@ source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
 against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` and
-`CPM-SECURITY-S01` through `CPM-SECURITY-S03` -- the seven surface tables beside
-it: upstream releases, PyPI releases, conda-forge feedstocks, published conda
-packages, advisory matches, KEV cross-references and licence findings.
+`CPM-SECURITY-S01` through `CPM-SECURITY-S03` and `CPM-PY314-S01` -- the eight
+surface tables beside it: upstream releases, PyPI releases, conda-forge
+feedstocks, published conda packages, advisory matches, KEV cross-references,
+licence findings and static Python-readiness assessments.
 
-**One module, eight tables, and no shared columns beyond the ones every evidence
+**One module, nine tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
 `source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`,
-`conda_package_snapshots`, `vulnerability_findings`, `kev_findings` and
-`license_findings` are written by eight collectors that share nothing but the log.
-They live together because Django auto-imports `<app>.models` and no other module, so a
-model declared elsewhere in this application is registered only by whatever
-happens to import it -- which is a table that exists on a developer's machine and
-not in a migration.
+`conda_package_snapshots`, `vulnerability_findings`, `kev_findings`,
+`license_findings` and `python_readiness_assessments` are written by nine collectors
+that share nothing but the log. They live together because Django auto-imports
+`<app>.models` and no other module, so a model declared elsewhere in this
+application is registered only by whatever happens to import it -- which is a
+table that exists on a developer's machine and not in a migration.
 
 **One collector reads a table it does not write, and the exception is licensed by
 an object rather than by this paragraph.** `CPM-AD-7` also says a collector "never
@@ -101,6 +102,8 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from conda_sentinel.collectors.match_confidence import MatchConfidence
+from conda_sentinel.collectors.outcomes import INFERRED_COMPATIBLE
+from conda_sentinel.collectors.outcomes import INFERRED_INCOMPATIBLE
 from conda_sentinel.collectors.outcomes import KEV_NOT_APPLICABLE
 from conda_sentinel.collectors.outcomes import KEV_UNKNOWN
 from conda_sentinel.collectors.outcomes import LICENSE_NOT_APPLICABLE
@@ -108,11 +111,14 @@ from conda_sentinel.collectors.outcomes import LISTED
 from conda_sentinel.collectors.outcomes import MATCHED
 from conda_sentinel.collectors.outcomes import NORMALIZED
 from conda_sentinel.collectors.outcomes import NOT_LISTED
+from conda_sentinel.collectors.outcomes import READINESS_NOT_APPLICABLE
 from conda_sentinel.collectors.outcomes import VULNERABILITY_NOT_APPLICABLE
 from conda_sentinel.collectors.outcomes import KevOutcome
 from conda_sentinel.collectors.outcomes import LicenseOutcome
+from conda_sentinel.collectors.outcomes import PythonReadinessOutcome
 from conda_sentinel.collectors.outcomes import VulnerabilityOutcome
 from conda_sentinel.collectors.spdx import DetectionMethod
+from conda_sentinel.collectors.specifiers import DecidingSignal
 from conda_sentinel.core.clock import is_aware
 from conda_sentinel.core.models import AppendOnlyError
 from conda_sentinel.core.models import AppendOnlyModel
@@ -140,6 +146,10 @@ __all__ = [
     "LICENSE_READ_INDEX",
     "PYPI_FACTS_CONSTRAINT",
     "PYPI_READ_INDEX",
+    "READINESS_READ_INDEX",
+    "READINESS_REASON_CONSTRAINT",
+    "READINESS_SERIES_CONSTRAINT",
+    "READINESS_SIGNAL_CONSTRAINT",
     "RELEASE_FACTS_CONSTRAINT",
     "RELEASE_READ_INDEX",
     "SNAPSHOT_KEY_INDEX",
@@ -155,6 +165,7 @@ __all__ = [
     "KevFinding",
     "LicenseFinding",
     "PyPIReleaseSnapshot",
+    "PythonReadinessAssessment",
     "SourceReleaseSnapshot",
     "VulnerabilityFinding",
     "snapshot_as_of",
@@ -512,6 +523,80 @@ LICENSE_FACTS_CONSTRAINT: Final[str] = "license_facts_present_exactly_when_norma
 LICENSE_APPLICABILITY_CONSTRAINT: Final[str] = "license_applies_to_every_package"
 LICENSE_CHANNEL_CONSTRAINT: Final[str] = "license_names_the_channel_it_is_about"
 LICENSE_READ_INDEX: Final[str] = "license_finding_pkg_observed"
+
+#: How wide the assessed-series column is. `3.14` is four characters and this is
+#: the shape `_STATE_LENGTH` has: a bound comfortably above every value the code
+#: can produce, so the column is never the reason an honest row is refused.
+_PYTHON_SERIES_LENGTH: Final[int] = 32
+
+#: How wide the column holding a project's declared `Requires-Python` is.
+#:
+#: Its own constant rather than `_SPECIFIER_LENGTH` reused, on the terms
+#: `_FEEDSTOCK_NAME_LENGTH` and `_VERSION_LENGTH` state: the two answer to
+#: different sources. `pypi_release_snapshots.requires_python` is sized against what
+#: `CPM-FR-8` records for a currency comparison; this one is sized against what
+#: `CPM-PY314-S01` has to store **verbatim** for an incompatible row to be
+#: argue-able, and a value wider than it is refused where it enters rather than
+#: truncated -- a truncated specifier is a different specifier, which is the matrix
+#: row this constant exists for. The same 128 today; reconciled by
+#: `tests/unit/django_apps/test_python_readiness.py` against the model rather than
+#: against a number restated in the collector.
+_REQUIRES_PYTHON_LENGTH: Final[int] = 128
+
+#: How wide the matching-classifier column is.
+#:
+#: A classifier is a fixed namespace plus a version --
+#: `Programming Language :: Python :: 3.14` is thirty-eight characters -- so this is
+#: headroom rather than a measurement, sized against the longest classifier PyPI's
+#: own list carries rather than against the one this collector looks for.
+_CLASSIFIER_LENGTH: Final[int] = 256
+
+#: How wide the deciding-signal column is. `DecidingSignal`'s longest value is
+#: `requires-python`, fifteen characters -- the same shape
+#: `_DETECTION_METHOD_LENGTH` has and for the same reason.
+_DECIDING_SIGNAL_LENGTH: Final[int] = 32
+
+#: The names of the three constraints `python_readiness_assessments` carries, and
+#: the read index its freshness query needs.
+#:
+#: Three constraints and **no unique constraint of any kind** (`CPM-AD-2`): a
+#: project that declares 3.14 support tomorrow is a new row and the old one stands,
+#: which is the whole of how a reader sees *when* a project became ready.
+#:
+#: The first is the sibling tables' biconditional, over the one column that is a
+#: judgement rather than a transcription: the deciding signal is present exactly on
+#: a determinate row. A row that inferred something and cannot say **which** piece
+#: of metadata inferred it is a claim about somebody's package with no argument
+#: attached, and a row that named a deciding signal without reaching a verdict
+#: would be claiming a decision the run never made. `requires_python` and
+#: `matching_classifier` appear in neither half, deliberately and on the terms
+#: `LICENSE_FACTS_CONSTRAINT` states its own asymmetry: the specifier is what makes
+#: an `unknown` row reviewable and an `inferred_incompatible` row argue-able, so it
+#: is permitted on every row there is.
+#:
+#: The second is the **opposite** of the sibling security tables' applicability
+#: rule, and it is the one place this table differs from all three of them.
+#: `vulnerability_findings`, `kev_findings` and `license_findings` refuse
+#: `not_applicable` outright because their questions apply to every package;
+#: `CPM-PY314-S01` AC 2 asks for it in as many words, because a package with no
+#: release ecosystem has no Python metadata to assess. What this table refuses
+#: instead is a `not_applicable` row that does not say *why* -- `detail` is required
+#: on it -- because the only honest reason is one `identity` established, and a row
+#: that could not name it would be exactly the absence-read-as-inapplicability this
+#: story exists to prevent.
+#:
+#: The third is `license_findings`' channel rule reached for the same reason: every
+#: row names the Python series it assessed, sentinel rows included. `CPM-PY314-S02`
+#: writes a *verified* result about a series, `CPM-PY314-S03` reduces both, and a
+#: row that could not say which Python it was about would make an assessment of 3.14
+#: indistinguishable from an assessment of whatever comes next.
+#:
+#: Django caps an index name at 30 characters, which is why it does not spell out
+#: `python_readiness` twice.
+READINESS_SIGNAL_CONSTRAINT: Final[str] = "readiness_signal_present_exactly_when_inferred"
+READINESS_REASON_CONSTRAINT: Final[str] = "readiness_not_applicable_states_its_reason"
+READINESS_SERIES_CONSTRAINT: Final[str] = "readiness_names_the_series_it_assessed"
+READINESS_READ_INDEX: Final[str] = "py_readiness_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -2369,3 +2454,202 @@ class LicenseFinding(AppendOnlyModel):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         return f"{stated} on {where} for {scope}: {self.state} at {when}"
+
+
+class PythonReadinessAssessment(AppendOnlyModel):
+    """What a package's *declared* metadata says about one Python series. Table `python_readiness_assessments`.
+
+    `CPM-FR-14` splits Python readiness into a cheap static pass and an expensive
+    verification pass, and `CPM-PY314-S01` is the cheap one. This table holds what a
+    project's published metadata **claims**, and nothing whatever about what a build
+    did: `CPM-PY314-S02` writes that, on its own queue, into its own table.
+
+    **The determinate values name the inference, and that is `CPM-FR-14`'s
+    "distinct recorded states" made structural.** `inferred_compatible` and
+    `inferred_incompatible`, never `ok` and never a bare `compatible` --
+    `CPM-AD-24` carries a state's value verbatim onto every read surface, so a value
+    called `compatible` here would sit on a queue beside a verified result and read
+    identically. `collectors/outcomes.py` composes the vocabulary and argues both
+    halves.
+
+    **A metadata silence is `unknown` and never a claim of incompatibility.** This
+    is the single property `CPM-PY314-S01` turns on. Most projects have not declared
+    3.14 support; if "declares nothing" were recorded as "excludes it", this table
+    would report most of an inventory as incompatible on no evidence and send
+    `CPM-PY314-S02`'s expensive verification exactly where it is least warranted --
+    the opposite of what the story exists to do. So three outcomes rather than two:
+    the metadata admits the series, the metadata cannot admit it, or the metadata
+    said nothing either way.
+
+    **`not_applicable` has exactly one path to it, and `detail` has to name it.**
+    `CPM-PY314-S01` AC 2 asks for the state, and the only thing that can establish it
+    is `identity`: a `release_ecosystem` mapping resolution recorded
+    `not_applicable`, which says the package has no release ecosystem a Python
+    question could be asked of. A mapping that is `unknown`, `error` or `not_found`
+    establishes **nothing** and never reaches this state -- reading an unresolved
+    identity as an inapplicable question is a determinate claim made from an
+    absence, which is the defect class the preceding epic met in every story.
+    `READINESS_REASON_CONSTRAINT` is the database saying so.
+
+    **The specifier is stored verbatim, and it is permitted on every row.** An
+    `inferred_incompatible` row is a claim about somebody's package, and the only
+    thing that makes it argue-able is the specifier that produced it sitting beside
+    it; an `unknown` row carrying a specifier this product would not read is a review
+    item somebody can act on. So the signal constraint is asymmetric on the terms
+    `license_findings`' is: it governs the deciding signal and says nothing about
+    the two transcribed columns.
+
+    **Two static signals, and their disagreement is recorded rather than
+    resolved.** `requires_python` is what the project declared as a range and
+    `matching_classifier` is the classifier that names the series, if it declared
+    one. A classifier list is positive-only, so its silence excludes nothing -- but a
+    project whose specifier admits the series while its classifiers enumerate
+    Python versions without naming it has said two different things, and this table
+    records that as the `unknown` it is rather than picking a winner.
+
+    **Nothing here is a derived status.** Whether a package is *ready* is
+    `CPM-FR-19`'s readiness policy (`CPM-PY314-S03`), which reads this table and
+    `CPM-PY314-S02`'s beside it and writes its own derived table (`CPM-AD-8`,
+    `CPM-AD-21`).
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this observation is about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="python_readiness_assessments",
+        verbose_name=_("package"),
+    )
+
+    #: The locator this observation was read from -- the release ecosystem's own
+    #: project document. Blank on the rows no locator was built for, which is the
+    #: `not_applicable` path: identity said there is no ecosystem to ask.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the assessment concluded, over `PythonReadinessOutcome` and emitted
+    #: verbatim (`CPM-AD-24`). See the class docstring for what each value means,
+    #: and `collectors/outcomes.py` for why the determinate values name inference.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=PythonReadinessOutcome.choices)
+
+    #: The Python series this row assessed, dotted -- `3.14`. Required of every
+    #: row, sentinel rows included: a later story writes a verified result about a
+    #: series and a policy reduces both, and a row that could not say which Python
+    #: it was about would make the two indistinguishable.
+    python_series = models.CharField(_("python series"), max_length=_PYTHON_SERIES_LENGTH)
+
+    #: The `Requires-Python` specifier the project declared, **exactly as stated**
+    #: and stripped only of the whitespace around it. Blank means the project
+    #: declared none, which is a silence rather than a range. Permitted on every
+    #: row -- see the class docstring.
+    requires_python = models.CharField(
+        _("requires python"),
+        max_length=_REQUIRES_PYTHON_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: The version classifier naming this series, exactly as the project stated it,
+    #: or blank where it declared none. Blank means missing (PRD Appendix A.1) and
+    #: never "the project denies this version": a classifier list is positive-only.
+    matching_classifier = models.CharField(
+        _("matching classifier"),
+        max_length=_CLASSIFIER_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: Which declared signal reached the verdict, over `DecidingSignal`. Present
+    #: exactly on a determinate row -- see `Meta.constraints`. An inference that
+    #: cannot say what it inferred from is a claim with no argument attached.
+    deciding_signal = models.CharField(
+        _("deciding signal"),
+        max_length=_DECIDING_SIGNAL_LENGTH,
+        choices=DecidingSignal.choices,
+        blank=True,
+        default="",
+    )
+
+    #: What the collector or the base had to say -- which silence an `unknown` row
+    #: is, why a specifier was not read, what the two signals disagreed about, or
+    #: what `identity` established for a `not_applicable` row.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that made this observation, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table `CPM-PY314-S01` adds, not the `collectors_pythonreadinessassessment` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). A project
+        that declares 3.14 support later is a new row and the old one stands, and
+        the tuple that looks unique -- `(package, python_series)` -- is exactly the
+        tuple a re-observation repeats every day.
+        """
+
+        db_table = "python_readiness_assessments"
+        verbose_name = _("python readiness assessment")
+        verbose_name_plural = _("python readiness assessments")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on the
+            # terms `LICENSE_READ_INDEX` states. One index and not two: this table
+            # grows once per package per run, and the reads this story adds are all
+            # about a package.
+            models.Index(fields=["package", "-observed_at"], name=READINESS_READ_INDEX),
+        ]
+        constraints = [
+            # The biconditional, over the one column that is a judgement rather
+            # than a transcription. A determinate row says which declared signal
+            # decided it; a row that is not determinate decided nothing and may not
+            # name one.
+            #
+            # `requires_python` and `matching_classifier` appear in neither half on
+            # purpose: they are what the source stated, and an `unknown` row
+            # carrying them is the review item this table exists to leave behind.
+            #
+            # `state` is NOT NULL and every column tested here is NOT NULL, so this
+            # expression is always true or false and never the third thing a SQL
+            # CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(state__in=(INFERRED_COMPATIBLE, INFERRED_INCOMPATIBLE)) & ~models.Q(deciding_signal=""))
+                    | (~models.Q(state__in=(INFERRED_COMPATIBLE, INFERRED_INCOMPATIBLE)) & models.Q(deciding_signal=""))
+                ),
+                name=READINESS_SIGNAL_CONSTRAINT,
+            ),
+            # The opposite of the three security tables' applicability rule, and
+            # the one place this table differs from all of them: `not_applicable`
+            # is a state CPM-PY314-S01 AC 2 asks for, so it is permitted -- and it
+            # is permitted only with a reason. The sole thing that can establish it
+            # is identity's own `not_applicable` mapping, so a row that carried the
+            # state and said nothing would be indistinguishable from one written
+            # out of an *absence* of identity, which is precisely what this story
+            # forbids.
+            models.CheckConstraint(
+                condition=~models.Q(state=READINESS_NOT_APPLICABLE) | ~models.Q(detail=""),
+                name=READINESS_REASON_CONSTRAINT,
+            ),
+            # Every row names the series it assessed, sentinel rows included, on
+            # the terms `license_findings` requires its channel.
+            models.CheckConstraint(
+                condition=~models.Q(python_series=""),
+                name=READINESS_SERIES_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this row records, for an admin list and a debugger.
+
+        Returns:
+            The series, the state and the instant, with the package it is about.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        series = self.python_series or "(no series)"
+        return f"Python {series} for {scope}: {self.state} at {when}"

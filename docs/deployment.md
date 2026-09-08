@@ -1658,12 +1658,134 @@ published-package sweep is asking the same host on the same day. At most four
 channels may be declared, because every one of them is a retried call inside a task
 the platform kills at sixty seconds.
 
+## The static Python 3.14 collector infers, and never verifies
+
+`cpm.collect.python_readiness` reads a project's **published metadata** and records
+what that metadata *claims* about Python 3.14 (`CPM-FR-14`). It is the cheap half of
+a two-part requirement: this pass tells you where the expensive half is worth
+spending, and the expensive half — a real build and import — is a separate,
+optionally triggered capability on the `verify` queue that does not exist yet.
+
+**Nothing here builds, imports or runs anything.** One HTTPS GET to
+`https://pypi.org/pypi/<project>/json`, two fields read out of it, no subprocess.
+Read every row on this table as "the project said so", never as "we tried it".
+
+**The state values say so themselves, and that is deliberate.** The determinate
+values are `inferred_compatible` and `inferred_incompatible` rather than
+`compatible` and `incompatible`, because a verified result about the same package
+and the same Python is coming and the two must be distinguishable wherever a status
+is rendered. If you build a queue, a report or an export over this table, carry the
+value verbatim — shortening it to `compatible` is exactly the confusion the naming
+prevents.
+
+**Read the six answers apart:**
+
+| The row says | What it means |
+|---|---|
+| `inferred_compatible` | the project's own `Requires-Python`, or a `Programming Language :: Python :: 3.14` classifier, admits this Python. `deciding_signal` says which said so — `requires-python`, `classifier`, or `both` |
+| `inferred_incompatible` | the project's `Requires-Python` **cannot** admit any 3.14 release. `requires_python` carries the specifier verbatim so you can check the claim |
+| `unknown` | one of five things, and `detail` says which: the project declared **neither** signal (the commonest row on this table); it enumerated Python versions in its classifiers and did not name 3.14; its two signals disagree; it declared a specifier in a shape this product will not read; or it declared one too wide for the column that records it, in which case the row carries no specifier and says so |
+| `not_found` | the release ecosystem does not know the project at all — an absence from the index, not a project that declared nothing |
+| `error` | the look failed: the source raised, the allowance was spent, or the document could not be read |
+| `not_applicable` | identity established that this package has **no release ecosystem**, so there is no Python metadata to assess. `detail` names identity as the reason; this is the only way the state is ever written |
+
+**A silence is `unknown` and never `inferred_incompatible`. This is the sentence to
+read twice.** Most projects have not declared 3.14 support. A project that says
+nothing has not said "no", and treating it as though it had would mark most of your
+inventory incompatible on no evidence — and would send verification effort exactly
+where it is least warranted. Expect `unknown` to be the majority answer, and treat
+it as "we do not know yet", which is what it says.
+
+**A `Requires-Python` this product will not read is `unknown` too, with the
+specifier preserved and the reason recorded.** What is read is the ordinary
+grammar — `>=3.9`, `>=3.9,<4`, `==3.12.*`, `!=3.13.*`, `~=3.9`, and combinations of
+them over plain dotted numeric releases. What is **not** read, because answering it
+needs version-ordering rules this product has deliberately not decided:
+
+- **`===` arbitrary equality**, which PEP 440 defines as a comparison of *strings*
+  rather than of versions, so whether it admits 3.14 depends on how 3.14 happens to
+  be spelled.
+- **Epochs** — `>=1!3.9`.
+- **Pre-, post-, development- and local-version segments** — `>=3.9rc1`,
+  `>=3.9.post1`, `>=3.9.dev0`, `>=3.9+local`.
+- A specifier carrying more than 32 clauses or a release of more than 8 segments,
+  both of which are bounds rather than judgements.
+- A specifier **longer than 128 characters**, which is what the column recording it
+  holds. This one is `unknown` for a different reason from the rest: the shape is
+  readable, but the row could not carry the claim it rested on. The specifier is
+  left blank rather than truncated — a truncated specifier is a different specifier
+  — and `detail` says so. It is deliberately **not** an `error`: the source answered
+  perfectly well, and calling that a failed look would have the row say looking
+  broke when only recording did.
+
+Every one of these records `unknown` with the reason in `detail`, and emits a
+`python_readiness.unreadable_specifier` log event so a shape that turns out to be
+common is visible without aggregating a column.
+
+**The question is about the 3.14 *series*, not one patch release.** `>3.14` records
+`inferred_compatible`: it excludes `3.14.0` and admits `3.14.1`, and a project that
+runs on 3.14.1 is ready for 3.14. `<3.14` records `inferred_incompatible`, because
+nothing in the series satisfies it.
+
+**A classifier list states what a project claims and never what it denies.** A
+project that lists `3.10` through `3.13` and omits `3.14` has said nothing about
+3.14 — so a classifier omission alone is never `inferred_incompatible`. Where a
+specifier admits 3.14 and the classifiers enumerate versions without naming it, the
+row is `unknown` and `detail` records the **disagreement**: this collector does not
+rank one signal above the other, because doing so would be deciding a claim about
+somebody else's package in the one column a policy reads first.
+
+**`Programming Language :: Python :: 3` is not an enumeration.** The umbrella
+classifier is a *superset* claim — "this project supports Python 3", which contains
+3.14 — rather than a list of minor versions that left 3.14 out, so a project
+declaring only it (with or without `:: 3 :: Only`) has enumerated nothing and its
+specifier has nothing to disagree with. That is the commonest published shape there
+is: `requires-python = ">=3.9"` beside `:: 3` and `:: 3 :: Only` records
+`inferred_compatible` on the specifier, not a disagreement. Only a **dotted**
+classifier — `:: 3.12` — makes the list an enumeration.
+
+**It asks the source itself rather than reading the PyPI release table.** The
+document it reads is the same `https://pypi.org/pypi/<project>/json` the PyPI
+release collector reads, and that collector already stores a `requires_python`. A
+collector never reads another collector's evidence table, so this is a **second call
+to the same host** rather than a shared read — and it is necessary anyway, because
+the *classifiers* are the second static signal and no collector stores them.
+Practically: the two sweeps each spend their own allowance against `pypi.org`, and
+the readiness dispatch is offset by three hours so they do not start at the same
+instant.
+
+**Which packages it asks about, and the one thing it will not do.** It asks about a
+package whose release-ecosystem mapping identity recorded as `established` for
+PyPI, and it writes AC 2's `not_applicable` row for one recorded `not_applicable`.
+It asks about **nothing else** — a package whose mapping is `unknown`, `error` or
+`not_found`, one with no mapping row at all, and one established for some other
+ecosystem are all packages identity has not given this collector a project to read.
+Those are **not** offered by the sweep, so your ledger does not fill with failed
+runs; they simply have no readiness row, and every read surface reports them
+`unknown` for want of an observation. A manual recollection of one of them fails
+with a message saying the compatibility question is *unanswered rather than
+inapplicable* — which is the distinction the `not_applicable` state exists to keep.
+
+**No readiness verdict is on this table.** Whether a package is *ready* — and which
+kind of evidence produced that answer — is a policy question over this table and the
+verification table beside it, and no such policy exists yet.
+
+**What it costs.** One call per package per **week**, retried per the shared retry
+policy. The declared allowance is sixty requests a minute, which at `1 + retries`
+per collection is fifteen packages a minute — so `CPM-NFR-1`'s ten thousand packages
+take about eleven hours of wall time, comfortably inside a weekly cadence. The
+response cache holds an answer for thirty days, which is longer than the cadence on
+purpose: a TTL inside the cadence would make the cache inert and re-transfer a
+document that lists every file of every release. Raise the allowance against what
+`pypi.org` actually tolerates, remembering the PyPI release sweep is asking the same
+host daily and spending its own.
+
 ## The full-inventory sweep: what beat fires, and what it does not do
 
-**Eight collectors are registered and seven of them are swept one package at a
-time.** The eighth is inventory ingestion, which reads one document naming many
+**Nine collectors are registered and eight of them are swept one package at a
+time.** The ninth is inventory ingestion, which reads one document naming many
 packages and is deliberately absent from the schedule below; every count in this
-section is the seven unless it says otherwise. What runs those seven across the
+section is the eight unless it says otherwise. What runs those eight across the
 whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 `django_celery_beat` once per collector at the cadence that collector declares
 (`CPM-NFR-1`, `CPM-FR-15`).
@@ -1672,9 +1794,10 @@ whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 packages it can be asked about, and enqueues one ordinary per-package collection
 task for each — `cpm.collect.source_release`, `cpm.collect.pypi_release`,
 `cpm.collect.feedstock`, `cpm.collect.conda_package`,
-`cpm.collect.vulnerability`, `cpm.collect.kev` or `cpm.collect.license`, exactly
-the tasks a manual recollection uses. It makes no outbound call, writes no evidence
-and holds no transaction. Every guarantee described in the seven sections above therefore holds
+`cpm.collect.vulnerability`, `cpm.collect.kev`, `cpm.collect.license` or
+`cpm.collect.python_readiness`, exactly the tasks a manual recollection uses. It
+makes no outbound call, writes no evidence and holds no transaction. Every
+guarantee described in the eight sections above therefore holds
 unchanged under a sweep: one package per task, one package per ledger row, one
 package per transaction (`CPM-AD-23`).
 
@@ -1741,19 +1864,23 @@ The shipped pairs are:
 | `vulnerability` | daily |
 | `kev` | daily, offset one hour |
 | `license` | daily, offset two hours |
+| `python_readiness` | weekly, offset three hours |
 
 The daily entries that carry no offset fire together, from one instant, and that is
 accepted rather than overlooked: a dispatch enqueues and returns, so what lands at
 once is a handful of cheap tasks rather than a handful of inventories of I/O, and
 the collections they enqueue are paced by each collector's own rate limiter.
 
-**Two entries carry an offset, and for different reasons.** The KEV entry is
+**Three entries carry an offset, and for different reasons.** The KEV entry is
 offset by an hour because it cross-references what the vulnerability collector
 wrote: firing them from one instant means a KEV run reads the previous day's
 advisories. The licence entry is offset by two hours because it reads
 `api.anaconda.org` — the same host the published-package sweep reads, on the same
-tick, spending a separate allowance. The two offsets are deliberately different:
-two entries sharing a phase would fire together again and buy nothing. Each offset
+tick, spending a separate allowance. The static-readiness entry is offset by three
+hours because it reads `pypi.org` — the same host the PyPI release sweep reads,
+which one day in seven falls on the same tick — and spends its own allowance
+against it. The three offsets are deliberately different: two entries sharing a
+phase would fire together again and buy nothing. Each offset
 is a `countdown` on the entry rather than a different interval or a crontab,
 because the start-up reconciliation compares an entry's interval with its
 collector's declared cadence and cannot read a crontab as one.
@@ -1784,6 +1911,7 @@ has reached the mapping it reads, so a dispatch offers:
 | `vulnerability` | **every package** — or none at all, until you declare an advisory source |
 | `kev` | **every package** — or none at all, until you declare a KEV source |
 | `license` | **every package** — or none at all, until you declare channels |
+| `python_readiness` | those whose release-ecosystem mapping is `established` **for PyPI** *and* whose recorded purl is a `pkg:pypi/…` one, or whose mapping is `not_applicable` |
 
 A package a collector would refuse is never enqueued, so its ledger does not fill
 with `failed` runs for every package nobody has resolved. **Until a resolver

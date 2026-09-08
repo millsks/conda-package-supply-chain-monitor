@@ -75,6 +75,7 @@ from conda_sentinel.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
 from conda_sentinel.collectors.kev import COLLECTOR_NAME as KEV_NAME
 from conda_sentinel.collectors.license import COLLECTOR_NAME as LICENSE_NAME
 from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
+from conda_sentinel.collectors.python_readiness import COLLECTOR_NAME as PYTHON_READINESS_NAME
 from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
 from conda_sentinel.collectors.sweep import COLLECTOR_KWARG
 from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
@@ -285,6 +286,7 @@ def test_the_registry_this_repository_ships_passes_condition_ten() -> None:
             VULNERABILITY_NAME,
             KEV_NAME,
             LICENSE_NAME,
+            PYTHON_READINESS_NAME,
         ],
     )
 
@@ -337,9 +339,9 @@ def _schedule_with(*entries: tuple[str, timedelta | None]) -> dict[str, dict[str
     """Return the shipped `CELERY_BEAT_SCHEDULE` plus one dispatch entry per pair.
 
     **Built on top of the shipped schedule rather than replacing it**, and that is
-    forced rather than tidy: all eight real collectors are registered in this
-    process and seven of them declare a cadence, so a schedule that dropped their
-    entries would make every case here refuse for seven reasons it was not written
+    forced rather than tidy: all nine real collectors are registered in this
+    process and eight of them declare a cadence, so a schedule that dropped their
+    entries would make every case here refuse for eight reasons it was not written
     about. What each case configures is
     one *additional* disagreement.
 
