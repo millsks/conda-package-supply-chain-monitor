@@ -1,8 +1,8 @@
 # Conda-Sentinel
 
-[![CI](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/millsks/conda-package-supply-chain-monitor/actions/workflows/ci.yml)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-package-supply-chain-monitor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=millsks_conda-package-supply-chain-monitor)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-package-supply-chain-monitor&metric=coverage)](https://sonarcloud.io/summary/new_code?id=millsks_conda-package-supply-chain-monitor)
+[![CI](https://github.com/millsks/conda-sentinel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/millsks/conda-sentinel/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-sentinel&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=millsks_conda-sentinel)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=millsks_conda-sentinel&metric=coverage)](https://sonarcloud.io/summary/new_code?id=millsks_conda-sentinel)
 [![Python](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/django-5.2%20LTS-092E20.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

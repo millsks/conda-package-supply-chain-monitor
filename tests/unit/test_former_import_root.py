@@ -50,12 +50,9 @@ quietly stopped auditing.
 
 **The hyphenated spelling is not this gate's subject.** What is forbidden is the
 underscored module identifier. The hyphenated spelling of the same five words
-survived `CPM-RENAME-S02` under `src/` in two places, and they are not the same
-kind of thing:
+survived `CPM-RENAME-S02` under `src/` in two places. `CPM-RENAME-S04` then
+renamed the repository and moved one of them, so exactly one remains:
 
-* `conda_sentinel/collectors/agent.py`'s `PROJECT_URL` names the **repository**,
-  which has never been renamed. `CPM-RENAME-S04` renames it and moves this string
-  with it.
 * `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME` names the
   **product**, and `CPM-RENAME-S02` deliberately left it. It is an *emitted*
   value -- every span's `service.name` -- so moving it silently breaks any
@@ -121,12 +118,12 @@ CURRENT_IMPORT_ROOT: Final[str] = "conda_sentinel"
 
 #: The hyphenated spelling of the forbidden identifier's five words. It was
 #: `pyproject.toml`'s `[project] name` until `CPM-RENAME-S02` made that
-#: `conda-sentinel`. Two live examples under `src/` carry it still, for different
-#: reasons -- `conda_sentinel/collectors/agent.py`'s `PROJECT_URL`, which names
-#: the repository and is `CPM-RENAME-S04`'s, and
+#: `conda-sentinel`. One live example under `src/` carries it still --
 #: `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`, which names the
 #: product and was deliberately left because it is emitted (see the module
-#: docstring). Spelled in full because the point of the case below is that the
+#: docstring). `CPM-RENAME-S04` moved the other, `collectors/agent.py`'s
+#: `PROJECT_URL`, when it renamed the repository. Spelled in full because the
+#: point of the case below is that the
 #: scan does *not* match it.
 NEAR_MISS_HYPHENATED_SPELLING: Final[str] = "conda-package-supply-chain-monitor"
 
@@ -313,9 +310,8 @@ def test_the_detector_finds_the_former_name_in_a_path_whose_bytes_are_clean(tmp_
 def test_the_detector_ignores_the_hyphenated_spelling(tmp_path: Path) -> None:
     """The hyphenated spelling of the same words is not an offence here.
 
-    It named the distribution until `CPM-RENAME-S02`, and two files under `src/`
-    carry it today and must keep passing: `conda_sentinel/collectors/agent.py`'s
-    `PROJECT_URL`, which names the repository, and
+    It named the distribution until `CPM-RENAME-S02`. One file under `src/`
+    carries it today and must keep passing:
     `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`, which names the
     product and was deliberately left. The separation is asserted rather than left
     to the fact that the two strings happen to differ.
