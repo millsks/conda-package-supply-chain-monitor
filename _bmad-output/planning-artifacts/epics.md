@@ -114,8 +114,10 @@ requirements but they gate or shape the stories below.
   `sources` ascending and matches the first prefix, so `"src"` always shadows
   `"src/django_apps"`. The table carries a mapping of the three subtrees instead, plus
   `dev-mode-exact` so the editable install is a finder rather than directories on `sys.path`.
-  Domain applications live under one package inside that root,
-  `conda_package_supply_chain_monitor`, and `django_apps` never appears in an import statement.
+  Domain applications live under one package inside that root, `conda_sentinel`, and
+  `django_apps` never appears in an import statement. (That package was
+  `conda_package_supply_chain_monitor` until `CPM-RENAME-S01`; the rename moved the import
+  root and nothing else — no table, no app label, no migration operation.)
 - No DRF pagination is configured. `REST_FRAMEWORK` sets auth, permission and schema
   classes only — `DEFAULT_PAGINATION_CLASS` and `PAGE_SIZE` are absent (`CPM-AD-12`).
 - Only one `DATABASES` alias (`default`) exists, and `DATABASE_ROUTERS` is never assigned —
@@ -1349,6 +1351,20 @@ it expensive do not apply, and both were verified against the tree rather than a
   operation is added, removed, reordered or changed in meaning, and no migration is created.
 
 What remains is a Python import path, the `name` field of four `AppConfig` classes, and prose.
+
+**What keeps the former name on purpose, and why.** After this epic, `_bmad-output/` still
+carries the former product name in two places, and both are decisions rather than an unfinished
+job:
+
+- **The four dated planning-artifact directories** — `briefs/`, `prds/`, `architecture/`,
+  `ux-designs/`. **178 citations across 59 files** name them, almost all in merged story
+  records. The date in each name marks it as a snapshot of a moment; renaming would make those
+  stories cite paths that did not exist when the work was done.
+- **The merged story files themselves**, for the same reason. They record what was built,
+  against which baseline, and what the reviewers found.
+
+`CPM-RENAME-S03` makes that decision explicit rather than leaving a reader to guess whether the
+sweep was simply abandoned partway.
 
 **What is deliberately not in scope.** The `CPM-` requirement prefix does not change. Those
 identifiers are opaque keys cross-referenced by the PRD, this file, the architecture spine and
