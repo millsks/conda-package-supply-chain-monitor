@@ -708,6 +708,28 @@ CELERY_BEAT_SCHEDULE = {
         # states what the two sweeps cost that host to an operator.
         "options": {"countdown": 2 * 60 * 60},
     },
+    "cpm-sweep-python-readiness": {
+        "task": "cpm.collect.sweep",
+        "schedule": timedelta(days=7),
+        "kwargs": {"collector": "python_readiness"},
+        # The third entry carrying options, and its phase is neither of the other
+        # two. CPM-PY314-S01's static assessment reads pypi.org, which is also what
+        # CPM-CURRENCY-S02's daily sweep reads -- so without an offset the two would
+        # begin at one instant one day in seven, each spending its own allowance
+        # (CPM-AD-20) against one source. Deliberately a different number again:
+        # entries sharing a phase fire together and the offset buys nothing.
+        # collectors/python_readiness.py's READINESS_DISPATCH_OFFSET is the
+        # declaration, tests/unit/test_settings.py reconciles the two, and
+        # docs/deployment.md states what the two sweeps cost that host.
+        #
+        # **Weekly rather than daily**, which no other collect entry is except the
+        # feedstock one. What this collector reads is a project's declared metadata,
+        # which changes when the project publishes a release and at no other time;
+        # the daily collectors already watch for those releases. The reconciliation
+        # below compares this interval with the collector's declared cadence in both
+        # directions, so the two cannot drift.
+        "options": {"countdown": 3 * 60 * 60},
+    },
 }
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
 CELERY_WORKER_SEND_TASK_EVENTS = True

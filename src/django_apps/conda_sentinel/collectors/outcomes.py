@@ -1,13 +1,15 @@
-"""The three security evidence vocabularies, in a leaf module that imports one thing.
+"""The composed evidence vocabularies, in a leaf module that imports one thing.
 
 `CPM-AD-5` composes every per-status vocabulary in this product from
 `core.outcomes.outcome_type`, and these are `CPM-SECURITY-S01`'s,
-`CPM-SECURITY-S02`'s and `CPM-SECURITY-S03`'s. `VulnerabilityOutcome` is the
-vocabulary `vulnerability_findings.state` is drawn from, `KevOutcome` is
-`kev_findings.state`'s and `LicenseOutcome` is `license_findings.state`'s, and the
-whole of why any of them exists rather than the bare `OutcomeState` is one
-sentence: **on a security table a determinate row is never merely "fine"**, and
-`core`'s single precedence order ranks `ok` best of five.
+`CPM-SECURITY-S02`'s, `CPM-SECURITY-S03`'s and `CPM-PY314-S01`'s.
+`VulnerabilityOutcome` is the vocabulary `vulnerability_findings.state` is drawn
+from, `KevOutcome` is `kev_findings.state`'s, `LicenseOutcome` is
+`license_findings.state`'s and `PythonReadinessOutcome` is
+`python_readiness_assessments.state`'s, and the whole of why any of them exists
+rather than the bare `OutcomeState` is one sentence: **a determinate row here is
+never merely "fine"**, and `core`'s single precedence order ranks `ok` best of
+five.
 
 **What using `ok` here would have done.** `CPM-AD-24` makes every derived status
 carry its value verbatim onto every read surface, so the first view over this
@@ -35,12 +37,12 @@ same solution: the vocabulary is the half of the pair that depends on nothing, s
 the vocabulary is the half that moves. This module imports `core.outcomes` and
 nothing else, in either direction.
 
-**All three vocabularies live here rather than one per collector**, which is the
+**All four vocabularies live here rather than one per collector**, which is the
 one place this module departs from "a leaf per story". They are the same kind of
 thing declared for the same reason, they are read by the same models module, and a
 second file would be a second copy of every argument below — while a reader
 comparing the determinate values, which is the comparison `CPM-SECURITY-S01`'s
-review turned on, would have to open three files to make it.
+review turned on, would have to open four files to make it.
 
 **Bound once, at module scope, and that is load-bearing.** `outcome_type` mints a
 distinct class on every call, so two calls would produce two types whose members
@@ -59,9 +61,10 @@ not exist either. An order declared here would be data no function reads — whi
 `tests/unit/django_apps/test_single_ordering_audit.py` would have to license by
 name, and which the next reader would take for a ranking this product applies
 somewhere. Until then `core.outcomes.aggregate` **refuses** `matched`, `listed`,
-`not_listed` and `normalized` outright, which is the safe failure and exactly what
-that module says it is for: a caller that reduced these rows without deciding the
-order is told, loudly, rather than having `matched` silently ranked beside `ok`.
+`not_listed`, `normalized`, `inferred_compatible` and `inferred_incompatible`
+outright, which is the safe failure and exactly what that module says it is for: a
+caller that reduced these rows without deciding the order is told, loudly, rather
+than having `matched` silently ranked beside `ok`.
 
 **Why this module names no `OutcomeState` member.** The four sentinels are read
 back off the composed type rather than written out, so nothing here is a literal
@@ -85,6 +88,10 @@ if TYPE_CHECKING:
     from django.db import models
 
 __all__ = [
+    "INFERRED_COMPATIBLE",
+    "INFERRED_COMPATIBLE_MEMBER",
+    "INFERRED_INCOMPATIBLE",
+    "INFERRED_INCOMPATIBLE_MEMBER",
     "KEV_ERROR",
     "KEV_NOT_APPLICABLE",
     "KEV_NOT_FOUND",
@@ -101,12 +108,17 @@ __all__ = [
     "NORMALIZED_MEMBER",
     "NOT_LISTED",
     "NOT_LISTED_MEMBER",
+    "READINESS_ERROR",
+    "READINESS_NOT_APPLICABLE",
+    "READINESS_NOT_FOUND",
+    "READINESS_UNKNOWN",
     "VULNERABILITY_ERROR",
     "VULNERABILITY_NOT_APPLICABLE",
     "VULNERABILITY_NOT_FOUND",
     "VULNERABILITY_UNKNOWN",
     "KevOutcome",
     "LicenseOutcome",
+    "PythonReadinessOutcome",
     "VulnerabilityOutcome",
 ]
 
@@ -320,3 +332,120 @@ LICENSE_NOT_FOUND: Final[str] = _LICENSE_MEMBER_VALUES["NOT_FOUND"]
 #: `LicenseCollector.inapplicability` never answers a reason and `license_findings`
 #: refuses a row carrying this value outright.
 LICENSE_NOT_APPLICABLE: Final[str] = _LICENSE_MEMBER_VALUES["NOT_APPLICABLE"]
+
+
+#: The determinate verdict for a row recording that the package's *declared*
+#: metadata admits the target Python, declared once as the `(member name, value)`
+#: pair `outcome_type` takes.
+#:
+#: **`inferred_compatible`, and neither `ok` nor a bare `compatible`.** Two
+#: separate rules land on this one value and both of them forbid the shorter
+#: spellings.
+#:
+#: `ok` is the correction `CPM-SECURITY-S01` was patched for and every composed
+#: vocabulary above applies by construction: `CPM-AD-24` carries a state's value
+#: verbatim onto every read surface and `core`'s single precedence order ranks
+#: `ok` best of five, so a readiness table using it would rank a *metadata claim*
+#: above every row a reader actually has to look at.
+#:
+#: A bare `compatible` is the failure this story's own epic exists to prevent.
+#: `CPM-FR-14` requires inferred compatibility and *verified* compatibility to be
+#: **distinct recorded states**, and `CPM-PY314-S02` writes the verified one. A
+#: value called `compatible` on this table would appear on a queue beside a
+#: verified result and read identically -- the whole of what "kept apart" means,
+#: undone in the one column a policy pass reads first. Naming the inference in the
+#: value is what makes the distinction survive the projection.
+#:
+#: What the row can honestly claim is exactly that: a specifier or a classifier the
+#: project published admits the target Python. No build ran, nothing was imported
+#: and no subprocess was started (`CPM-PY314-S02` owns all three), so the value
+#: says *inferred* and the row's `deciding_signal` says which piece of metadata
+#: said so.
+INFERRED_COMPATIBLE_MEMBER: Final[tuple[str, str]] = ("INFERRED_COMPATIBLE", "inferred_compatible")
+
+#: The determinate verdict for a row recording that the package's declared
+#: metadata **cannot** admit the target Python.
+#:
+#: **A second determinate member rather than a sentinel**, on the terms
+#: `NOT_LISTED_MEMBER` states: "we read the specifier and it excludes this Python"
+#: is a negative that was *established* from a claim the project published, which
+#: is different from `unknown` (the project claimed nothing either way) and
+#: different again from `not_found` (the release ecosystem does not know the
+#: package). Folding the established negative into either would be `CPM-FR-6`'s
+#: fold, and it would be the expensive direction of it: `CPM-PY314-S02` spends
+#: verification where this table says it is worth spending, and a column that
+#: could not tell "declared it will not run" from "declared nothing" would send
+#: that spend exactly where it is least warranted.
+#:
+#: `inferred_incompatible` rather than `incompatible`, for the reason its
+#: counterpart is not `compatible`: the row records what a specifier *claims*
+#: rather than what a build *did*, and a project whose specifier excludes 3.14
+#: today may well build under it.
+INFERRED_INCOMPATIBLE_MEMBER: Final[tuple[str, str]] = ("INFERRED_INCOMPATIBLE", "inferred_incompatible")
+
+#: The static-readiness vocabulary: `core`'s four sentinels plus the two inferred
+#: verdicts.
+#:
+#: **Two determinate members and not three.** "The metadata says nothing either
+#: way" is emphatically *not* a third determinate value: it is `unknown`, the
+#: sentinel `core` already has for "nothing was established", and it is the single
+#: property `CPM-PY314-S01` turns on. Most projects have not declared 3.14 support,
+#: so a vocabulary that had a determinate member for silence -- however carefully
+#: named -- would put most of the inventory into a *claim* nobody made.
+PythonReadinessOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "PythonReadinessOutcome",
+    [INFERRED_COMPATIBLE_MEMBER, INFERRED_INCOMPATIBLE_MEMBER],
+)
+
+#: `PythonReadinessOutcome`'s own members, by name, read off the composed type
+#: itself for the reason `_MEMBER_VALUES` above is read off its own.
+_READINESS_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in PythonReadinessOutcome}
+
+#: The project's declared metadata admits the target Python. An inference from a
+#: claim somebody else published, and never a build that ran.
+INFERRED_COMPATIBLE: Final[str] = _READINESS_MEMBER_VALUES["INFERRED_COMPATIBLE"]
+
+#: The project's declared metadata cannot admit the target Python. An inference
+#: from a claim somebody else published, and never a build that failed.
+INFERRED_INCOMPATIBLE: Final[str] = _READINESS_MEMBER_VALUES["INFERRED_INCOMPATIBLE"]
+
+#: The run established nothing about this package's readiness -- and this is the
+#: value most of a real inventory carries, on purpose.
+#:
+#: Five things reach it and `detail` says which: the project declared neither a
+#: `Requires-Python` specifier nor a version classifier; it enumerated Python
+#: versions in its classifiers without naming the series being assessed; its two
+#: static signals disagree; it declared a specifier in a shape this product will not
+#: read as a containment question; or it declared one wider than the column that
+#: records it, which the row says while carrying no specifier. **None of them is a
+#: claim of incompatibility**, and reading the first as one is the defect
+#: `CPM-PY314-S01` exists to prevent.
+#:
+#: **A package this product's own identity has not resolved is deliberately not on
+#: that list**, because no row is written for it at all: the selection does not offer
+#: such a package and a forced recollection is refused before any evidence is
+#: written. Every read surface reports it `unknown` for want of an observation
+#: (`core/freshness.py`'s `UNOBSERVED_STATUS`) rather than from a row on this table.
+#: `CPM-PY314-S01`'s Spec Change Log records why the row the matrix asked for is not
+#: expressible against the shipped base.
+READINESS_UNKNOWN: Final[str] = _READINESS_MEMBER_VALUES["UNKNOWN"]
+
+#: Looking failed -- the source raised, the allowance was refused, or the document
+#: could not be read.
+READINESS_ERROR: Final[str] = _READINESS_MEMBER_VALUES["ERROR"]
+
+#: The release ecosystem reports that it does not know this package at all, which
+#: is an absence from the index rather than a project that declared nothing.
+READINESS_NOT_FOUND: Final[str] = _READINESS_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", and the one composed vocabulary
+#: in this module whose table really does hold it.
+#:
+#: `CPM-PY314-S01` AC 2 asks for it in as many words, and there is exactly one path
+#: to it: `identity` recorded this package's release-ecosystem mapping as
+#: `not_applicable`, which is resolution saying the package has no release
+#: ecosystem a Python question could be asked of. A mapping that is `unknown`,
+#: `error` or `not_found` establishes **nothing** and never reaches this value --
+#: reading an unresolved identity as an inapplicable question is the absence trap
+#: the preceding epic met in every story.
+READINESS_NOT_APPLICABLE: Final[str] = _READINESS_MEMBER_VALUES["NOT_APPLICABLE"]

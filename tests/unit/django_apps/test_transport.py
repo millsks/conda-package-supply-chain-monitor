@@ -259,7 +259,7 @@ def test_the_two_absent_statuses_are_the_only_ones_that_mean_absence() -> None:
 
     `CPM-AD-5` keeps "we looked and it is not there" separate from "looking
     failed", and this set is where that distinction is decided once for all
-    eight collectors. A `503` sliding into it would turn a source that is down
+    nine collectors. A `503` sliding into it would turn a source that is down
     into a source that says the package does not exist -- a clean-looking
     negative, which is the same false-clean family as `R-01`.
     """

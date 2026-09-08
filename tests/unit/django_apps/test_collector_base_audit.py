@@ -32,7 +32,7 @@ need not ask for again. They share a backend and share nothing else -- different
 key namespaces, different lifetimes, different failure modes (an expired counter
 is a fresh window; an unusable entry is a fetch). Folding them into one module
 would put a counter and a body under one `clear()`, and folding the rule into
-"any module in `core` may read the cache" would give the eight collectors the
+"any module in `core` may read the cache" would give the nine collectors the
 door this file exists to shut.
 
 **Every evidence write is inside a `transaction.atomic()`.** `CPM-AD-23` fixes
@@ -350,6 +350,16 @@ THE_KEV_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/kev.py"
 #: there. `CPM-AD-7` forbids that read and this collector does not take it, which
 #: `MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE` holds it to by name.
 THE_LICENSE_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/license.py"
+
+#: `CPM-PY314-S01`'s collector, and the eighth remote reader. Named for the
+#: reasons the first seven are, and for one more: it reads the *same host* a
+#: shipped collector already reads and the very field that collector already
+#: stores -- `PyPIReleaseSnapshot.requires_python` -- so it is the module where a
+#: reader most needs to see that it asks the source itself rather than reaching
+#: into another collector's rows for a specifier that is already sitting there.
+#: `CPM-AD-7` forbids that read and this collector does not take it, which
+#: `MODULES_PERMITTED_TO_READ_ANOTHER_COLLECTORS_EVIDENCE` holds it to by name.
+THE_READINESS_COLLECTOR: Final[str] = "django_apps/conda_sentinel/collectors/python_readiness.py"
 THE_NEW_MODULES: Final[tuple[str, ...]] = (
     "django_apps/conda_sentinel/core/collection.py",
     THE_CONDA_PACKAGE_COLLECTOR,
@@ -359,6 +369,7 @@ THE_NEW_MODULES: Final[tuple[str, ...]] = (
     THE_LICENSE_COLLECTOR,
     THE_LIMITER,
     THE_PYPI_COLLECTOR,
+    THE_READINESS_COLLECTOR,
     THE_RELEASE_COLLECTOR,
     THE_RESPONSE_CACHE,
     THE_SWEEP_DISPATCH,

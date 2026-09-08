@@ -847,7 +847,7 @@ def test_a_repeated_source_package_key_fails_the_run() -> None:
 def test_a_collector_with_no_run_scoped_source_is_refused_when_asked_to_sweep() -> None:
     """The base's default `sweep_source`: a refusal rather than an invented locator.
 
-    Not abstract, deliberately -- eight collectors read one locator per package
+    Not abstract, deliberately -- nine collectors read one locator per package
     and would otherwise have to implement a path they do not have -- so the
     refusal is what stands in for the missing declaration.
     """

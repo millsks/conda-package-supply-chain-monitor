@@ -92,6 +92,7 @@ from conda_sentinel.collectors.kev import kev_source
 from conda_sentinel.collectors.license import LicenseCollector
 from conda_sentinel.collectors.models import InventorySnapshot
 from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
+from conda_sentinel.collectors.python_readiness import PythonReadinessCollector
 from conda_sentinel.collectors.source_release import SourceReleaseCollector
 from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
 from conda_sentinel.collectors.sweep import dispatch
@@ -129,6 +130,7 @@ __all__ = [
     "COLLECT_KEV_TASK_NAME",
     "COLLECT_LICENSE_TASK_NAME",
     "COLLECT_PYPI_RELEASE_TASK_NAME",
+    "COLLECT_PYTHON_READINESS_TASK_NAME",
     "COLLECT_SOURCE_RELEASE_TASK_NAME",
     "COLLECT_VULNERABILITY_TASK_NAME",
     "INGEST_TASK_NAME",
@@ -148,6 +150,7 @@ __all__ = [
     "collect_kev",
     "collect_license",
     "collect_pypi_release",
+    "collect_python_readiness",
     "collect_source_release",
     "collect_sweep",
     "collect_vulnerability",
@@ -217,6 +220,19 @@ COLLECT_KEV_TASK_NAME: Final[str] = "cpm.collect.kev"
 #: (`CPM-SECURITY-S03`, `CPM-FR-13`): the `cpm.collect.` namespace routes it to
 #: the `collect` queue, and the name is the collector's.
 COLLECT_LICENSE_TASK_NAME: Final[str] = "cpm.collect.license"
+
+#: The static Python-readiness task's declared name, on the same terms
+#: (`CPM-PY314-S01`, `CPM-FR-14`): the `cpm.collect.` namespace routes it to the
+#: `collect` queue, and the name is the collector's.
+#:
+#: **`cpm.collect.` and emphatically not `cpm.verify.`**, which is the one place
+#: this constant carries a decision rather than a convention. `CPM-FR-14`'s other
+#: half is a Python 3.14 *build*, which `CPM-AD-20` puts on the `verify` queue
+#: precisely so a five-minute compute job cannot starve the daily sweeps (`R-11`).
+#: This task makes one HTTP request and reads a specifier, so it is collection
+#: work and belongs where collection work goes; `CPM-PY314-S02` declares the
+#: `cpm.verify.` name.
+COLLECT_PYTHON_READINESS_TASK_NAME: Final[str] = "cpm.collect.python_readiness"
 
 #: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
 #: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
@@ -1657,6 +1673,73 @@ def collect_license(*, package_id: int, force: bool = False) -> str:
         return str(collector.collect(package_id=package_id, force=force).state.value)
 
 
+@shared_task(name=COLLECT_PYTHON_READINESS_TASK_NAME)  # type: ignore[untyped-decorator]
+def collect_python_readiness(*, package_id: int, force: bool = False) -> str:
+    """Record what one package's declared metadata claims about Python 3.14 (`CPM-FR-14`).
+
+    Package-scoped on the same terms as the seven collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`).
+
+    **The transport is the base's own** and there is nothing here to substitute:
+    the source is the release ecosystem `identity` already established, so unlike
+    the two security tasks this one declares no adapter, and it is shaped like
+    `collect_pypi_release` rather than like its epic sibling will be.
+
+    **It is on the `collect` queue and `CPM-PY314-S02`'s verification will not be.**
+    `CPM-FR-14` splits readiness into a cheap static pass and an expensive build, and
+    `CPM-AD-20` puts the two on different queues precisely so a five-minute compute
+    job cannot starve a scheduled sweep (`R-11`). This task makes one HTTP request
+    and reads a specifier.
+
+    **It infers and never verifies.** Nothing here builds, imports or starts a
+    subprocess, and the row it writes says so in its own state value: the determinate
+    values name the inference (`collectors/outcomes.py`), so a reader on a queue
+    cannot mistake a metadata claim for a build that ran.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`).
+
+    **A misconfiguration leaves this task the same way a transient failure does, and
+    Celery cannot tell the two apart** -- the hazard `collect_conda_package` records,
+    reached here by a fifth route: `PythonReadinessIdentityError` is permanent for as
+    long as the package's identity stays unresolved. Nothing here declares
+    `autoretry_for`. It is the same `deferred` entry `CPM-CURRENCY-S04` recorded
+    against every collector task at once.
+
+    Args:
+        package_id: The package to assess, by the integer primary key `CPM-AD-3`
+            fixes. Keyword only, so a caller can never enqueue a collection for the
+            wrong package by getting an argument's position wrong.
+        force: Bypass the observation window, for `CPM-UJ-1`'s manually triggered
+            recollection.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A string
+        rather than the `CollectionResult`, because a task's return value is
+        serialized into the result backend and the durable record of the run is the
+        ledger row.
+
+    Raises:
+        RunLedgerError: When `package_id` names no package. The recorder checks the
+            key before it writes the opening row (`CPM-EVIDENCE-S09`), so this leaves
+            nothing behind at all.
+        PythonReadinessIdentityError: When identity has established nothing about the
+            package's release ecosystem, or established one this collector does not
+            read. The ledger row is finalized `failed` carrying the reason, no
+            evidence row is written, and the reason says the compatibility question
+            is *unanswered* rather than inapplicable. The scheduled sweep never
+            enqueues such a package; a forced recollection can.
+        PythonReadinessDocumentError: When the source served something that is not a
+            project document. An `error` evidence row is written first and the ledger
+            row is `failed`, so the run is on the record either way.
+
+    """
+    with PythonReadinessCollector(clock=SystemClock()) as collector:
+        return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
 @shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]
 def collect_sweep(*, collector: str) -> str:
     """Enqueue one per-package collection for every package one collector can be asked about.
@@ -1666,7 +1749,7 @@ def collect_sweep(*, collector: str) -> str:
     module that takes a *collector* rather than a package. What it does is
     `collectors/sweep.py`'s dispatch: select, enqueue in chunks, and finalize one
     run-ledger row scoped to no package. It collects nothing itself and makes no
-    outbound call, so nothing about the seven collectors' guarantees changes: every
+    outbound call, so nothing about the eight collectors' guarantees changes: every
     observation is still written by the per-package task through the collector
     base, in that package's own transaction and under that package's own ledger
     row (`CPM-AD-23`).
