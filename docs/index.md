@@ -15,7 +15,7 @@ src/                 # first import root -- declared in pyproject.toml, not a pa
     templates/
     static/
   django_apps/       # second import root -- also not a package, never imported
-    conda_package_supply_chain_monitor/   # the domain applications live here
+    conda_sentinel/    # the domain applications live here
       core/          # the first one
 tests/
   unit/              # no database, no network, no filesystem
@@ -26,8 +26,7 @@ docs/                # this documentation (mkdocs)
 There are **two** import roots and **one** declaration of them. `src/` and
 `src/django_apps/` are both deliberately not packages — neither has an
 `__init__.py` and neither ever appears in an import statement — so `config`,
-`django_service` and `conda_package_supply_chain_monitor` all import as
-top-level packages.
+`django_service` and `conda_sentinel` all import as top-level packages.
 
 Both roots come out of a single table,
 `[tool.hatch.build.targets.wheel]` in `pyproject.toml`. Its `sources` mapping
@@ -41,10 +40,10 @@ Nothing else declares them — no `sys.path` insert in `manage.py`, `asgi.py` or
 `wsgi.py`, no `--app-dir` in any pixi task, and no `pythonpath` in the pytest
 configuration.
 
-Domain applications are subpackages of `conda_package_supply_chain_monitor`, so
-they share one stable top-level name. Adding one is creating a directory —
-neither `pyproject.toml` nor the ruff configuration needs an edit, and no
-reinstall is required. *Adopting* it is two more lines, and they are separate
+Domain applications are subpackages of `conda_sentinel`, so they share one
+stable top-level name. Adding one is creating a directory — neither
+`pyproject.toml` nor the ruff configuration needs an edit, and no reinstall is
+required. *Adopting* it is two more lines, and they are separate
 from making it importable: an entry in `component.toml`'s `adopted_apps` (the
 declaration) and an entry appended to `LOCAL_APPS` in
 `src/config/settings/base.py` (what installs it today, until Epic 9 composes the

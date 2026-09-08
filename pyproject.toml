@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling", "hatch-vcs" ]
 
 [project]
-name = "conda-package-supply-chain-monitor"
+name = "conda-sentinel"
 # Version is derived from git tags by hatch-vcs; see [tool.hatch.version].
 dynamic = [ "version" ]
 description = "A Django application accelerator template based on 15 factor application principles."
@@ -166,9 +166,13 @@ fallback-version = "0.0.0"
 #
 # That finder is materialised in the environment's site-packages as a one-line
 # `_editable_impl_<distribution>.pth` importing the generated
-# `_editable_impl_<distribution>.py` beside it -- the file is named for the
-# distribution in `[project] name`, not for any of the three import roots below
-# -- which installs a redirecting finder mapping the three top-level names onto
+# `_editable_impl_<distribution>.py` beside it, where <distribution> is the
+# underscored spelling of `[project] name` -- `_editable_impl_conda_sentinel`.
+# The file is named from the distribution and never from the `sources` table
+# below: since CPM-RENAME-S02 that name coincides with one of the three import
+# roots, but the coincidence is arithmetic rather than causal, and a rename of
+# `[project] name` alone would move the file while the three roots stayed put.
+# What it installs is a redirecting finder mapping the three top-level names onto
 # their source directories. It is not the "adding a .pth file" AD-7 forbids: a
 # build-time artifact regenerated from this table is an output of the one
 # declaration, whereas a hand-written .pth would be a second declaration nothing
@@ -218,11 +222,17 @@ fallback-version = "0.0.0"
 # `only-include` is load-bearing, not decoration. Hatchling falls back to a
 # default file selection only when no selection option is set, and that fallback
 # hunts for a package named after the *distribution* -- the underscored spelling
-# of `[project] name` -- in four places: <name>/, src/<name>/, <name>.py, and a
-# single glob match on */<name>/. None of the four hits here, and there are two
-# independent reasons: the domain applications live one level deeper than the
-# glob reaches, at src/django_apps/<package>/, and since CPM-RENAME-S01 the
-# import root (`conda_sentinel`) is not spelled like the distribution at all.
+# of `[project] name`, which since CPM-RENAME-S02 is `conda_sentinel`, the same
+# word as the import root -- in four places: <name>/, src/<name>/, <name>.py, and
+# a single glob match on */<name>/. None of the four hits here, and exactly one
+# reason is left for that: **depth**. The deepest *containing directory* the
+# fallback will look inside is one below the root -- src/<name>/ and */<name>/
+# are the two that reach that far -- and the domain applications sit one level
+# deeper still, inside src/django_apps/, at src/django_apps/<name>/. Until
+# CPM-RENAME-S02 there was a second, independent reason -- the distribution was
+# not spelled like any package in the tree -- and that reason is now gone. The
+# margin is a single directory level: move the package from src/django_apps/ to
+# src/ and the fallback finds it.
 # Verified by removing this key and building: hatchling raises "Unable to
 # determine which files to ship inside the wheel" and the build fails outright.
 #
@@ -232,8 +242,11 @@ fallback-version = "0.0.0"
 # hatchling returns packages = [ "src/<name>" ] and stops. The wheel then ships
 # that one package and silently drops `config` and `django_service`, and nothing
 # raises, because the fallback did find something to ship -- the failure is a
-# thin wheel rather than a build error. Naming the selection explicitly is what
-# keeps that a deliberate edit rather than a consequence of moving a directory.
+# thin wheel rather than a build error. Since CPM-RENAME-S02 that near-miss is
+# concrete rather than hypothetical: moving `conda_sentinel` up one level, from
+# src/django_apps/ to src/, is precisely it. Naming the selection explicitly is
+# what keeps that a deliberate edit rather than a consequence of moving a
+# directory.
 #
 # tests/unit/test_import_roots.py asserts this key and all three `sources` keys;
 # tests/integration/test_import_resolution.py asserts the built wheel's

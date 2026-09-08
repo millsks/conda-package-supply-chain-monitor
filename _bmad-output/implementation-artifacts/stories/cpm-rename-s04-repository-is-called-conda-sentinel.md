@@ -25,11 +25,25 @@ so that the last place still calling it the old thing is not the first place any
    **When** `git remote -v` is read
    **Then** it names the new repository rather than relying on the redirect
 
+4. **Given** every tracked file that names the repository — the README badges, `mkdocs.yml`'s
+   `repo_url`, `sonar-project.properties`' `projectKey` and `projectName`, `.github/**`'s
+   URLs and clone paths, `collectors/agent.py`'s `PROJECT_URL` and `pyproject.toml`'s
+   commented git-cliff samples
+   **When** they are read after this story
+   **Then** each names `conda-sentinel`, and `pixi run ci` and `pixi run docs` both exit 0
+
 ## Tasks / Subtasks
 
-- [ ] Operator-run. The steps are below rather than in `bmad-build`'s hands: this story
-      changes no tracked file, and most of it cannot be done by anything running *inside*
-      the working copy it is renaming.
+This story has **two halves**, and they are sequenced: the operator-run rename first, the
+tracked-file edits second, because every URL those files carry 404s until the repository has
+actually moved.
+
+- [ ] **Half one — operator-run** (the "The remote" and "The local working copy" sections
+      below). This half cannot be done by anything running *inside* the working copy it is
+      renaming, and `gh repo rename` is not a repository edit.
+- [ ] **Half two — tracked files** ("The tracked files that name the repository" below). An
+      ordinary code change, gated the ordinary way. Run it only after half one, and open it as
+      a normal branch and PR.
 
 ## Dev Notes
 
@@ -85,6 +99,57 @@ across every project, so it would force a full re-download here *and* cost every
 repository on the machine its warm cache. The cache is content-addressed and carries no path
 from this directory, so a rename does not invalidate it. `pixi clean` alone is the whole job.
 
+### The tracked files that name the repository
+
+**This half is tracked-file work, and it is sequenced after the rename above.** Not for
+tidiness: every URL below resolves to the *former* repository name until `gh repo rename` has
+run, so editing them first replaces working links with 404s for however long the two halves
+are apart. Nothing here can be verified before the remote has moved.
+
+`CPM-RENAME-S02` renamed the product on every operator-facing surface and left these
+deliberately, because they name the **repository** rather than the product. That is why it is
+this story that owns them, and why no other story will pick them up:
+
+- **`sonar-project.properties`** — `sonar.projectKey` (`millsks_conda-package-supply-chain-monitor`),
+  `sonar.projectName` and the header comment. The key and the display name move **together**:
+  changing the key orphans the SonarCloud project and its history, and changing the name alone
+  leaves the two out of step. If the key is changed, the README's two SonarCloud badge URLs
+  carry it and must move in the same commit, and the SonarCloud project's own key needs
+  renaming in its UI — a badge pointing at a key that does not exist renders broken rather
+  than failing anything. If that trade is not worth taking, record the decision to keep the
+  key and say so beside it; what is not acceptable is leaving it undecided.
+- **`README.md`** — the CI badge and its link, and the two SonarCloud badges and their links.
+- **`mkdocs.yml`** — `repo_url`, which is the doc site's "edit this page" and repository link.
+- **`.github/ISSUE_TEMPLATE/config.yml`** — four `url:` entries (security advisories,
+  discussions, readme, development guide).
+- **`.github/workflows/release.yml`** — the clone URL and the directory it `cd`s into, and two
+  changelog links in the release body.
+- **`src/django_apps/conda_sentinel/collectors/agent.py`** — `PROJECT_URL`, which is emitted in
+  every collector's outbound `User-Agent`. Its comment records that the distribution and the
+  repository disagree until this story; that comment goes when the disagreement does.
+- **`pyproject.toml`** — the two commented-out `git-cliff` sample lines that carry the URL.
+- **`_bmad/*/config.yaml` and `_bmad/config.toml`** — `project_name` and the absolute output
+  paths. Vendored agent tooling rather than project source; change them if the rename is to be
+  invisible to the next agent session, and note that they are excluded from Sonar and ruff.
+- **`.github/copilot/settings.json`** — three absolute paths naming the working directory.
+  These follow the *directory* rename in the half above, not the repository rename.
+
+**Not this story's, and specifically not to be swept up here:**
+
+- `src/config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`, and the `OTEL_SERVICE_NAME`
+  row in `docs/observability.md` that documents it. That string names the **product**, not the
+  repository, and `CPM-RENAME-S02` deliberately kept it: it is an *emitted* value, so moving it
+  silently breaks every dashboard and alert keyed on the old `service.name`. **Nothing in the
+  test suite pins the literal** — `tests/unit/test_telemetry.py` asserts by reference — so a
+  change here passes the whole gate silently. Leave it. A story that wants the trace identity
+  renamed states so and owns the migration note.
+- `tests/unit/test_former_import_root.py`'s `NEAR_MISS_HYPHENATED_SPELLING`. It is a constant of
+  a *former* name and is deliberately never updated; its docstring names the two live
+  hyphenated survivors under `src/`, and the `PROJECT_URL` half of that becomes historical when
+  this story runs. Update the prose, not the constant.
+- `docs/ux/ui-mockups.html`'s three planning-artifact directory names. Those are real paths
+  under `_bmad-output/` and are `CPM-RENAME-S03`'s.
+
 ### What else is keyed to the directory path
 
 Anything outside the repository that remembers where the repository is will need re-pointing.
@@ -98,14 +163,21 @@ These are not tracked files and no test can catch them:
 
 ### Not in scope
 
-The distribution name and the import root. Those are `CPM-RENAME-S01`'s, and they are already
-`conda_sentinel` by the time this story runs.
+The import root, which is `CPM-RENAME-S01`'s, and the distribution name, which is
+`CPM-RENAME-S02`'s — not `CPM-RENAME-S01`'s, as this section previously said. `S01` moved the
+import root to `conda_sentinel` and left `[project] name` alone; its guard docstring recorded
+that `S02` owned the distribution, and `S02` moved it to `conda-sentinel`. Both are done by the
+time this story runs.
 
 ### Testing Standards
 
 - `pixi` is the only Python runner.
-- Acceptance criterion 2 is the whole verification: `pixi run ci` exits 0 from the renamed
-  directory, in a freshly installed environment.
+- **Half one** is verified by acceptance criterion 2: `pixi run ci` exits 0 from the renamed
+  directory, in a freshly installed environment. Nothing else can prove it.
+- **Half two** is verified the ordinary way — `pixi run ci` and `pixi run docs` both exit 0 —
+  plus one thing no gate covers: **open each changed URL**. Every one of them points outside
+  the repository, so a wrong URL is green here and broken in a browser. The two SonarCloud
+  badges are the sharpest case: they render as broken images rather than failing anything.
 
 ### References
 

@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version
 
 try:
-    __version__ = version("conda-package-supply-chain-monitor")
+    __version__ = version("conda-sentinel")
 except PackageNotFoundError:  # not installed, e.g. a bare checkout
     __version__ = "0.0.0"
 

@@ -25,7 +25,7 @@ DEVELOPMENT_DOCS = REPO_ROOT / "docs" / "development.md"
 
 # The project's own editable install is not a supply-chain exception -- it is
 # how the source tree reaches the environment. Every other entry is.
-OWN_PACKAGE = "conda-package-supply-chain-monitor"
+OWN_PACKAGE = "conda-sentinel"
 
 # The one permitted package-index source: the repository root, installed
 # editable. Anything else under a `pypi:` key in the lock is a third-party

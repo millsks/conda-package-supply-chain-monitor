@@ -31,6 +31,7 @@ every payload is a literal.
 from __future__ import annotations
 
 import ast
+import importlib.metadata
 import json
 import re
 from datetime import UTC
@@ -451,6 +452,32 @@ def test_the_user_agent_says_which_deployment_is_calling() -> None:
     assert distribution_version() in USER_AGENT
     assert PROJECT_URL in USER_AGENT
     assert SOURCE_RELEASE_HEADERS["User-Agent"] == USER_AGENT
+
+
+def test_the_distribution_name_is_one_that_is_actually_installed() -> None:
+    """`DISTRIBUTION_NAME` is a metadata key, and a wrong key fails silently forever.
+
+    `distribution_version()` looks the installed metadata up by `DISTRIBUTION_NAME`
+    and catches `PackageNotFoundError`, so a spelling that drifts from
+    `pyproject.toml`'s `[project] name` -- a rename that misses this constant, a
+    typo in the next one -- does not raise. It reports `UNKNOWN_VERSION` on every
+    outbound request to GitHub, PyPI, anaconda.org, OSV and KEV, indefinitely, and
+    every other assertion in this module stays green: the case above is satisfied
+    by `"<anything>/0.0.0 (+<url>)"` just as well as by the real identity.
+
+    So the lookup is made once here *without* the catch. `importlib.metadata.version`
+    raises when the name is not installed, and that raise is the whole guard --
+    mirroring `tests/unit/test_package_version.py`, which pins `django_service`'s
+    sibling lookup the same way. The equality and the `!=` are what make the
+    failure legible rather than merely present.
+
+    A unit test: it reads the import system's own metadata. No database, no
+    network.
+    """
+    installed = importlib.metadata.version(DISTRIBUTION_NAME)
+
+    assert distribution_version() == installed
+    assert distribution_version() != UNKNOWN_VERSION
 
 
 def test_the_version_falls_back_when_the_distribution_is_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:

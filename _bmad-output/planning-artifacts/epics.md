@@ -1405,7 +1405,11 @@ So that what I deploy and what I read about are recognisably the same thing.
 
 **Given** the README, `docs/`, the packaging metadata and the workspace manifests
 **When** they are read after this story
-**Then** they name Conda-Sentinel, and no operator-facing surface uses the former name
+**Then** they name Conda-Sentinel, and no operator-facing surface **naming the product** uses
+the former name — the surfaces naming the *repository* (the badges, `mkdocs.yml`'s `repo_url`,
+the Sonar identity, `.github/**`'s URLs, `collectors/agent.py`'s `PROJECT_URL`) are excluded
+and are `CPM-RENAME-S04`'s, and `OTEL_SERVICE_NAME`'s default is excluded because it is an
+emitted value
 
 **Given** an operator following the deployment documentation
 **When** they run the commands it gives
@@ -1460,19 +1464,46 @@ So that the last place still calling it the old thing is not the first place any
 **When** `git remote -v` is read
 **Then** it names the new repository rather than relying on the redirect
 
+**Given** every tracked file that names the repository — the README badges, `mkdocs.yml`'s
+`repo_url`, `sonar-project.properties`' `projectKey` and `projectName`, `.github/**`'s URLs
+and clone paths, `collectors/agent.py`'s `PROJECT_URL` and `pyproject.toml`'s commented
+git-cliff samples
+**When** they are read after this story
+**Then** each names `conda-sentinel`, and `pixi run ci` and `pixi run docs` both exit 0
+
 **Satisfies:** no functional requirement
 **Governed by:** none
 **Depends on:** `CPM-RENAME-S01`, `CPM-RENAME-S02`, `CPM-RENAME-S03` — sequenced last, because
 renaming the working directory while the others are in flight would move every branch and
 worktree out from under them.
-**Constrained:** this story is operator-run and changes no tracked file, so no test can prove
-it. Renaming the directory breaks the pixi environment, which writes absolute paths into the
+**Constrained:** this story has two halves and they are sequenced. The first is operator-run —
+`gh repo rename`, `git remote set-url`, and `pixi clean` / `mv` / `pixi install` — and no test
+can prove it. The second is ordinary tracked-file work: every surface `CPM-RENAME-S02`
+deliberately left because it names the *repository* rather than the product. It runs **after**
+the rename, because those URLs 404 until the repository has actually moved, and it is the only
+thing that stops the epic closing with the former name on the README badges, the doc-site
+repository link, the Sonar identity and the issue-template links.
+
+**Amended 2026-09-07 (`CPM-RENAME-S02` review).** This criterion previously read "this story is
+operator-run and changes no tracked file". That was written before `CPM-RENAME-S02` established
+which surfaces name the repository, and it left every one of them ownerless: `S02`'s scope is
+the *product* name, `S03`'s is `_bmad-output/`, and nothing else in the epic reaches a badge, a
+`repo_url`, a Sonar key or an issue template. The tracked-file half is added here rather than
+back-filled into `S02`, because it cannot be done before the rename it depends on.
+
+Renaming the directory breaks the pixi environment, which writes absolute paths into the
 executables it installs — 97 of them at the time of writing. The environment is therefore
 removed with `pixi clean` *before* the rename and rebuilt from `pixi.lock` afterwards, rather
 than repaired. `pixi clean cache` is deliberately **not** part of that: the cache is
 machine-wide, shared with every other project, content-addressed, and carries no path from
 this directory. Anything outside the repository keyed to the absolute path — Claude Code's
 project memory among it — needs re-pointing by hand.
+
+The one thing the tracked-file half must **not** sweep up is
+`src/config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME`. It names the product, not the
+repository; `CPM-RENAME-S02` kept it because it is an *emitted* value, and nothing in the suite
+pins the literal, so changing it would pass the gate silently and break every dashboard keyed
+on the old `service.name`.
 
 ## CPM-EP-PY314: Inferred and verified compatibility, kept apart
 

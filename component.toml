@@ -60,12 +60,16 @@
 # that resolves the import root `conda_sentinel`, so any application that is a
 # subpackage of that *import root* is satisfied by construction rather than
 # skipped -- which is why this list, and not a comment, is the record of what
-# has been adopted. The import root is not the distribution: what pixi installs
-# is still `conda-package-supply-chain-monitor`, and since CPM-RENAME-S01 the
-# two are different names. Only the import root is what an entry below is a
-# subpackage of. Nothing self-registers, and entry-point discovery is forbidden
-# (AD-8). Epic 9 is the consumer; no discovery, scanning or `INSTALLED_APPS`
-# inference is implemented against it here -- which is why
+# has been adopted. What an entry below is a subpackage of is the *import root*,
+# never the distribution. Since CPM-RENAME-S02 the two are the same word -- pixi
+# installs the distribution `conda-sentinel`, whose underscored spelling is
+# `conda_sentinel` -- and that coincidence is exactly why the distinction is
+# written down rather than left to be read off the names: the editable install
+# maps three top-level roots, `config`, `django_service` and `conda_sentinel`,
+# and only the third is what these entries sit inside. A distribution renamed on
+# its own would move none of them. Nothing self-registers, and entry-point
+# discovery is forbidden (AD-8). Epic 9 is the consumer; no discovery, scanning
+# or `INSTALLED_APPS` inference is implemented against it here -- which is why
 # `src/config/settings/base.py` also lists the application in `LOCAL_APPS`.
 adopted_apps = [ "conda_sentinel.core", "conda_sentinel.identity", "conda_sentinel.collectors", "conda_sentinel.policies" ]
 
@@ -115,7 +119,7 @@ selected_features = [
 # purpose: a placeholder token would make the reference application's own
 # declaration unreadable by every mechanism that reads this file, which is the
 # opposite of a `core` path that always travels.
-name = "conda-package-supply-chain-monitor"
+name = "conda-sentinel"
 
 # ---------------------------------------------------------------------------
 # Databases (AD-9). One entry per alias, carrying what the component knows about

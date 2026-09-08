@@ -42,7 +42,7 @@ All standard OpenTelemetry variables apply. The ones that matter most:
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Where spans are sent. Unset means spans are created but not exported. |
 | `OTEL_TRACES_EXPORTER` | `otlp` when an endpoint is set, else `none` | `otlp`, `console` or `none`. |
-| `OTEL_SERVICE_NAME` | `conda-package-supply-chain-monitor` | `service.name` on the resource. |
+| `OTEL_SERVICE_NAME` | `conda-package-supply-chain-monitor` | `service.name` on the resource. The default deliberately still carries the product's former name: `CPM-RENAME-S02` renamed the distribution to `conda-sentinel` and left this alone, because moving the default would move every span to a new `service.name` and silently break dashboards and alerts keyed on the old one. Set this variable to choose what your collector sees. |
 | `OTEL_SDK_DISABLED` | `false` | Turns tracing off entirely, per the OTel spec. |
 | `COMPONENT_RUNTIME` | unset — the `dev` pixi environment sets `local`, so every `pixi run` path is local | Reported as `deployment.environment`, which takes exactly two values: `local` when this variable is `local` (after stripping and lowercasing), and `deployed` otherwise. This attribute previously mirrored `DJANGO_ENV` and could carry a tier name such as `staging`; a dashboard or alert keyed on those values needs updating. |
 | `DJANGO_LOG_LEVEL` | `INFO` | Root log level. |

@@ -7175,5 +7175,5 @@ packages:
   size: 388453
   timestamp: 1764777142545
 - pypi: .
-  name: conda-package-supply-chain-monitor
+  name: conda-sentinel
   requires_python: ==3.14.*

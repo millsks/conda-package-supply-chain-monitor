@@ -271,7 +271,7 @@ def test_the_selectable_features_are_the_three_this_module_pins() -> None:
 
 def test_the_component_declares_its_name(document: dict[str, Any]) -> None:
     """AC #1: `[component]` carries the name and nothing another manifest owns."""
-    assert document["component"] == {"name": "conda-package-supply-chain-monitor"}
+    assert document["component"] == {"name": "conda-sentinel"}
 
 
 def test_adopted_apps_is_present_and_names_the_adopted_application(document: dict[str, Any]) -> None:
@@ -520,7 +520,7 @@ def test_the_package_imports_no_django_settings() -> None:
 
 def test_the_loader_reads_the_repositorys_own_declaration(declaration: ComponentDeclaration) -> None:
     """The no-argument path resolves the root file without importing settings."""
-    assert declaration.name == "conda-package-supply-chain-monitor"
+    assert declaration.name == "conda-sentinel"
     assert declaration.adopted_apps == (
         "conda_sentinel.core",
         "conda_sentinel.identity",

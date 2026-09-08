@@ -38,8 +38,21 @@ __all__ = [
 
 #: This product's distribution name, its home, and the version to report when the
 #: distribution metadata cannot be found. The name is `pyproject.toml`'s
-#: `[project] name`.
-DISTRIBUTION_NAME: Final[str] = "conda-package-supply-chain-monitor"
+#: `[project] name`, and it has to stay that literally rather than approximately:
+#: `distribution_version` below looks the installed metadata up by it, so a
+#: spelling that drifts from `[project] name` does not raise -- it reports
+#: `UNKNOWN_VERSION` on every request forever. That silence is why
+#: `tests/unit/django_apps/test_source_release.py` looks the metadata up once
+#: without the catch: the raise is the guard.
+#:
+#: `PROJECT_URL` is the *repository*, which `CPM-RENAME-S04` renames and this
+#: story does not. The two therefore disagree for now, deliberately: the
+#: distribution is `conda-sentinel`, while the repository has never been renamed
+#: and still carries the product's former name. The URL below is the repository's
+#: current, live address, so it resolves today; once `CPM-RENAME-S04` runs it
+#: moves here in the same story, and GitHub's redirect covers anything published
+#: with this string in the meantime.
+DISTRIBUTION_NAME: Final[str] = "conda-sentinel"
 PROJECT_URL: Final[str] = "https://github.com/millsks/conda-package-supply-chain-monitor"
 UNKNOWN_VERSION: Final[str] = "0.0.0"
 

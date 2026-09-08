@@ -229,6 +229,34 @@ it through pixi:
 pixi run manage migrate --database default --noinput
 ```
 
+!!! warning "This command does not work in a local checkout as written"
+
+    It is correct for a **deployed** component, where the platform supplies
+    `DJANGO_SETTINGS_MODULE=config.settings.production` and the database
+    configuration that goes with it. Pasted into a local checkout it fails with
+    `ImproperlyConfigured: settings.DATABASES is improperly configured. Please
+    supply the ENGINE value.`
+
+    The reason is `COMPONENT_RUNTIME`, not a missing package. The `manage` task
+    pins the `default` pixi environment, which declares no `COMPONENT_RUNTIME`
+    and therefore reads *deployed* (`src/config/locality.py`, and deliberately —
+    locality fails closed). `manage.py` meanwhile defaults
+    `DJANGO_SETTINGS_MODULE` to `config.settings.local`, and stage one's
+    `_refuse_the_local_settings_module` refuses that combination by design. What
+    you then see is **not** that refusal: the OpenTelemetry Django instrumentor
+    catches the `ImproperlyConfigured`, logs it at `DEBUG` and calls
+    `settings.configure()`, so the process continues with `SETTINGS_MODULE =
+    None` and an empty `INSTALLED_APPS` and fails later on something else. A
+    deliberate fail-*closed* startup refusal is therefore reported as an
+    unrelated downstream failure; every `pixi run manage …` in this runbook
+    behaves the same way locally for the same reason.
+
+    Locally, run it in the `dev` environment, which declares
+    `COMPONENT_RUNTIME=local` — `pixi run -e dev manage migrate --database
+    default --noinput` — or declare it yourself against the `default` one:
+    `COMPONENT_RUNTIME=local pixi run manage migrate --database default
+    --noinput`. Both were run against a local sqlite and applied every migration.
+
 Every step names its target alias explicitly with `--database`. A component that
 adopts a reusable application bringing its own database adds an alias here with
 its own step, and the release stage picks it up without any change on your side —
@@ -740,12 +768,46 @@ A loud failure on day one is the alternative to a silently corrupted evidence lo
 
 Populate it by pull request. The column contract, the bounds and the editing
 rules are documented beside the files, in
-`src/django_apps/conda_package_supply_chain_monitor/collectors/data/README.md`.
-Both files ship inside the wheel, under
-`conda_package_supply_chain_monitor/collectors/data/`;
+`src/django_apps/conda_sentinel/collectors/data/README.md`. Both files ship
+inside the wheel, under `conda_sentinel/collectors/data/`;
 `tests/integration/test_import_resolution.py` asserts that against the built
 artifact, because a build that dropped them fails nowhere else until the first
 deployed sweep.
+
+## What every collector calls itself on the wire
+
+Each of the five collectors sends the same `User-Agent`, declared once in
+`src/django_apps/conda_sentinel/collectors/agent.py`. It is built from the
+**distribution name**, the version the running build reports and the project URL:
+
+```text
+conda-sentinel/<version> (+https://github.com/millsks/conda-package-supply-chain-monitor)
+```
+
+!!! warning "This string changed at `CPM-RENAME-S02`, and it is an emitted value"
+
+    The leading token was `conda-package-supply-chain-monitor` before that story
+    and is `conda-sentinel` after it, because the token *is*
+    `pyproject.toml`'s `[project] name` — pixi validates the
+    `[pypi-dependencies]` key against the built metadata name, so renaming the
+    distribution and leaving this behind is not an available option. **If you
+    have an allowlist, a rate-limit exemption or a log filter with a source owner
+    keyed on the old string, it needs updating**, on GitHub, PyPI, anaconda.org,
+    OSV and KEV alike.
+
+    The URL half deliberately still carries the former name: it is the
+    *repository*, which has not been renamed. `CPM-RENAME-S04` moves it.
+
+**Two emitted identities, and only one of them moved.** The other is
+`OTEL_SERVICE_NAME`, whose default is still
+`conda-package-supply-chain-monitor` — see
+[Observability](observability.md#configuration). The decisions are opposite on
+purpose and the difference is who is forced: the `User-Agent` token had no choice,
+because packaging derives it from a name that had to change, and the cost lands on
+external allowlists that a note like this one can reach. The trace `service.name`
+had a choice, and moving it would silently rewrite the identity every dashboard
+and alert is keyed on, with no equivalent note to catch it. A story that wants the
+trace identity renamed owns that migration.
 
 ## The upstream-release collector reads GitHub unauthenticated
 
@@ -1198,8 +1260,8 @@ refused — so the unguarded form aborts boot. Use the shape the inventory adapt
 already uses, in `collectors/apps.py`'s `ready()`:
 
 ```python
-from conda_package_supply_chain_monitor.collectors.advisories import declare_advisory_source
-from conda_package_supply_chain_monitor.collectors.advisories import declared_advisory_source
+from conda_sentinel.collectors.advisories import declare_advisory_source
+from conda_sentinel.collectors.advisories import declared_advisory_source
 
 if not isinstance(declared_advisory_source(), YourAdvisoryAdapter):
     declare_advisory_source(YourAdvisoryAdapter())
@@ -1382,8 +1444,8 @@ exactly the terms the advisory source is. Three things have to happen together:
 advisory source is declared:
 
 ```python
-from conda_package_supply_chain_monitor.collectors.kev import declare_kev_source
-from conda_package_supply_chain_monitor.collectors.kev import declared_kev_source
+from conda_sentinel.collectors.kev import declare_kev_source
+from conda_sentinel.collectors.kev import declared_kev_source
 
 if not isinstance(declared_kev_source(), YourKevAdapter):
     declare_kev_source(YourKevAdapter())
@@ -1843,9 +1905,9 @@ is replaying**, which is on that run's `policy_runs` row and copied onto every
 `package_health` row it wrote:
 
 ```python
-from conda_package_supply_chain_monitor.core.clock import SystemClock
-from conda_package_supply_chain_monitor.core.models import PolicyRun
-from conda_package_supply_chain_monitor.core.policy_run import execute_policy_run
+from conda_sentinel.core.clock import SystemClock
+from conda_sentinel.core.models import PolicyRun
+from conda_sentinel.core.policy_run import execute_policy_run
 
 original = PolicyRun.objects.get(pk=...)
 execute_policy_run(
@@ -1994,11 +2056,30 @@ There is no beat entry (see above). A run is enqueued as the `cpm.policy.run`
 task on the `policy` queue, or executed in-process:
 
 ```sh
-pixi run manage shell -c "
-from conda_package_supply_chain_monitor.core.tasks import run_policy
-run_policy.delay('<your policy version>')
-"
+pixi run -e dev manage shell -c '
+from conda_sentinel.core.tasks import run_policy
+run_policy.delay("<your policy version>")
+'
 ```
+
+!!! warning "The quoting here is not interchangeable, and the environment is not either"
+
+    **Outer single quotes, inner double quotes.** `pixi run` re-parses the task's
+    arguments through its own task shell, which strips inner *single* quotes: the
+    otherwise-natural `pixi run manage shell -c "print('hi')"` reaches Python as
+    `print(hi)` and raises `NameError: name 'hi' is not defined`. Inverting the
+    quotes survives the round trip; escaping the inner ones does not (they arrive
+    as backslashes and raise `SyntaxError`). This is a `pixi run` quoting defect
+    rather than anything about the command, and it applies to every
+    `manage shell -c` invocation.
+
+    **`-e dev`, locally.** In the `default` environment this block fails with
+    `RuntimeError: Model class conda_sentinel.core.models.CollectionRun doesn't
+    declare an explicit app_label and isn't in an application in INSTALLED_APPS`
+    — which is the empty-settings state described under "One step per database"
+    above, not a problem with the task. A deployed component needs neither
+    adjustment: it supplies its own settings module, and `pixi run manage` is the
+    right form there.
 
 The `policy_version` is yours: `CPM-AD-8` makes it the version of the *rule data*
 a run applies, not a version this component ships. It lands on the run's ledger
@@ -2137,9 +2218,9 @@ This is the part with an operational consequence, so read it before enqueuing a
 run.
 
 The threshold lives in
-`src/django_apps/conda_package_supply_chain_monitor/policies/data/policy-parameters.toml`,
-which ships inside the wheel and is changed **by pull request**. One entry per
-policy version:
+`src/django_apps/conda_sentinel/policies/data/policy-parameters.toml`, which
+ships inside the wheel and is changed **by pull request**. One entry per policy
+version:
 
 ```toml
 [versions."<policy version>"]

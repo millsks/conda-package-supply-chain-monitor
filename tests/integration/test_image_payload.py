@@ -160,7 +160,7 @@ pytestmark = pytest.mark.skipif(
 #: have created is what makes that removal safe to perform unconditionally.
 SESSION: Final[str] = uuid.uuid4().hex[:8]
 
-IMAGE_TAG: Final[str] = f"conda-package-supply-chain-monitor-payload:{SESSION}"
+IMAGE_TAG: Final[str] = f"conda-sentinel-payload:{SESSION}"
 NETWORK_NAME: Final[str] = f"payload-{SESSION}-net"
 DATABASE_CONTAINER: Final[str] = f"payload-{SESSION}-db"
 WRITABLE_CONTAINER: Final[str] = f"payload-{SESSION}-writable"
