@@ -87,7 +87,9 @@
         <tbody>
           {% for row in rows %}
             <tr>
-              <td class="pkg">{{ row.canonical_name }}</td>
+              <td class="pkg">
+                <a href="{% url 'conda_sentinel:package-detail' row.canonical_name %}">{{ row.canonical_name }}</a>
+              </td>
               <td><span class="pbucket {{ row.priority|tone }}">{{ row.priority }}</span></td>
               {% comment %} `default_if_none` rather than an `{% if %}`: a score of zero is a real score
                  and is falsy, so a truthiness test would blank the package nothing has

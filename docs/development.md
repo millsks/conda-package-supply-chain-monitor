@@ -1027,6 +1027,32 @@ A module that has to know that a vulnerability verdict lives on
 `package_vulnerability.vulnerability_status` belongs in `surface`.
 `tests/unit/django_apps/test_app_layering_audit.py` holds the line.
 
+**Evidence is read off the derived row's own citation, never re-derived.** Every
+pass records what it used — `PackageVulnerability` names its `vulnerability_finding`,
+`PackageCurrency` names the snapshot for the authority it chose, and
+`PackagePythonReadiness` names the assessment *or* the verification depending on
+which kind of evidence the verdict rests on. So "which row produced this status" is
+a fact the policy engine already recorded. Working it out again on the read side —
+newest row at or before the cut-off, say — is the application deciding something a
+pass decided (`CPM-AD-10`), and it silently disagrees with the verdict the moment a
+pass's selection rule changes.
+
+Superseded evidence then costs nothing to keep reachable: it is append-only
+(`CPM-AD-2`), so the row a run cited last quarter is still there. The detail view
+lists every observation of a fact and marks the cited one. Both halves matter — a
+screen showing only the newest row loses the history, and one showing all of them
+undifferentiated leaves a reviewer with three contradictory states and nothing
+saying which the verdict rests on.
+
+**"Cites no observation" and "rests on no observation" are different things.**
+Priority and work type are derived from other verdicts rather than observed from a
+source, and say so. Currency and Python readiness *are* observed, and each has a
+legitimate row that cites nothing — an indeterminate currency verdict chose no
+authority; an undecided readiness rests on neither kind of evidence. Rendering those
+as "derived from other verdicts" states something false about how the product works,
+on the one screen built to be checked. `surface/detail.py` keeps them apart with the
+`Trace.observed` flag.
+
 **A status read out of a derived table has to be gated on the way to the screen.**
 The rollup's own columns went through `CPM-AD-4`'s confidence gate when the run
 wrote them; a derived table holds what the pass wrote, and a pass computes its

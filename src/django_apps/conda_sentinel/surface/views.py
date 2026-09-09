@@ -47,6 +47,7 @@ from django.db.models import OuterRef
 from django.db.models import Subquery
 from django.db.models import Value
 from django.db.models import When
+from django.views.generic import DetailView
 from django.views.generic import ListView
 
 from conda_sentinel.core.models import PackageHealth
@@ -55,6 +56,9 @@ from conda_sentinel.core.permissions import PRODUCT_ROLES
 from conda_sentinel.core.permissions import RoleRequiredMixin
 from conda_sentinel.policies.models import PackagePriority
 from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
+from conda_sentinel.surface.detail import identity_of
+from conda_sentinel.surface.detail import recent_runs
+from conda_sentinel.surface.detail import traces_for
 from conda_sentinel.surface.filters import FACETS
 from conda_sentinel.surface.filters import UnknownFacetValueError
 from conda_sentinel.surface.filters import applied_filters
@@ -211,5 +215,69 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
             # Every row carries its own as well, so a mixed table is visible rather
             # than averaged away.
             freshest=max(rows, key=lambda row: row.computed_at, default=None),
+        )
+        return context
+
+
+class PackageDetailView(RoleRequiredMixin, DetailView):  # type: ignore[type-arg]
+    """`CPM-FR-24`: every status on one package, traced to the evidence behind it.
+
+    The question a reviewer asks after the health view has told them *what*. So this
+    is not a narrower table -- it is the reasoning: each status with the observations
+    that produced it, the identity those observations were gathered under, and the
+    collection runs that gathered them.
+
+    **Keyed on the canonical name rather than the primary key**, because a URL a
+    reviewer pastes into a ticket should say which package it is about. `CPM-FR-42`
+    makes `canonical_name` unique and correctable, and the key stays the surrogate
+    integer for exactly that reason -- so a corrected name changes this URL and
+    breaks no foreign key, which is the right trade for a link.
+
+    **Read at the rollup row's own run.** The package's health row names the
+    `policy_run` every derived row is read at; reading at the latest run instead
+    would pair a verdict with freshness stamps that are not its own, and the two
+    screens would disagree about the same package.
+
+    Readable by all three roles, on `CPM-AD-13`'s terms: read access to evidence is
+    granted to each of them, and this screen is the evidence.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+    model = PackageHealth
+    template_name = "conda_sentinel/package_detail.html"
+    context_object_name = "health"
+    slug_field = "package__canonical_name"
+    slug_url_kwarg = "canonical_name"
+
+    def get_queryset(self) -> QuerySet[PackageHealth]:
+        """Return the rollup rows a detail URL may name.
+
+        Returns:
+            Every rollup row, with its package joined. `CPM-AD-11` gives every
+            inventory package a row *including unmapped ones*, so there is no package
+            in the inventory this view cannot open -- which matters, because the
+            unmapped ones are exactly what a reviewer working the identity queue
+            arrives here to look at.
+
+        """
+        return PackageHealth.objects.select_related("package")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the statuses, the identity and the runs.
+
+        Args:
+            **kwargs: Django's context, carrying the rollup row.
+
+        Returns:
+            The context.
+
+        """
+        context = super().get_context_data(**kwargs)
+        row: PackageHealth = context["health"]
+        context.update(
+            package=row.package,
+            traces=traces_for(row),
+            identity=identity_of(row.package),
+            runs=recent_runs(row.package),
         )
         return context
