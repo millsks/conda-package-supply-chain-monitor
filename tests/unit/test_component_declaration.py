@@ -287,6 +287,7 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     `conda_sentinel.identity` and
     `conda_sentinel.collectors` and
     `conda_sentinel.policies` and
+    `conda_sentinel.workflow` and
     `conda_sentinel.surface` are adopted, which is the
     declaration half of the adoption whose installing half is `LOCAL_APPS` in
     `src/config/settings/base.py`.
@@ -302,6 +303,7 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
         "conda_sentinel.identity",
         "conda_sentinel.collectors",
         "conda_sentinel.policies",
+        "conda_sentinel.workflow",
         "conda_sentinel.surface",
     ]
 
@@ -528,6 +530,7 @@ def test_the_loader_reads_the_repositorys_own_declaration(declaration: Component
         "conda_sentinel.identity",
         "conda_sentinel.collectors",
         "conda_sentinel.policies",
+        "conda_sentinel.workflow",
         "conda_sentinel.surface",
     )
     assert declaration.selected_features == REFERENCE_FEATURES

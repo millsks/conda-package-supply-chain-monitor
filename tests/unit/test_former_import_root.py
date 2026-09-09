@@ -172,7 +172,7 @@ APPLICATION_LABELS: Final[tuple[str, ...]] = ("collectors", "core", "identity", 
 #: "these are the labels", and the next application added would restate it again
 #: until the case stopped being about the rename at all. The two are unioned at each
 #: assertion, so the roster stays exact and the claim stays true.
-LABELS_ADDED_SINCE: Final[tuple[str, ...]] = ("surface",)
+LABELS_ADDED_SINCE: Final[tuple[str, ...]] = ("surface", "workflow")
 
 
 def _path_names_the_former_import_root(path: Path, root: Path) -> bool:

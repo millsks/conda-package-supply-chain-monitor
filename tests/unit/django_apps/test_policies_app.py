@@ -95,11 +95,13 @@ STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
 #: been declared. `CPM-APP-S02` added `conda_sentinel.surface`, which registers no
 #: pass at all -- it is a read surface with no models, no `ready()` and nothing in
 #: the registry -- so it can sit after this one without changing any pass's inputs.
+#: `CPM-APP-S04` added `conda_sentinel.workflow` on the same terms: it owns the queue
+#: items the policy run opens, and registers no pass either.
 #:
 #: Listed rather than left as "anything may follow", because the rule that matters
 #: survives: nothing that registers a pass may be declared after this application,
 #: and `test_nothing_after_this_application_registers_a_pass` is what holds it.
-APPLICATIONS_AFTER: Final[tuple[str, ...]] = ("conda_sentinel.surface",)
+APPLICATIONS_AFTER: Final[tuple[str, ...]] = ("conda_sentinel.workflow", "conda_sentinel.surface")
 
 #: Every module this application declares today. `CPM-AD-19` gives a domain
 #: application `urls.py`, `tasks.py` and an `api/` subpackage when it has views or
