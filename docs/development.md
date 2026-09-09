@@ -526,10 +526,25 @@ identities are **declared as configuration** in `src/config/local_dev/personas.p
 and materialized by a task. Two are declared, with deliberately different
 authorization:
 
-| Persona | Identity key (`idp_subject`) | Groups | Reaches the admin |
+| Persona | Identity key (`idp_subject`) | Groups | Reaches |
 | --- | --- | --- | --- |
-| `staff` | `local-dev:persona:staff` | the designated **staff** group | yes |
-| `reader` | `local-dev:persona:reader` | none | no |
+| `staff` | `local-dev:persona:staff` | the designated **staff** group | the Django admin |
+| `reader` | `local-dev:persona:reader` | none | nothing — the zero-groups case |
+| `reviewer` | `local-dev:persona:reviewer` | the **security reviewer** role group | the product's read surfaces |
+| `engineer` | `local-dev:persona:engineer` | the **packaging engineer** role group | the product's read surfaces |
+| `leader` | `local-dev:persona:leader` | the **leadership** role group | the product's read surfaces |
+
+**Sign in as `reviewer`, `engineer` or `leader` to reach the product's own
+screens.** Every surface declares the role it requires (`CPM-AD-13`), and neither
+`staff` nor `reader` holds one — `staff` reaches the Django admin and `reader`
+reaches nothing. Before the three role personas existed, running the server and
+signing in got you refused by every screen the product has, with no way forward:
+`sync_authorization` reconciles group membership to the claims, so a group granted
+by hand in the admin or the shell is erased at the next sign-in.
+
+One role each, deliberately. `CPM-FR-31` scopes queues per role and `CPM-APP-S05`
+builds three of them; a persona holding all three would reach every queue and prove
+nothing about the scoping. None of them is also staff, for the same reason.
 
 No persona names a group. A declaration lists the sentinel `DESIGNATED_STAFF` or
 `DESIGNATED_SUPERUSER`, and the *configured* name — `COMPONENT_STAFF_GROUP`,

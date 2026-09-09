@@ -28,6 +28,9 @@ from config.authorization.claims import read_identity_key
 from config.authorization.mapper import EMAIL_CLAIM
 from config.authorization.mapper import NAME_CLAIM
 from config.authorization.mapper import USERNAME_CLAIM
+from config.local_dev.personas import DESIGNATED_LEADERSHIP
+from config.local_dev.personas import DESIGNATED_PACKAGING_ENGINEER
+from config.local_dev.personas import DESIGNATED_SECURITY_REVIEWER
 from config.local_dev.personas import DESIGNATED_STAFF
 from config.local_dev.personas import DESIGNATED_SUPERUSER
 from config.local_dev.personas import PERSONAS
@@ -44,6 +47,17 @@ if TYPE_CHECKING:
 # The minimum AC #1 asks for: two personas with different memberships, one of
 # them carrying the designated staff group.
 MINIMUM_PERSONAS = 2
+
+#: The three product-role sentinels, and every sentinel a persona may name.
+#:
+#: Two contracts designate them: the platform's claims contract owns the two
+#: administrative groups, and this product's role contract owns the three that confer
+#: its roles. A persona naming anything else would be pinning one deployment's
+#: taxonomy into a file that ships to all of them.
+ROLE_SENTINELS = frozenset(
+    {DESIGNATED_SECURITY_REVIEWER, DESIGNATED_PACKAGING_ENGINEER, DESIGNATED_LEADERSHIP},
+)
+EVERY_SENTINEL = ROLE_SENTINELS | {DESIGNATED_STAFF, DESIGNATED_SUPERUSER}
 
 # Names that appear nowhere in `src/`, so an assertion that the payload moved
 # with the configuration cannot be satisfied by a coincidence.
@@ -97,6 +111,52 @@ def test_the_declared_memberships_genuinely_differ() -> None:
     assert len(set(declared.values())) == len(declared), declared
 
 
+def test_every_product_role_has_a_persona_that_holds_it() -> None:
+    """Every role-scoped surface has a way in, which is what makes the server usable.
+
+    Before these personas existed, a developer who ran the server, seeded the
+    personas and signed in was refused by every screen the product has -- correctly,
+    since neither persona held a product role, and with no way forward, because
+    `sync_authorization` reconciles membership to the claims and erases anything
+    granted by hand at the next sign-in.
+    """
+    held = {name for persona in PERSONAS for name in persona.groups}
+
+    assert held >= ROLE_SENTINELS, sorted(ROLE_SENTINELS - held)
+
+
+def test_no_persona_holds_more_than_one_product_role() -> None:
+    """Three personas rather than one holding all three, and the reason is scoping.
+
+    `CPM-FR-31` scopes queues per role and `CPM-APP-S05` builds three of them. A
+    persona holding every role would reach all three and prove nothing about the
+    scoping -- separate personas are how a developer sees a queue refuse them.
+    """
+    overloaded = {
+        persona.key: sorted(ROLE_SENTINELS & frozenset(persona.groups))
+        for persona in PERSONAS
+        if len(ROLE_SENTINELS & frozenset(persona.groups)) > 1
+    }
+
+    assert overloaded == {}, overloaded
+
+
+def test_no_product_role_persona_also_reaches_the_admin() -> None:
+    """A product role is not administrative access, and conflating them hides a bug.
+
+    A reviewer persona that was also staff would reach a scoped surface either way,
+    so a surface that checked the wrong thing would still admit them.
+    """
+    both = [
+        persona.key
+        for persona in PERSONAS
+        if ROLE_SENTINELS & frozenset(persona.groups)
+        and {DESIGNATED_STAFF, DESIGNATED_SUPERUSER} & frozenset(persona.groups)
+    ]
+
+    assert both == [], both
+
+
 def test_exactly_one_persona_carries_the_designated_staff_sentinel() -> None:
     """AC #1: one persona carries the designated staff group, and only one.
 
@@ -122,11 +182,12 @@ def test_no_persona_hardcodes_a_group_name() -> None:
 
     A literal `platform-staff` here would be silently wrong in every component
     that configures a different group name -- the coupling FR-10 made the
-    contract configuration to remove.
+    contract configuration to remove. The same argument covers the three product
+    roles, whose group names `conda_sentinel/core/roles.py` reads from the
+    environment: `cpm-security-reviewer` is one deployment's spelling, not the rule.
     """
-    sentinels = {DESIGNATED_STAFF, DESIGNATED_SUPERUSER}
     declared = {name for persona in PERSONAS for name in persona.groups}
-    assert declared <= sentinels, sorted(declared - sentinels)
+    assert declared <= EVERY_SENTINEL, sorted(declared - EVERY_SENTINEL)
 
 
 @pytest.mark.parametrize("field", ["key", "subject", "username", "email", "name"])

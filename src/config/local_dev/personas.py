@@ -45,6 +45,9 @@ from config.authorization.mapper import NAME_CLAIM
 from config.authorization.mapper import USERNAME_CLAIM
 
 __all__ = [
+    "DESIGNATED_LEADERSHIP",
+    "DESIGNATED_PACKAGING_ENGINEER",
+    "DESIGNATED_SECURITY_REVIEWER",
     "DESIGNATED_STAFF",
     "DESIGNATED_SUPERUSER",
     "PERSONAS",
@@ -116,7 +119,27 @@ class Persona:
     groups: tuple[str, ...] = ()
 
 
-#: The declared personas. Two, with genuinely different memberships, which is
+#: The three product-role sentinels, on exactly the terms the two above are declared.
+#:
+#: `conda_sentinel/core/roles.py` reads which *group* confers each of the product's
+#: three roles from the environment, so a persona naming `cpm-security-reviewer`
+#: literally would be correct on one developer's machine and wrong on a deployment
+#: whose reviewers are called anything else -- which is the hard-coding
+#: `DESIGNATED_STAFF` exists to avoid, applied to a second contract.
+#:
+#: **Why local development needs them at all.** Every product surface declares the
+#: role it requires (`CPM-AD-13`), and neither of the two personas below holds one:
+#: `staff` reaches the Django admin and `reader` reaches nothing. So before these
+#: existed, a developer who ran the server, seeded the personas and signed in was
+#: refused by every screen the product has -- correctly, and with no way forward,
+#: because `sync_authorization` reconciles group membership to the claims and
+#: therefore erases any membership granted by hand at the next sign-in. That is not a
+#: workaround a developer can find; it is a wall.
+DESIGNATED_SECURITY_REVIEWER: Final[str] = "<designated-security-reviewer-group>"
+DESIGNATED_PACKAGING_ENGINEER: Final[str] = "<designated-packaging-engineer-group>"
+DESIGNATED_LEADERSHIP: Final[str] = "<designated-leadership-group>"
+
+#: The declared personas. Five, with genuinely different memberships, which is
 #: the minimum AC #1 asks for and the minimum that makes the divergence Story
 #: 3.4 demonstrates real: the same admin page admits one and refuses the other,
 #: and the difference is produced by the mapper rather than by a local branch.
@@ -145,6 +168,41 @@ PERSONAS: Final[tuple[Persona, ...]] = (
         email="reader-persona@localhost.invalid",
         name="Reader Persona",
         groups=(),
+    ),
+    # One per product role, so every role-scoped surface has a way in.
+    #
+    # Three rather than one persona holding all three, which would be less typing and
+    # would make local development lie about the thing it is most useful for testing:
+    # `CPM-FR-31` scopes queues per role, `CPM-APP-S05` builds three of them, and a
+    # persona holding every role would reach all three and prove nothing about the
+    # scoping. Separate personas are how a developer sees a queue refuse them.
+    #
+    # None of these carries `DESIGNATED_STAFF`: a product role is not administrative
+    # access, and conflating them locally is how a surface comes to be tested only by
+    # somebody who could reach it either way.
+    Persona(
+        key="reviewer",
+        subject="local-dev:persona:reviewer",
+        username="reviewer-persona",
+        email="reviewer-persona@localhost.invalid",
+        name="Security Reviewer Persona",
+        groups=(DESIGNATED_SECURITY_REVIEWER,),
+    ),
+    Persona(
+        key="engineer",
+        subject="local-dev:persona:engineer",
+        username="engineer-persona",
+        email="engineer-persona@localhost.invalid",
+        name="Packaging Engineer Persona",
+        groups=(DESIGNATED_PACKAGING_ENGINEER,),
+    ),
+    Persona(
+        key="leader",
+        subject="local-dev:persona:leader",
+        username="leader-persona",
+        email="leader-persona@localhost.invalid",
+        name="Leadership Persona",
+        groups=(DESIGNATED_LEADERSHIP,),
     ),
 )
 
@@ -201,9 +259,16 @@ def resolve_groups(persona: Persona) -> tuple[str, ...]:
 
     """
     contract = settings.CLAIMS_CONTRACT
+    # Two contracts, read the same way. The claims contract is the platform's and
+    # designates the administrative groups; the role contract is this product's and
+    # designates the three that confer its roles. Neither group name appears here.
+    roles = settings.ROLE_CONTRACT
     designated = {
         DESIGNATED_STAFF: contract.staff_group,
         DESIGNATED_SUPERUSER: contract.superuser_group,
+        DESIGNATED_SECURITY_REVIEWER: roles.security_reviewer,
+        DESIGNATED_PACKAGING_ENGINEER: roles.packaging_engineer,
+        DESIGNATED_LEADERSHIP: roles.leadership,
     }
     return tuple(dict.fromkeys(designated.get(name, name) for name in persona.groups))
 
