@@ -2,7 +2,7 @@
 title: 'CPM-PY314-S03: Readiness that states its own evidence type'
 type: 'feature'
 created: '2026-09-09'
-status: 'review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '4b7f974588caf0093f3aa0dfd9af1ee5bf78fa44'
 context:
