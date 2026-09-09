@@ -3306,3 +3306,124 @@ verdict cites. The reasoning and the consequences are exactly the five sibling
 tables', above: there is no retention path, deleting old runs would have to delete
 these rows first, and no story currently claims it. Size the database accordingly,
 or run the policy less often than you collect.
+
+## The priority policy: nothing is prioritised, and that is the shipped answer
+
+`CPM-PRIORITY-S01` adds the seventh policy pass, and the first that reads what the
+others concluded. It runs inside the orchestrating policy run, makes no outbound
+call, and reads the six earlier passes' derived rows **for the same run** plus the
+inventory's usage signals at the run's cut-off. It answers `CPM-FR-20`: which
+priority bucket a package is in, why it is there, and how it scores within the
+bucket.
+
+**No rule set ships, so no package gets a bucket.** PRD Open Question 8 asks what
+seeds the priority rules and the score function and answers that both encode an
+organizational risk posture that does not exist yet. So
+`policies/data/policy-parameters.toml` records an empty rule set and an empty score
+function, every package reaches `unknown`, and every row says so in `detail`.
+
+**Nothing reaches `p10` by default, and this is the sentence to read twice.** A
+default bucket is a claim about a package's importance that nobody made, and `p10`
+is the one that would look harmless — "lowest priority" reads as a considered answer
+rather than as an absence. A package this product has not prioritised is
+`unknown`, and if you build a queue over this table, do not sort `unknown` beside
+`p10`.
+
+**Every assignment explains itself.** A row that names a bucket also carries what
+that bucket means, which rule matched (`rule 3` — the position you count down to in
+the file), and why. That is the whole point of the story: nobody should have to open
+the rule set to understand why a package is `P1`. A database check constraint
+refuses a bucket that arrives without all three, so a hand-written `INSERT` cannot
+produce an unexplained assignment either.
+
+### Filling in the rule set
+
+Add a **new** `[versions."..."]` entry — never edit an existing one, or you break
+the replay of every run recorded at it (`CPM-FR-22`):
+
+```toml
+priority_rules = [
+  { bucket = "p1",
+    description = "Known-exploited vulnerability with a published fix",
+    reason = "A KEV-listed advisory matched and the fix is already packaged",
+    when = { vulnerability_status = "advisories_matched", remediation_readiness = "ready" } },
+]
+```
+
+Rules are matched **top down and the first match wins**, so the order is the whole
+of the policy: a broad rule placed above a narrow one makes the narrow one
+unreachable, and nothing will tell you. Write the most specific rules first.
+
+`when` is a conjunction — every condition must hold — over the six domains the
+earlier passes answer: `currency_status`, `feedstock_presence_status`,
+`vulnerability_status`, `license_outcome`, `remediation_readiness`,
+`python_readiness`. A domain outside that set is refused when the file is read,
+because a rule matching on something no pass answers would match nothing, for ever
+and silently. An empty `when` is refused too: it matches every package, which is a
+default bucket wearing a condition.
+
+`description` and `reason` are required and refused blank. A rule that assigns a
+bucket and explains nothing produces exactly the row this story exists to prevent —
+and it is the reviewer, not the code, who would have left the explanation out, so
+the refusal reaches you at the file.
+
+### Filling in the score function
+
+```toml
+priority_score_weights = { internal_component_count = 3, internal_lob_count = 2 }
+```
+
+Each weighted signal contributes its observed count times its weight, normalized
+onto 1–100. The score ranks **within** a bucket; the bucket comes from the rules and
+the two are read independently, so a version may record one and not the other.
+
+**Weighting a nullable signal has a consequence to know before you write one.**
+`internal_component_count` and `internal_lob_count` are required on every observed
+inventory row; `apps`, `platforms`, `downloads` and `versions` are nullable, because
+no hand-authored watchlist can state them credibly. If a weighted signal is blank on
+a package's observation, that package gets **no score at all** and the row names the
+signal. Blank means missing and is never invented — a score that read a missing
+signal as zero would rank a package this product has observed nothing about *below*
+one it has. Weighting only the two required signals is the shape that always
+produces a score.
+
+A score is never `0`: the database refuses it. `NULL` is "not scored" and `1` is the
+bottom of `CPM-FR-20`'s range, and those are different facts.
+
+### Rank is derived, not stored
+
+`CPM-PRIORITY-S01`'s AC 1 asks that rank be derived from bucket and score and be
+stable for a run, and `CPM-AD-1` lists rank among the fields *projected* from the
+rollup. There is no `rank` column: `policies/priority.py`'s `ranking_order()` is the
+one ordering every read surface applies — bucket, then score descending, then the
+package key. The third term is not decoration: without it two packages with the same
+bucket and score have no defined order, and two surfaces paginating the same run
+would disagree about which comes first.
+
+If you build a read surface over this, call `ranking_order()` rather than writing
+your own `ORDER BY`. A row's rank is its position in that ordering.
+
+### Where the result lands
+
+`package_priority`, one row per package per policy run, and `package_health`'s
+`priority_status` column — the third the rollup has grown, and the one a queue
+filters on without a join. The bucket is on both; the score, the rank and the
+explanation are only on `package_priority`, because a rollup contribution carries
+status values and nothing else.
+
+The bucket goes onto the rollup through `CPM-AD-4`'s confidence gate, so a package
+whose identity was never established reads `unknown` there whatever rule matched it.
+The derived row keeps what the pass computed — the gate is the rollup writer's.
+
+### What a run costs
+
+Six indexed reads per package against the derived tables, one inventory read, and
+one insert. No outbound call. Every read is bounded by **both** the package and the
+policy run, so one run's priority is made entirely of that run's conclusions —
+which is what keeps a replay at a stated version and cut-off reproducible.
+
+### `package_priority` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, every relation
+`PROTECT`. The reasoning and the consequences are exactly the six sibling tables',
+above.

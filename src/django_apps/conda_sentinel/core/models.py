@@ -107,9 +107,12 @@ from conda_sentinel.identity.confidence import IdentityConfidence
 from conda_sentinel.policies.outcomes import CURRENCY_STATE_LENGTH
 from conda_sentinel.policies.outcomes import FEEDSTOCK_STATE_LENGTH
 from conda_sentinel.policies.outcomes import FEEDSTOCK_UNKNOWN
+from conda_sentinel.policies.outcomes import PRIORITY_BUCKET_LENGTH
+from conda_sentinel.policies.outcomes import PRIORITY_STATUS_UNKNOWN
 from conda_sentinel.policies.outcomes import UNKNOWN as CURRENCY_UNKNOWN
 from conda_sentinel.policies.outcomes import CurrencyOutcome
 from conda_sentinel.policies.outcomes import FeedstockOutcome
+from conda_sentinel.policies.outcomes import PriorityBucket
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -1122,6 +1125,32 @@ class PackageHealth(models.Model):
         max_length=FEEDSTOCK_STATE_LENGTH,
         choices=FeedstockOutcome.choices,
         default=FEEDSTOCK_UNKNOWN,
+        editable=False,
+    )
+
+    #: Which priority bucket `CPM-FR-20`'s pass put this package in, gated by
+    #: `CPM-AD-4` on the way in. The third domain status column, added by
+    #: `CPM-PRIORITY-S01` with the pass that produces it, on exactly the terms the
+    #: two above state.
+    #:
+    #: **The bucket is here and the score is not.** A contribution is a
+    #: `Mapping[str, str]` of *status* values -- `core/policy_run.py` checks each
+    #: against the column's own `choices` -- so a numeric score has no way through
+    #: that seam and no business in a column of statuses. The score, the rank, the
+    #: bucket description, the rule that matched and the reason all live on
+    #: `package_priority`, and this column is what lets the most-read table in the
+    #: product filter and sort by bucket without a join.
+    #:
+    #: **The default is `unknown` and never `p10`.** A package no rule matched, a
+    #: run at a version recording no rule set, and a package whose identity was
+    #: never established all reach it. `p10` as a default would be a claim about a
+    #: package's importance that nobody made, wearing the one value that looks
+    #: harmless.
+    priority_status = models.CharField(
+        _("priority"),
+        max_length=PRIORITY_BUCKET_LENGTH,
+        choices=PriorityBucket.choices,
+        default=PRIORITY_STATUS_UNKNOWN,
         editable=False,
     )
 

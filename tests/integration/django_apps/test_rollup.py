@@ -64,6 +64,8 @@ from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_
 from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_sentinel.policies.outcomes import BEHIND
 from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_sentinel.policies.priority import POLICY_NAME as PRIORITY_POLICY_NAME
+from conda_sentinel.policies.priority import ROLLUP_COLUMN as PRIORITY_ROLLUP_COLUMN
 from conda_sentinel.policies.py314_readiness import POLICY_NAME as PY314_READINESS_POLICY_NAME
 from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
 from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
@@ -250,6 +252,7 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
             LICENCE_POLICY_NAME: A_POLICY_VERSION,
             REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
             PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
+            PRIORITY_POLICY_NAME: A_POLICY_VERSION,
             FIRST_DOMAIN: A_POLICY_VERSION,
         }
 
@@ -285,6 +288,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
         LICENCE_POLICY_NAME: A_POLICY_VERSION,
         REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
         PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
+        PRIORITY_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }
@@ -408,9 +412,20 @@ def test_an_unmapped_package_still_gets_a_row_recording_that_it_is_unmapped() ->
     assert GATED_VALUE != PRESENT_AND_MAINTAINED, (
         "the gate must change this value too, or half this case asserts nothing"
     )
-    assert contributable_columns() == frozenset({ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN}), (
-        "the rollup declares a contributable column this case does not assert the gated value on"
-    )
+    # The third domain column, added by `CPM-PRIORITY-S01`, and it is asserted with
+    # a caveat the two above do not need. The shipped rule set is **empty** -- PRD
+    # Open Question 8 -- so the priority pass contributes `unknown` for every
+    # package and the gate has nothing to replace. That is not the gate failing to
+    # apply; it is the column's shipped value already being the one the gate
+    # writes, and a case claiming this proves the gate would be asserting a
+    # difference that does not exist.
+    # `tests/integration/django_apps/test_priority_policy.py` records a real rule
+    # set and asserts the gate replaces an actual bucket there, which is where that
+    # claim belongs.
+    assert PackageHealth.objects.get(package=unmapped).priority_status == GATED_VALUE
+    assert contributable_columns() == frozenset(
+        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN},
+    ), "the rollup declares a contributable column this case does not assert the gated value on"
 
 
 @pytest.mark.django_db

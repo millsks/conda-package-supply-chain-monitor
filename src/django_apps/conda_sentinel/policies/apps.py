@@ -60,15 +60,18 @@ class PoliciesConfig(AppConfig):
         feedstock presence (`CPM-CURRENCY-S07`), then vulnerability
         (`CPM-SECURITY-S04`), then licence (`CPM-SECURITY-S05`), then
         remediation readiness (`CPM-SECURITY-S06`), then Python 3.14 readiness
-        (`CPM-PY314-S03`).
+        (`CPM-PY314-S03`), then priority (`CPM-PRIORITY-S01`).
 
-        **None reads another, and the order is therefore not yet load
-        bearing -- which is exactly why it is worth stating now.** All six read
-        evidence and write their own derived tables, so today they could be
-        adopted in any order with identical results. Recording the order
-        while it is free is what makes it a declaration somebody chose rather
-        than one discovered on the day a sixth pass starts reading a fifth
-        pass's rows. `tests/unit/django_apps/test_policies_app.py` asserts the
+        **The order is now load bearing, and the seventh pass is why.** The first
+        six read evidence and write their own derived tables, so they could be
+        adopted in any order with identical results -- and this docstring said so,
+        while recording the order anyway, against the day a pass started reading an
+        earlier pass's rows. `PriorityPass` is that pass: `CPM-FR-20` assigns a
+        bucket from the *derived statuses* the six produce, so it reads all six of
+        this run's rows and **must** be registered after them. Recording the
+        order while it was free is what makes this an addition to a declaration
+        somebody chose rather than a constraint discovered on the day it started
+        mattering. `tests/unit/django_apps/test_policies_app.py` asserts the
         order this tuple is in, which is what makes the paragraph above a claim
         about the code rather than about its author's intentions: every other
         assertion over the roster sorts or takes a set, so until that case
@@ -115,6 +118,7 @@ class PoliciesConfig(AppConfig):
         from conda_sentinel.policies.currency import CurrencyPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.feedstock import FeedstockPresencePass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.licence import LicensePass  # noqa: PLC0415 - see above
+        from conda_sentinel.policies.priority import PriorityPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.py314_readiness import Py314ReadinessPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.remediation import RemediationPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.vulnerability import VulnerabilityPass  # noqa: PLC0415 - see above
@@ -126,6 +130,7 @@ class PoliciesConfig(AppConfig):
             LicensePass,
             RemediationPass,
             Py314ReadinessPass,
+            PriorityPass,
         ):
             if pass_registrations().get(policy_pass.name) is not policy_pass:
                 register_pass(policy_pass)

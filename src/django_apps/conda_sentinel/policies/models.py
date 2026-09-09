@@ -132,6 +132,9 @@ from conda_sentinel.policies.outcomes import MANUAL_REVIEW
 from conda_sentinel.policies.outcomes import NO_ADVISORY_MATCHED
 from conda_sentinel.policies.outcomes import PRESENT_AND_INACTIVE
 from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_sentinel.policies.outcomes import PRIORITY_BUCKET_LENGTH
+from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
+from conda_sentinel.policies.outcomes import PRIORITY_STATUS_UNKNOWN
 from conda_sentinel.policies.outcomes import PY314_DECIDED_VERDICTS
 from conda_sentinel.policies.outcomes import PY314_INFERRED_VERDICTS
 from conda_sentinel.policies.outcomes import PY314_READINESS_STATE_LENGTH
@@ -149,9 +152,11 @@ from conda_sentinel.policies.outcomes import KevMembership
 from conda_sentinel.policies.outcomes import PackageLicenseOutcome
 from conda_sentinel.policies.outcomes import PackagePythonReadinessOutcome
 from conda_sentinel.policies.outcomes import PackageVulnerabilityOutcome
+from conda_sentinel.policies.outcomes import PriorityBucket
 from conda_sentinel.policies.outcomes import ReadinessEvidence
 from conda_sentinel.policies.outcomes import RemediationReadiness
 from conda_sentinel.policies.parameters import MAX_LICENSE_EXPRESSION_CHARACTERS
+from conda_sentinel.policies.parameters import MAX_PRIORITY_TEXT_CHARACTERS
 from conda_sentinel.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
 
 __all__ = [
@@ -162,12 +167,14 @@ __all__ = [
     "AN_UNDECIDED_VERDICT_CLAIMS_NO_EVIDENCE_TYPE",
     "AUTHORITY_IS_A_KNOWN_SURFACE",
     "A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ",
+    "A_BUCKET_EXPLAINS_ITSELF",
     "A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION",
     "A_DETERMINATE_READINESS_NEEDS_ITS_FINDING",
     "A_MATCHED_RULE_ONLY_WHERE_A_RULE_DECIDED",
     "A_READY_ROW_NAMES_THE_CHANNEL_THAT_CARRIES_THE_FIX",
     "A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED",
     "A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT",
+    "A_SCORE_IS_IN_RANGE_OR_ABSENT",
     "A_VERIFIED_VERDICT_RESTS_ON_A_VERIFICATION",
     "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
@@ -179,13 +186,17 @@ __all__ = [
     "JUDGED_LICENSE_OUTCOMES",
     "LICENSE_ROW_NAMES_ITS_POLICY_VERSION",
     "MAINTENANCE_VERDICT_NEEDS_AN_ACTIVITY_INSTANT",
+    "MAX_PRIORITY_SCORE",
     "MEASURED_VERDICTS",
+    "MIN_PRIORITY_SCORE",
     "ONE_FEEDSTOCK_ROW_PER_PACKAGE_PER_RUN",
     "ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_PRIORITY_ROW_PER_PACKAGE_PER_RUN",
     "ONE_PYTHON_READINESS_ROW_PER_PACKAGE_PER_RUN",
     "ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
+    "PRIORITY_ROW_NAMES_ITS_POLICY_VERSION",
     "PYTHON_READINESS_ROW_NAMES_ITS_POLICY_VERSION",
     "PYTHON_READINESS_ROW_NAMES_THE_SERIES_IT_JUDGED",
     "REMEDIATION_ROW_NAMES_ITS_POLICY_VERSION",
@@ -198,6 +209,7 @@ __all__ = [
     "PackageCurrency",
     "PackageFeedstockPresence",
     "PackageLicense",
+    "PackagePriority",
     "PackagePythonReadiness",
     "PackageRemediation",
     "PackageVulnerability",
@@ -2422,3 +2434,228 @@ class PackagePythonReadiness(models.Model):
         run = "no run" if self.policy_run_id is None else f"run {self.policy_run_id}"
         series = self.python_series or "(no series)"
         return f"Python {series} for {scope}: {self.readiness} from {self.evidence_type} evidence ({run})"
+
+
+#: The constraint making one row per package per run the database's rule
+#: (`CPM-AD-21`), by name.
+ONE_PRIORITY_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_priority_row_per_package_per_run"
+
+#: The constraint requiring a row that names a bucket to carry the whole
+#: explanation, by name.
+#:
+#: **This is `CPM-PRIORITY-S01`'s AC 2, made structural.** An assignment explains
+#: itself: the bucket, what the bucket means, which rule matched, and why. All four
+#: in one constraint because they are one claim -- a row naming a bucket and two of
+#: the three explanation fields has not explained itself, and letting the database
+#: hold two of three would make the acceptance criterion partially satisfiable.
+#:
+#: The inverse half matters as much: a row with **no** bucket carries none of them.
+#: A description on an unprioritised row would be a rule's words on a package no
+#: rule matched.
+A_BUCKET_EXPLAINS_ITSELF: Final[str] = "priority_bucket_explains_itself"
+
+#: The constraint bounding the score to `CPM-FR-20`'s stated range, by name.
+#:
+#: `NULL` or 1-100, and never 0. Zero is the value a score computed from missing
+#: signals would land on, and it is the one a reader would take for "we scored this
+#: and it came out lowest" -- which is exactly the claim a package with no observed
+#: usage must not carry. An absence is `NULL`; the requirement's range starts at 1.
+A_SCORE_IS_IN_RANGE_OR_ABSENT: Final[str] = "priority_score_in_range_or_absent"
+
+#: The constraint requiring every row to name the policy version that produced it,
+#: by name, on the terms every derived table here requires one.
+PRIORITY_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "priority_row_names_its_policy_version"
+
+#: `CPM-FR-20`'s stated score range, as the two bounds the constraint and the pass
+#: both read. Named once so a change is one edit rather than four.
+MIN_PRIORITY_SCORE: Final[int] = 1
+MAX_PRIORITY_SCORE: Final[int] = 100
+
+
+class PackagePriority(models.Model):
+    """What one policy run concluded about a package's priority. Table `package_priority`.
+
+    `CPM-FR-20` as a row: which bucket, what that bucket means, which rule put it
+    there, why, and how it scores within the bucket. Named by the same convention
+    every derived table here is.
+
+    **The row explains itself, and that is the whole story.** `CPM-PRIORITY-S01`
+    exists so that nobody has to open the rule set to understand why a package is
+    `P1`: the description, the matched rule and the reason travel with the
+    assignment, and `A_BUCKET_EXPLAINS_ITSELF` refuses a bucket that arrives
+    without them.
+
+    **No bucket is assigned by default.** A run at a version recording no rule set,
+    a rule set that matches nothing, and a package whose identity was never
+    established all reach `unknown` -- never `p10`. A default bucket is a claim
+    about a package's importance nobody made, and `p10` is the one that looks
+    harmless.
+
+    **The score is nullable and its range starts at 1.** `NULL` means no score was
+    computed: the version records no score function, or a weighted signal was blank
+    on the inventory observation. Blank means missing and is never invented (PRD
+    Appendix A.1), so a score that treated a missing signal as zero would rank a
+    package this product knows nothing about below one it does. `unscored` and
+    `scored lowest` are different facts and this column keeps them apart.
+
+    **Rank is not a column here, and that is a decision.** `CPM-PRIORITY-S01`'s
+    AC 1 asks that rank be *derived* from bucket and score and be stable for a run,
+    and `CPM-AD-1` lists it among the fields *projected* from the rollup. A pass
+    sees one package at a time, so an ordinal would need a post-loop hook
+    `core/policy.py` does not have -- and a stored ordinal is a third copy that can
+    disagree with the two columns it came from. `policies/priority.py`'s
+    `ranking_order` is the one ordering every read surface applies, and it is total:
+    bucket, then score, then the package key.
+
+    **This is not the health rollup**, though it has a column there.
+    `CPM-AD-21` says no pass writes `package_health`; this pass *contributes*
+    `priority_status` and `core/rollup.py` writes it, gated by `CPM-AD-4`. The
+    bucket is on both because the rollup is what a queue filters, and the score and
+    the explanation are only here because a contribution carries statuses and
+    nothing else.
+
+    **No work type.** `CPM-FR-21` is `CPM-PRIORITY-S02`, and its closed set of
+    eight values is its own.
+
+    **Every relation is `PROTECT`**, on the terms every sibling states.
+    """
+
+    #: The package this assignment is about.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="priority_policy_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that produced it. With the package, `CPM-AD-21`'s key.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="priority_policy_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: The bucket, over `PriorityBucket` and emitted verbatim (`CPM-AD-24`).
+    bucket = models.CharField(
+        _("bucket"),
+        max_length=PRIORITY_BUCKET_LENGTH,
+        choices=PriorityBucket.choices,
+        default=PRIORITY_STATUS_UNKNOWN,
+        editable=False,
+    )
+
+    #: What the bucket means, in the reviewer's own words, copied from the rule
+    #: that matched. Blank on a row that names no bucket.
+    bucket_description = models.CharField(
+        _("bucket description"),
+        max_length=MAX_PRIORITY_TEXT_CHARACTERS,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: Which rule matched, by the position it holds in the version's rule set --
+    #: `rule 3` -- which is how a reviewer counts down the file. Blank on a row that
+    #: names no bucket.
+    #:
+    #: The position rather than a name, because a rule has no name: the file states
+    #: an ordered list and the order *is* the policy. A row naming `rule 3` sends a
+    #: reader to the third entry of the version this row records, which is a
+    #: reference that cannot go stale -- entries are added, never edited.
+    matched_rule = models.CharField(
+        _("matched rule"),
+        max_length=_VOCABULARY_LENGTH,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: Why this rule fires, in the reviewer's own words, copied from the rule that
+    #: matched. Blank on a row that names no bucket.
+    reason = models.CharField(
+        _("reason"),
+        max_length=MAX_PRIORITY_TEXT_CHARACTERS,
+        blank=True,
+        default="",
+        editable=False,
+    )
+
+    #: The 1-100 score this package ranks by within its bucket, or `NULL` where none
+    #: was computed. See the class docstring for why the range starts at 1.
+    score = models.PositiveSmallIntegerField(
+        _("score"),
+        null=True,
+        blank=True,
+        default=None,
+        editable=False,
+    )
+
+    #: The policy version that produced this row.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant evidence was read as of (`CPM-AD-21`).
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    #: What the pass had to say -- which absence an unbucketed row is, or which
+    #: weighted signal was missing from the inventory observation.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    class Meta:
+        """The table `CPM-PRIORITY-S01` adds, not the `policies_packagepriority` Django derives."""
+
+        db_table = "package_priority"
+        verbose_name = _("package priority")
+        verbose_name_plural = _("package priority")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_PRIORITY_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # AC 2 as a database rule, in both directions: a row that names a
+            # bucket carries the whole explanation, and a row that names none
+            # carries no part of it.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(bucket__in=PRIORITY_BUCKETS)
+                        & ~models.Q(bucket_description="")
+                        & ~models.Q(matched_rule="")
+                        & ~models.Q(reason="")
+                    )
+                    | (
+                        ~models.Q(bucket__in=PRIORITY_BUCKETS)
+                        & models.Q(bucket_description="")
+                        & models.Q(matched_rule="")
+                        & models.Q(reason="")
+                    )
+                ),
+                name=A_BUCKET_EXPLAINS_ITSELF,
+            ),
+            # `NULL` or 1-100. Zero is refused because it is the value a score from
+            # missing signals would land on, and the one a reader would take for
+            # "scored, and lowest".
+            models.CheckConstraint(
+                condition=models.Q(score__isnull=True)
+                | models.Q(score__gte=MIN_PRIORITY_SCORE, score__lte=MAX_PRIORITY_SCORE),
+                name=A_SCORE_IS_IN_RANGE_OR_ABSENT,
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=PRIORITY_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this row concluded, for an admin list and a debugger.
+
+        Returns:
+            The bucket and the score, with the package and the run it belongs to.
+            Reads `package_id` and `policy_run_id` rather than the relations, so an
+            unsaved instance renders inside a traceback rather than raising from it.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        run = "no run" if self.policy_run_id is None else f"run {self.policy_run_id}"
+        scored = "unscored" if self.score is None else f"score {self.score}"
+        return f"{scope}: {self.bucket}, {scored} ({run})"

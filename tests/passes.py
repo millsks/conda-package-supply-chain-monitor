@@ -98,6 +98,8 @@ from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NA
 from conda_sentinel.policies.feedstock import FeedstockPresencePass
 from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_sentinel.policies.licence import LicensePass
+from conda_sentinel.policies.priority import POLICY_NAME as PRIORITY_POLICY_NAME
+from conda_sentinel.policies.priority import PriorityPass
 from conda_sentinel.policies.py314_readiness import POLICY_NAME as PY314_READINESS_POLICY_NAME
 from conda_sentinel.policies.py314_readiness import Py314ReadinessPass
 from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
@@ -187,6 +189,7 @@ ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (
     LICENCE_POLICY_NAME,
     REMEDIATION_POLICY_NAME,
     PY314_READINESS_POLICY_NAME,
+    PRIORITY_POLICY_NAME,
 )
 
 #: The adopted pass classes, in the same order, so a case can re-register them.
@@ -197,6 +200,7 @@ ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (
     LicensePass,
     RemediationPass,
     Py314ReadinessPass,
+    PriorityPass,
 )
 
 #: The policy version the cases that execute a real policy run must declare.

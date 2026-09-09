@@ -112,6 +112,7 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
     "models.py",
     "outcomes.py",
     "parameters.py",
+    "priority.py",
     "py314_readiness.py",
     "remediation.py",
     "vulnerability.py",
@@ -154,6 +155,7 @@ EXPECTED_MIGRATIONS: Final[tuple[str, ...]] = (
     "0004_package_license.py",
     "0005_package_remediation.py",
     "0006_package_python_readiness.py",
+    "0007_package_priority.py",
 )
 
 

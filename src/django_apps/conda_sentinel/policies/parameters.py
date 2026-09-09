@@ -87,6 +87,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from conda_sentinel.collectors.spdx import OPERATORS
 from conda_sentinel.collectors.spdx import SPELLINGS
+from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
 from conda_sentinel.policies.outcomes import RULE_DISPOSITIONS
 
 if TYPE_CHECKING:
@@ -96,10 +97,21 @@ __all__ = [
     "INACTIVITY_DAYS_KEY",
     "MAX_INACTIVITY_DAYS",
     "MAX_LICENSE_EXPRESSION_CHARACTERS",
+    "MAX_PRIORITY_TEXT_CHARACTERS",
     "MAX_RISK_LEVEL_CHARACTERS",
+    "MAX_SIGNAL_WEIGHT",
     "NORMALIZABLE_IDENTIFIERS",
     "NORMALIZABLE_OPERATORS",
     "PARAMETERS_FILENAME",
+    "PRIORITY_BUCKET_FIELD",
+    "PRIORITY_DESCRIPTION_FIELD",
+    "PRIORITY_DOMAINS",
+    "PRIORITY_REASON_FIELD",
+    "PRIORITY_RULES_KEY",
+    "PRIORITY_RULE_KEYS",
+    "PRIORITY_SIGNALS",
+    "PRIORITY_WEIGHTS_KEY",
+    "PRIORITY_WHEN_FIELD",
     "RISK_ORDER_KEY",
     "RULES_KEY",
     "RULE_DISPOSITION_KEY",
@@ -109,6 +121,7 @@ __all__ = [
     "LicenseRule",
     "PolicyParameterError",
     "PolicyParameters",
+    "PriorityRule",
     "forget_recorded_parameters",
     "parameters_at",
     "parameters_directory",
@@ -305,7 +318,123 @@ MAX_LICENSE_EXPRESSION_CHARACTERS: Final[int] = 2048
 #: inventory, indistinguishable from sources that state no severities, whereas an
 #: empty rule set produces a distinct, self-describing verdict and is the state
 #: this component ships in. A *malformed* rule set is still refused here.
-PARAMETER_KEYS: Final[frozenset[str]] = frozenset({INACTIVITY_DAYS_KEY, RISK_ORDER_KEY, RULES_KEY})
+#: `CPM-FR-20`'s rule set: the top-down, first-match rules a run assigns priority
+#: buckets by.
+#:
+#: **The key ships recording an empty list, and that is the decision rather than a
+#: placeholder** -- the same posture `RULES_KEY` takes and for a stronger reason.
+#: PRD Open Question 8 asks what seeds the priority rule set and the score function
+#: and answers "both are undefined -- they encode an organizational risk posture
+#: that does not exist yet", naming the epic as blocked; `CPM-PRIORITY-S01`'s epic
+#: entry then constrains that story to "the engine, the schema and the
+#: explainability fields -- not a seeded rule set". So what ships is the mechanism:
+#: a schema a reviewer can fill in without a deployment, filled in with nothing.
+#:
+#: A version recording no rules puts every package in `unknown`, which is the
+#: correct answer to "nobody has decided what P1 means" and is emphatically not
+#: `P10`: a default bucket is a claim about importance nobody made, in the
+#: direction least likely to be questioned.
+#:
+#: The shape, one table per rule, in the order they are matched:
+#:
+#: ```toml
+#: priority_rules = [
+#:   { bucket = "p1", description = "...", reason = "...", when = { vulnerability_status = "advisories_matched" } },
+#: ]
+#: ```
+PRIORITY_RULES_KEY: Final[str] = "priority_rules"
+
+#: The rule fields, and every one of them is required.
+#:
+#: `description` and `reason` are required because `CPM-PRIORITY-S01`'s AC 2 is
+#: that an assignment explains itself: a rule that assigned a bucket and said
+#: nothing would produce exactly the row the story exists to prevent, and it would
+#: be the reviewer who wrote the rule -- not the code -- who left the explanation
+#: out. Refusing at the read is what puts that back in front of them.
+#:
+#: `when` is required and must not be empty. A rule matching everything is a
+#: default bucket wearing a condition, and the file is where that is caught.
+PRIORITY_BUCKET_FIELD: Final[str] = "bucket"
+PRIORITY_DESCRIPTION_FIELD: Final[str] = "description"
+PRIORITY_REASON_FIELD: Final[str] = "reason"
+PRIORITY_WHEN_FIELD: Final[str] = "when"
+PRIORITY_RULE_KEYS: Final[frozenset[str]] = frozenset(
+    {PRIORITY_BUCKET_FIELD, PRIORITY_DESCRIPTION_FIELD, PRIORITY_REASON_FIELD, PRIORITY_WHEN_FIELD},
+)
+
+#: The derived verdicts a rule's `when` may match on, by the name the file uses.
+#:
+#: Declared here rather than in `policies/priority.py` so the *file* is validated
+#: against the same set the pass reads, and a rule naming a domain nothing answers
+#: is refused where a reviewer can see it rather than silently matching nothing for
+#: ever. `tests/unit/django_apps/test_priority_policy.py` reconciles these names
+#: against the readers the pass declares, which is what stops the two drifting.
+#:
+#: Six domains, one per policy pass that runs before the priority pass. There is no
+#: entry for priority itself: a rule that matched on the bucket it assigns would be
+#: a cycle, and the file is where that is refused.
+PRIORITY_DOMAINS: Final[frozenset[str]] = frozenset(
+    {
+        "currency_status",
+        "feedstock_presence_status",
+        "vulnerability_status",
+        "license_outcome",
+        "remediation_readiness",
+        "python_readiness",
+    },
+)
+
+#: `CPM-FR-20`'s score function: the weight each internal usage signal carries.
+#:
+#: **Empty on purpose, on exactly the terms `PRIORITY_RULES_KEY` is.** The PRD
+#: names the score function as undefined in the same breath as the rule set.
+#:
+#: A mapping of signal name to a non-negative integer weight. A version recording
+#: none computes no score at all -- **not** a score of zero, and not a score from
+#: unweighted signals. The shape:
+#:
+#: ```toml
+#: priority_score_weights = { internal_component_count = 3, internal_lob_count = 2 }
+#: ```
+PRIORITY_WEIGHTS_KEY: Final[str] = "priority_score_weights"
+
+#: The internal usage signals a weight may name, by the column `inventory_snapshots`
+#: stores them in (`CPM-AD-25`, PRD Open Question 3b).
+#:
+#: `internal_component_count` and `internal_lob_count` are required on every `ok`
+#: inventory row and together are the usage breadth `CPM-FR-4` ranks by; `apps`,
+#: `platforms`, `downloads` and `versions` are nullable, are score inputs for this
+#: requirement, and are never invented when blank. A weight naming anything else is
+#: refused: a signal nothing observes would contribute nothing to every score, for
+#: ever, silently.
+PRIORITY_SIGNALS: Final[frozenset[str]] = frozenset(
+    {
+        "internal_component_count",
+        "internal_lob_count",
+        "apps",
+        "platforms",
+        "downloads",
+        "versions",
+    },
+)
+
+#: The largest weight a signal may carry. A bound rather than a judgement: the
+#: score is normalized against the recorded weights, so the absolute numbers only
+#: have to be comparable -- and an unbounded one is an overflow waiting for a
+#: reviewer's typo.
+MAX_SIGNAL_WEIGHT: Final[int] = 1_000_000
+
+#: The longest a recorded bucket description or reason may be, which is also how
+#: wide the columns that store them are (`policies/models.py` reads these names).
+#:
+#: One number rather than two, on exactly the terms `MAX_RISK_LEVEL_CHARACTERS`
+#: states: an explanation the file records but the column cannot hold would be
+#: truncated into a reason nobody wrote, which on this table is the whole of AC 2.
+MAX_PRIORITY_TEXT_CHARACTERS: Final[int] = 512
+
+PARAMETER_KEYS: Final[frozenset[str]] = frozenset(
+    {INACTIVITY_DAYS_KEY, RISK_ORDER_KEY, RULES_KEY, PRIORITY_RULES_KEY, PRIORITY_WEIGHTS_KEY},
+)
 
 #: The longest a recorded severity label may be, which is also how wide the
 #: column that stores one is (`policies/models.py` reads this name for it).
@@ -379,6 +508,41 @@ class LicenseRule:
 
 
 @dataclass(frozen=True, slots=True)
+class PriorityRule:
+    """One `CPM-FR-20` rule: what it matches, which bucket it assigns, and why.
+
+    Frozen and slotted, on the terms `LicenseRule` is: a rule that could be edited
+    after it was read would make "this run applied this version's rules" a claim
+    nothing supports.
+
+    Attributes:
+        bucket: The `PriorityBucket` value this rule assigns, `p1` through `p10`.
+        description: What the bucket means, in the reviewer's own words. Stored on
+            every row this rule produces, which is `CPM-PRIORITY-S01`'s AC 2: the
+            description travels with the assignment so nobody has to open the rule
+            set to read it.
+        reason: Why this rule fires, in the reviewer's own words. Stored beside the
+            description, and deliberately a second field rather than half of it --
+            "what P1 means" and "why *this* package is P1" are different sentences,
+            and folding them would lose whichever the reader needed.
+        conditions: The `(domain, verdict)` pairs that must **all** hold, in the
+            order the file states them.
+
+            A tuple of pairs rather than a mapping, and both halves matter: a
+            `dict` is unhashable and would break the frozen dataclass, and the
+            *order* is what makes a refusal message name the conditions in the
+            order a reviewer wrote them rather than in whatever order a hash
+            produced.
+
+    """
+
+    bucket: str
+    description: str
+    reason: str
+    conditions: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyParameters:
     """The parameter set one policy version applies.
 
@@ -417,6 +581,8 @@ class PolicyParameters:
     feedstock_inactivity: timedelta
     vulnerability_risk_order: tuple[str, ...] | None = None
     license_rules: tuple[LicenseRule, ...] = ()
+    priority_rules: tuple[PriorityRule, ...] = ()
+    priority_score_weights: tuple[tuple[str, int], ...] = ()
 
 
 def _parameters_directory(module: str) -> Path:
@@ -665,6 +831,8 @@ def _parameters(entry: object, *, version: str, source: Path | str) -> PolicyPar
         feedstock_inactivity=_interval(entry.get(INACTIVITY_DAYS_KEY), version=version, source=source),
         vulnerability_risk_order=_risk_order(entry.get(RISK_ORDER_KEY), version=version, source=source),
         license_rules=_license_rules(entry.get(RULES_KEY), version=version, source=source),
+        priority_rules=_priority_rules(entry.get(PRIORITY_RULES_KEY), version=version, source=source),
+        priority_score_weights=_score_weights(entry.get(PRIORITY_WEIGHTS_KEY), version=version, source=source),
     )
 
 
@@ -1244,3 +1412,174 @@ def parameters_for(version: str) -> PolicyParameters:
     """
     path = parameters_file()
     return parameters_in(recorded_parameters(path), version=version, source=path)
+
+
+def _priority_rules(rules: object, *, version: str, source: Path | str) -> tuple[PriorityRule, ...]:
+    """Refuse a priority rule set nobody could apply, and return the rules it records.
+
+    Args:
+        rules: Whatever the file recorded, or `None` where it recorded nothing.
+        version: The version being read, for the message.
+        source: What to call the file in a refusal.
+
+    Returns:
+        The rules in the order the file states them, which is the order they are
+        matched, or `()` where this version records none. `()` is not a refusal and
+        is the shipped state -- see `PRIORITY_RULES_KEY`.
+
+    Raises:
+        PolicyParameterError: When the value is not a list, or when any entry
+            cannot be applied. Every fault is reported at once and each names the
+            rule by the position a reviewer counts it at, on the terms
+            `_license_rules` states.
+
+    """
+    if rules is None:
+        return ()
+    if not isinstance(rules, list):
+        message = (
+            f"the policy parameters at {source} record {PRIORITY_RULES_KEY}={rules!r} for version {version!r}, "
+            f"which is {type(rules).__name__} rather than a list of rules. CPM-FR-20's bucket is assigned by "
+            f"top-down first-match rules, so the rule set is an ordered list; a value of another shape is "
+            f"refused rather than coerced, because a rule set nobody meant ranks every package in the queue."
+        )
+        raise PolicyParameterError(message)
+
+    faults = [
+        f"rule {position} ({fault})"
+        for position, rule in enumerate(rules)
+        if (fault := _priority_rule_fault(rule)) is not None
+    ]
+    if faults:
+        message = (
+            f"the policy parameters at {source} record {PRIORITY_RULES_KEY} entries for version {version!r} "
+            f"that cannot be applied: {', '.join(faults)}. Every rule is a table declaring exactly "
+            f"{sorted(PRIORITY_RULE_KEYS)}, whose {PRIORITY_BUCKET_FIELD} is one of {list(PRIORITY_BUCKETS)}, "
+            f"whose {PRIORITY_DESCRIPTION_FIELD} and {PRIORITY_REASON_FIELD} are non-blank and at most "
+            f"{MAX_PRIORITY_TEXT_CHARACTERS} characters, and whose {PRIORITY_WHEN_FIELD} is a non-empty table "
+            f"of {sorted(PRIORITY_DOMAINS)} to the verdict each must hold."
+        )
+        raise PolicyParameterError(message)
+
+    return tuple(
+        PriorityRule(
+            bucket=rule[PRIORITY_BUCKET_FIELD],
+            description=rule[PRIORITY_DESCRIPTION_FIELD].strip(),
+            reason=rule[PRIORITY_REASON_FIELD].strip(),
+            conditions=tuple((domain, verdict) for domain, verdict in rule[PRIORITY_WHEN_FIELD].items()),
+        )
+        for rule in rules
+    )
+
+
+def _priority_rule_fault(rule: object) -> str | None:
+    """Return why one priority rule cannot be applied, or nothing.
+
+    One return per fault rather than a collected list, on the terms
+    `_license_rule_fault` states: the first thing wrong with a rule is what a
+    reviewer fixes, and reporting four faults about one malformed table reads as
+    four problems.
+
+    Args:
+        rule: The entry the file recorded at one position.
+
+    Returns:
+        The reason it cannot be applied, or `None` when it can.
+
+    """
+    if not isinstance(rule, dict):
+        return f"{type(rule).__name__} rather than a table"
+    if set(rule) != PRIORITY_RULE_KEYS:
+        return f"declares {sorted(rule)} rather than exactly {sorted(PRIORITY_RULE_KEYS)}"
+    if rule[PRIORITY_BUCKET_FIELD] not in PRIORITY_BUCKETS:
+        return f"names bucket {rule[PRIORITY_BUCKET_FIELD]!r}, which is not one of {list(PRIORITY_BUCKETS)}"
+    for field in (PRIORITY_DESCRIPTION_FIELD, PRIORITY_REASON_FIELD):
+        stated = rule[field]
+        if not isinstance(stated, str) or not stated.strip():
+            return f"records {field}={stated!r}, and an assignment that cannot explain itself is what AC 2 forbids"
+        if len(stated.strip()) > MAX_PRIORITY_TEXT_CHARACTERS:
+            return (
+                f"records a {field} of {len(stated.strip())} characters, and the column that "
+                f"stores it takes {MAX_PRIORITY_TEXT_CHARACTERS}"
+            )
+    return _condition_fault(rule[PRIORITY_WHEN_FIELD])
+
+
+def _condition_fault(when: object) -> str | None:
+    """Return why one rule's conditions cannot be matched, or nothing.
+
+    Args:
+        when: Whatever the rule recorded under its `when` key.
+
+    Returns:
+        The reason, or `None` when the conditions are usable.
+
+    """
+    if not isinstance(when, dict):
+        return f"records {PRIORITY_WHEN_FIELD} as {type(when).__name__} rather than a table"
+    if not when:
+        return (
+            f"records an empty {PRIORITY_WHEN_FIELD}, which would match every package -- a default bucket "
+            f"wearing a condition"
+        )
+    unknown = sorted(set(when) - PRIORITY_DOMAINS)
+    if unknown:
+        return f"matches on {unknown}, which no policy pass answers; the domains are {sorted(PRIORITY_DOMAINS)}"
+    mistyped = sorted(domain for domain, verdict in when.items() if not isinstance(verdict, str) or not verdict)
+    if mistyped:
+        return f"records a non-string or blank verdict for {mistyped}"
+    return None
+
+
+def _score_weights(weights: object, *, version: str, source: Path | str) -> tuple[tuple[str, int], ...]:
+    """Refuse a score function nobody could compute, and return the weights it records.
+
+    Args:
+        weights: Whatever the file recorded, or `None` where it recorded nothing.
+        version: The version being read, for the message.
+        source: What to call the file in a refusal.
+
+    Returns:
+        The `(signal, weight)` pairs in the order the file states them, or `()`
+        where this version records none. `()` means no score is computed at all --
+        see `PRIORITY_WEIGHTS_KEY`.
+
+    Raises:
+        PolicyParameterError: When the value is not a table, names a signal nothing
+            observes, or records a weight that is not a non-negative integer at
+            most `MAX_SIGNAL_WEIGHT`.
+
+    """
+    if weights is None:
+        return ()
+    if not isinstance(weights, dict):
+        message = (
+            f"the policy parameters at {source} record {PRIORITY_WEIGHTS_KEY}={weights!r} for version "
+            f"{version!r}, which is {type(weights).__name__} rather than a table of signal to weight."
+        )
+        raise PolicyParameterError(message)
+
+    unknown = sorted(set(weights) - PRIORITY_SIGNALS)
+    if unknown:
+        message = (
+            f"the policy parameters at {source} weight {unknown} for version {version!r}, which the inventory "
+            f"does not observe. The signals are {sorted(PRIORITY_SIGNALS)} (CPM-AD-25, PRD Open Question 3b); a "
+            f"weight on anything else contributes nothing to every score, for ever, and silently."
+        )
+        raise PolicyParameterError(message)
+
+    faults = sorted(
+        signal
+        for signal, weight in weights.items()
+        if isinstance(weight, bool) or not isinstance(weight, int) or weight < 0 or weight > MAX_SIGNAL_WEIGHT
+    )
+    if faults:
+        message = (
+            f"the policy parameters at {source} record unusable weights for {faults} at version {version!r}. "
+            f"A weight is a whole number from 0 to {MAX_SIGNAL_WEIGHT}: the score is normalized against the "
+            f"weights recorded, so what matters is that they are comparable, and a negative one would make a "
+            f"signal count against a package for being observed."
+        )
+        raise PolicyParameterError(message)
+
+    return tuple((signal, weights[signal]) for signal in weights)
