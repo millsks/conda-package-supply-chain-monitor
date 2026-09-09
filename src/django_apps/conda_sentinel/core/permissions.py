@@ -58,6 +58,7 @@ from typing import cast
 
 import structlog
 from django.conf import settings
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 
@@ -277,13 +278,20 @@ class RoleRequiredMixin:
     sweeps for anything that decides authorization outside this module, so a
     template view that reached for `request.user.groups` instead would fail there.
 
-    **It refuses rather than redirecting to a sign-in page**, which is a decision
-    about a user who *is* signed in. `LoginRequiredMixin`'s redirect is right for an
-    anonymous visitor and wrong here: bouncing somebody who holds no role back to a
-    sign-in form they have already completed is the loop `EXPERIENCE.md`'s G-4
-    describes, and 403 is what lets the template say which role the surface wants.
-    The platform's `LoginRequiredMiddleware` still handles the anonymous case first,
-    so the two do not overlap.
+    **An anonymous visitor is sent to sign in; a signed-in visitor who holds no role
+    is refused.** Two different answers to two different questions, and conflating
+    them is the defect this mixin shipped with. Bouncing somebody who *has* signed in
+    back to a sign-in form they have already completed is the loop `EXPERIENCE.md`'s
+    G-4 describes, and 403 is what lets the template say which role the surface wants.
+    But answering an anonymous request the same way tells a visitor a credential would
+    not have helped, when it is the only thing that would.
+
+    This is the HTML counterpart of the status codes the API surface already
+    distinguishes: DRF's authentication classes turn an unauthenticated request into
+    a 401 before any permission runs, and only a signed-in caller reaches the 403. No
+    middleware does that here -- this deployment installs no `LoginRequiredMiddleware`,
+    which an earlier version of this docstring asserted it did -- so the redirect is
+    this method's own.
     """
 
     #: The roles that may reach this view. Empty on the mixin, which no view uses
@@ -306,9 +314,17 @@ class RoleRequiredMixin:
             Whatever the view returns, when the user holds a required role.
 
         Raises:
-            PermissionDenied: When they do not. Rendered by the handler as `403.html`.
+            PermissionDenied: When they are signed in and hold no required role.
+                Rendered by the handler as `403.html`.
 
         """
+        if not getattr(request.user, "is_authenticated", False):
+            # Not a refusal, and deliberately not logged as one: nobody was refused,
+            # because nobody was identified. `REFUSAL_EVENT` is what an operator
+            # alerts on, and an anonymous hit on a bookmarked URL is traffic rather
+            # than an authorization failure.
+            return redirect_to_login(request.get_full_path(), str(settings.LOGIN_URL))
+
         held = granted_roles(request.user)
         if not (held & self.required_roles):
             record_refusal(request, self, self.required_roles, held)
