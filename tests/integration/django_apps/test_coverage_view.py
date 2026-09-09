@@ -176,7 +176,7 @@ def test_a_status_gap_carries_its_denominator() -> None:
     coverage = a_reader().get(reverse("conda_sentinel:coverage")).context["coverage"]
     currency = next(gap for gap in coverage.gaps if gap.label == ROLLUP_STATUS_COLUMNS["currency_status"])
 
-    assert currency.inconclusive == 1
+    assert currency.no_verdict == 1
     assert currency.total == TWO_PACKAGES
     assert currency.share == HALF
 
@@ -195,24 +195,15 @@ def test_an_adverse_verdict_is_not_counted_as_a_gap() -> None:
     coverage = a_reader().get(reverse("conda_sentinel:coverage")).context["coverage"]
     currency = next(gap for gap in coverage.gaps if gap.label == ROLLUP_STATUS_COLUMNS["currency_status"])
 
-    assert currency.inconclusive == 0
+    assert currency.no_verdict == 0
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "sentinel",
-    [
-        OutcomeState.UNKNOWN.value,
-        OutcomeState.NOT_FOUND.value,
-        OutcomeState.NOT_APPLICABLE.value,
-        OutcomeState.ERROR.value,
-    ],
-)
-def test_every_sentinel_counts_as_a_gap(sentinel: str) -> None:
-    """All four, because all four mean the product formed no opinion.
+@pytest.mark.parametrize("sentinel", [OutcomeState.UNKNOWN.value, OutcomeState.ERROR.value])
+def test_a_status_the_product_could_not_see_is_a_gap(sentinel: str) -> None:
+    """Two of the four sentinels: nobody looked, and the lookup broke.
 
-    They are told apart on the per-package screen; here an operator wants one number
-    for how much of the estate that is.
+    Both are absences of knowledge, which is what a coverage screen is counting.
 
     Args:
         sentinel: The status to record.
@@ -224,7 +215,32 @@ def test_every_sentinel_counts_as_a_gap(sentinel: str) -> None:
     coverage = a_reader().get(reverse("conda_sentinel:coverage")).context["coverage"]
     currency = next(gap for gap in coverage.gaps if gap.label == ROLLUP_STATUS_COLUMNS["currency_status"])
 
-    assert currency.inconclusive == 1
+    assert currency.no_verdict == 1
+    assert currency.answered_negatively == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("sentinel", [OutcomeState.NOT_FOUND.value, OutcomeState.NOT_APPLICABLE.value])
+def test_a_negative_answer_is_not_a_gap(sentinel: str) -> None:
+    """The other two sentinels are knowledge, and an earlier version counted them wrongly.
+
+    "We looked and there is no feedstock" and "this native library has no Python
+    metadata" are both things the product **does** know. Counting them as gaps
+    inflates the number with answers, so it would rise as the product learned more --
+    the same defect as counting adverse verdicts, and harder to notice.
+
+    Args:
+        sentinel: The status to record.
+
+    """
+    run = a_run()
+    a_rollup_row(a_package("a-package"), run, currency_status=sentinel)
+
+    coverage = a_reader().get(reverse("conda_sentinel:coverage")).context["coverage"]
+    currency = next(gap for gap in coverage.gaps if gap.label == ROLLUP_STATUS_COLUMNS["currency_status"])
+
+    assert currency.no_verdict == 0
+    assert currency.answered_negatively == 1
 
 
 @pytest.mark.django_db

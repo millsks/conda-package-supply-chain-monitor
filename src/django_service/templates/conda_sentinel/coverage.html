@@ -58,8 +58,18 @@
       <div class="panel">
         <header><h4>{{ gap.label }}</h4><span class="hx">{% translate "no verdict" %}</span></header>
         <div class="body">
-          <div class="mono" style="font-size:22px">{{ gap.inconclusive }}</div>
+          <div class="mono" style="font-size:22px">{{ gap.no_verdict }}</div>
           <div class="ev">{{ gap.share }}% {% translate "of" %} {{ gap.total }}</div>
+          {% if gap.answered_negatively %}
+            {% comment %}
+              Shown apart from the gap above, not folded into it. "No feedstock
+              exists" is a finding; "nothing has looked" is a hole in the
+              monitoring, and there is a different thing to do about each.
+            {% endcomment %}
+            <div class="ev">
+              {{ gap.answered_negatively }} {% translate "answered not_found or not_applicable" %}
+            </div>
+          {% endif %}
         </div>
       </div>
     {% endfor %}

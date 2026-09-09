@@ -60,7 +60,8 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
 __all__ = [
-    "INCONCLUSIVE",
+    "ANSWERED_NEGATIVELY",
+    "NO_VERDICT",
     "ROLLUP_STATUS_COLUMNS",
     "CollectorHealth",
     "Coverage",
@@ -70,20 +71,31 @@ __all__ = [
     "coverage_of",
 ]
 
-#: The statuses that are not verdicts.
+#: The statuses that mean the product could not see.
 #:
-#: `CPM-FR-5`'s four unhappy answers. Counting them together is deliberate -- an
-#: operator reading this screen wants one number for "how much of the estate has the
-#: product formed no opinion about", and the per-package screen is where the four are
-#: told apart. `OutcomeState.OK` is absent because it is a verdict, and so is every
-#: adverse verdict: `behind` and `advisories_matched` are things the product *knows*.
-INCONCLUSIVE: Final[frozenset[str]] = frozenset(
-    {
-        OutcomeState.UNKNOWN.value,
-        OutcomeState.NOT_FOUND.value,
-        OutcomeState.NOT_APPLICABLE.value,
-        OutcomeState.ERROR.value,
-    },
+#: **Two of `CPM-FR-5`'s four sentinels, not all four**, and the distinction is the
+#: one this whole screen turns on. `unknown` is nobody looked -- or `CPM-AD-4`'s gate
+#: blocked it -- and `error` is the lookup broke. Both are absences of knowledge.
+#:
+#: `not_found` and `not_applicable` are *not* here, and an earlier version of this
+#: module counted them, wrongly. "We looked and there is no feedstock" and "this
+#: native library has no Python metadata" are both things the product **does** know,
+#: and counting them as gaps inflates the number with answers -- so it would rise as
+#: the product learned more, which is the same defect as counting adverse verdicts
+#: and is harder to notice. They are counted separately below.
+#:
+#: `OutcomeState.OK` is absent for the obvious reason, and so is every adverse
+#: verdict: `behind` and `advisories_matched` are conclusions.
+NO_VERDICT: Final[frozenset[str]] = frozenset({OutcomeState.UNKNOWN.value, OutcomeState.ERROR.value})
+
+#: The statuses that are answers, and negative ones.
+#:
+#: Shown beside the gap rather than folded into it: an operator reading "1,204
+#: packages have no feedstock" is reading a finding, and one reading "217 packages
+#: nothing has looked at" is reading a hole in the monitoring. Two different things
+#: to do about them, so two numbers.
+ANSWERED_NEGATIVELY: Final[frozenset[str]] = frozenset(
+    {OutcomeState.NOT_FOUND.value, OutcomeState.NOT_APPLICABLE.value},
 )
 
 #: The rollup columns this screen counts gaps in, by the label the health view uses.
@@ -107,8 +119,12 @@ class StatusGap:
     #: What the column is called on the health view, so the two screens agree.
     label: str
 
-    #: How many packages carry a sentinel in it.
-    inconclusive: int
+    #: How many packages the product could not see -- `unknown` or `error`.
+    no_verdict: int
+
+    #: How many it answered negatively -- `not_found` or `not_applicable`. A finding
+    #: rather than a hole, and shown apart from one.
+    answered_negatively: int
 
     #: How many packages there are at all, so the number above has a denominator.
     #: Carried rather than computed by the template: a percentage with no
@@ -124,7 +140,7 @@ class StatusGap:
             watching nothing has no gaps, which is true and is the honest answer.
 
         """
-        return 0.0 if not self.total else round(100 * self.inconclusive / self.total, 1)
+        return 0.0 if not self.total else round(100 * self.no_verdict / self.total, 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,13 +251,22 @@ def coverage_of() -> Coverage:
     counted = PackageHealth.objects.aggregate(
         computed_at=Max("computed_at"),
         evidence_cutoff=Max("evidence_cutoff"),
-        **{column: Count("pk", filter=Q(**{f"{column}__in": INCONCLUSIVE})) for column in ROLLUP_STATUS_COLUMNS},
+        **{
+            f"{column}__{suffix}": Count("pk", filter=Q(**{f"{column}__in": values}))
+            for column in ROLLUP_STATUS_COLUMNS
+            for suffix, values in (("gap", NO_VERDICT), ("negative", ANSWERED_NEGATIVELY))
+        },
     )
     return Coverage(
         inventory=inventory,
         identity=identity,
         gaps=tuple(
-            StatusGap(label=label, inconclusive=counted[column] or 0, total=inventory)
+            StatusGap(
+                label=label,
+                no_verdict=counted[f"{column}__gap"] or 0,
+                answered_negatively=counted[f"{column}__negative"] or 0,
+                total=inventory,
+            )
             for column, label in ROLLUP_STATUS_COLUMNS.items()
         ),
         computed_at=counted["computed_at"],

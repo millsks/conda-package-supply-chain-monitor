@@ -65,7 +65,7 @@
       <a class="panel" style="text-decoration:none" href="{% url 'conda_sentinel:coverage' %}">
         <header><h4>{{ gap.label }}</h4><span class="hx">{% translate "no verdict" %}</span></header>
         <div class="body">
-          <div class="mono" style="font-size:26px">{{ gap.inconclusive }}</div>
+          <div class="mono" style="font-size:26px">{{ gap.no_verdict }}</div>
           <div class="ev">{{ gap.share }}% {% translate "of the inventory" %}</div>
         </div>
       </a>

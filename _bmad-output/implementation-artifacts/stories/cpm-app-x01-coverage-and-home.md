@@ -30,6 +30,8 @@ so that I do not read an out-of-date or incomplete answer as a confident one.
    **When** the coverage view is opened
    **Then** it states how many packages have no established identity
    **And** how many carry no verdict in each rollup status column, with a denominator
+   **And** a *gap* means `unknown` or `error` only — `not_found` and `not_applicable`
+   are answers, counted separately
 
 2. **Given** the adopted collectors
    **When** collector health is displayed
@@ -72,6 +74,14 @@ so that I do not read an out-of-date or incomplete answer as a confident one.
 ## Dev Agent Record
 
 ### Completion Notes
+
+**A gap is `unknown` or `error`, and narrowing it to those two was a review
+outcome.** The first version counted all four of `CPM-FR-5`'s sentinels. That was
+wrong on two of them: "we looked and there is no feedstock" and "this native library
+has no Python metadata" are things the product **does** know, and counting them as
+gaps inflates the number with answers — so it would rise as the product learned more,
+which is the same defect as counting adverse verdicts and is harder to notice. They
+are shown beside the gap instead, because there is a different thing to do about each.
 
 **The screen counts absence, and that is the design rather than a detail.** A
 coverage screen built the obvious way — percentage healthy, percentage current —
