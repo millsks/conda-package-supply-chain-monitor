@@ -114,10 +114,10 @@ development_status:
   epic-py314-retrospective: optional
 
   # CPM-EP-PRIORITY: A ranked, explainable queue of work
-  epic-priority: in-progress
+  epic-priority: done
   cpm-priority-s01-explainable-priority-bucket-score: done
   cpm-priority-s02-work-type-derived-independently-priority: done
-  cpm-priority-s03-replay-policy-version-over-history: ready-for-dev
+  cpm-priority-s03-replay-policy-version-over-history: done
   epic-priority-retrospective: optional
 
   # CPM-EP-APP: The surface the three roles actually work in
