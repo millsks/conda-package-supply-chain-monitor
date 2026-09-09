@@ -161,10 +161,18 @@ license_rules = []
 # entry -- never edit this one -- carrying one table per rule, in the order they
 # are matched, like this:
 #
+#   (SHAPE ONLY -- NOT COPY-PASTEABLE. A TOML inline table may not span lines, so
+#   the layout below will not parse. `[versions."2026.09.4"]` at the foot of this
+#   file writes the same thing as an array of tables, which does.)
+#
+#   (SHAPE ONLY -- NOT COPY-PASTEABLE. A TOML inline table may not span lines, so
+#   the layout below does not parse. The proposed [versions."2026.09.4"] entry at
+#   the foot of this file writes the same thing as an array of tables, which does.)
+#
 #   priority_rules = [
 #     { bucket = "p1",
-#       description = "Known-exploited vulnerability with a published fix",
-#       reason = "A KEV-listed advisory matched and the fix is already packaged",
+#       description = "Vulnerable, and the fix is already packaged",
+#       reason = "An advisory matched and a surface carries the fixed version",
 #       when = { vulnerability_status = "advisories_matched", remediation_readiness = "ready" } },
 #     { bucket = "p3",
 #       description = "Vulnerable, fix not yet available",
@@ -183,7 +191,17 @@ license_rules = []
 # `when` is a table of derived verdicts that must ALL hold, matched against the six
 # policy passes that run before this one: currency_status,
 # feedstock_presence_status, vulnerability_status, license_outcome,
-# remediation_readiness, python_readiness. It is required and refused empty -- an
+# remediation_readiness, python_readiness.
+#
+# KEV MEMBERSHIP IS NOT ONE OF THEM, and it is worth knowing before writing rules.
+# `kev_membership` is a column of `package_vulnerability` and not a domain
+# `PRIORITY_DOMAINS` names, so no rule can say "this advisory is known to be
+# exploited" -- which is the single strongest priority signal the product holds and
+# the reason CPM-FR-11 exists. The example above used to be labelled
+# "Known-exploited vulnerability with a published fix" while testing nothing of the
+# kind; the label was wrong, not the condition, and it has been corrected. Closing
+# the gap means adding a seventh entry to PRIORITY_DOMAINS and a seventh
+# DOMAIN_READER, which is a change to the pass and not to this file. It is required and refused empty -- an
 # empty condition matches every package, which is a default bucket wearing a
 # condition. A domain this list does not name is refused, because a rule matching
 # on something no pass answers would match nothing, for ever, silently.
@@ -220,3 +238,133 @@ priority_rules = []
 # rank a package this product knows nothing about below one it does. Weighting
 # only the two required signals is the shape that always produces a score.
 priority_score_weights = {}
+
+# ---------------------------------------------------------------------------
+# A PROPOSED priority rule set. NOT IN USE.
+# ---------------------------------------------------------------------------
+#
+# PRD Open Question 8 leaves the priority rules and the score function undefined,
+# and every version above records them empty rather than guessing. The entry below
+# is a guess, offered for review. Nothing runs at it by accident: a policy run
+# applies the version it is *asked* for, `run_policy` takes that version as an
+# argument, and nothing names this one.
+#
+# WHO SHOULD DECIDE THIS. Not the implementing agent, which is why this is a
+# proposal and not a change. "Exploited beats critical-without-a-fix" is a security
+# posture, not a technical fact, and it decides what people work on each morning.
+# What follows is a starting point to argue with.
+#
+# WHAT IT CANNOT SAY: known exploitation. `kev_membership` is not one of the six
+# matchable domains -- see the note above `priority_rules` in 2026.09.3 -- so the top
+# bucket here is "vulnerable with a fix already packaged" rather than "known to be
+# exploited". That is the wrong top bucket. The recommendation is to add a seventh
+# domain to the pass before this rule set, or any rule set, is adopted.
+#
+# THE SHAPE is CPM-PRIORITY-S01's and is not in question: a bucket says *what kind
+# of problem this is* and the score ranks within a bucket by *how much this package
+# matters to us*. That split is what makes an assignment explainable, which is what
+# CPM-FR-20 requires.
+[versions."2026.09.4"]
+feedstock_inactivity_days = 180
+vulnerability_risk_order = ["critical", "high", "moderate", "low"]
+license_rules = []
+
+# Two signals rather than six. `internal_component_count` and `internal_lob_count`
+# are the internal usage the brief describes; weighting `downloads` or `versions`
+# would rank by how popular a package is on the internet rather than by how much
+# this organisation depends on it. The other four stay unweighted until somebody
+# argues for one.
+#
+# Lines of business weigh more per unit than components because breadth of exposure
+# is what makes an incident an organisational problem rather than a team's: forty
+# components in one team is a bad afternoon, four lines of business is a briefing.
+# That ratio is the most arguable number here.
+priority_score_weights = { internal_lob_count = 5, internal_component_count = 1 }
+
+# ORDER IS THE POLICY. Matched top down, first match wins, so each rule below is
+# narrower than the one under it. Written as an array of tables because a TOML
+# inline table MAY NOT SPAN LINES -- the worked example in 2026.09.3's comment is
+# unparseable as written for exactly that reason, and is now marked as shape-only.
+
+# Act today: the work is packaging a fix that already exists.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p1"
+description = "Vulnerable, and the fix is already packaged"
+reason = "An advisory matched this version and a surface already carries the fixed version"
+when = { vulnerability_status = "advisories_matched", remediation_readiness = "ready" }
+
+# Act today, but somebody has to build it first.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p2"
+description = "Vulnerable, fix available upstream but not yet built"
+reason = "An advisory matched and the fixed version exists upstream, awaiting a build"
+when = { vulnerability_status = "advisories_matched", remediation_readiness = "awaiting_build" }
+
+# EVERY OTHER VULNERABLE PACKAGE, and this rule is the one the first draft did not
+# have. Without it a package with a critical advisory and no remediation verdict --
+# because the remediation pass had no fix evidence to read -- fell through all three
+# vulnerability rules and matched "behind upstream" at p10. Seeding a demo and
+# looking at the screen is what found that; no test would have, because the rule set
+# was internally consistent and simply incomplete.
+#
+# The lesson generalises to any rule set written here: a condition on a SECOND
+# domain is a condition on that domain having reached a verdict at all, and every
+# domain can be `unknown`. Anything that must never fall through needs a rule
+# resting on one domain only.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p3"
+description = "Vulnerable, and no fix is in sight"
+reason = "An advisory matched and no fixed version has been established anywhere"
+when = { vulnerability_status = "advisories_matched" }
+
+# A forbidden licence is a legal exposure and is actionable now: remove the package
+# or record an exception.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p4"
+description = "Licence the policy forbids"
+reason = "The licence matched a forbidden rule"
+when = { license_outcome = "forbidden" }
+
+# Both conditions matter: an inactive feedstock we are current with is not urgent.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p5"
+description = "Behind upstream, and the feedstock is unmaintained"
+reason = "The installed version lags upstream and no recipe activity is recent"
+when = { currency_status = "behind", feedstock_presence_status = "present_and_inactive" }
+
+# Behind, and there is no feedstock to update -- somebody has to create a recipe.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p6"
+description = "Behind upstream, with no conda-forge feedstock"
+reason = "The installed version lags upstream and no feedstock exists to update"
+when = { currency_status = "behind", feedstock_presence_status = "absent" }
+
+# Work, not exposure.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p7"
+description = "Licence needs a human decision"
+reason = "The licence matched a restricted rule"
+when = { license_outcome = "restricted" }
+
+# Ahead of the inferred case below because a failed build is a fact and a static
+# assessment is a guess.
+[[versions."2026.09.4".priority_rules]]
+bucket = "p8"
+description = "Proven not to build on Python 3.14"
+reason = "A verification build ran on the assessed series and failed"
+when = { python_readiness = "verified_not_ready" }
+
+[[versions."2026.09.4".priority_rules]]
+bucket = "p9"
+description = "Metadata suggests Python 3.14 will not work"
+reason = "Static metadata does not support the assessed series; no build has run"
+when = { python_readiness = "inferred_not_ready" }
+
+# Behind upstream with nothing else wrong: the ordinary backlog. NOT a catch-all --
+# a package that is current and clean matches no rule and stays unbucketed, which is
+# what 2026.09.3's comment means by "nothing reaches p10 by default".
+[[versions."2026.09.4".priority_rules]]
+bucket = "p10"
+description = "Behind upstream"
+reason = "The installed version lags the authoritative surface"
+when = { currency_status = "behind" }

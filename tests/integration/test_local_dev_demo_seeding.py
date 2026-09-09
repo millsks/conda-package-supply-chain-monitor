@@ -224,22 +224,102 @@ def test_the_inventory_produces_more_than_one_work_type(seeded: dict[str, object
 
 
 @pytest.mark.django_db
-def test_the_seeder_says_what_the_shipped_parameters_leave_unconfigured(seeded: dict[str, object]) -> None:
-    """Priority and licence come out inert, and a reader is told why rather than left to guess.
+def test_the_seeder_reports_what_the_version_it_ran_at_leaves_empty(seeded: dict[str, object]) -> None:
+    """A column that comes out inert is explained, and the explanation is derived.
 
-    The shipped parameter file records `priority_rules = []` and `license_rules = []`
-    deliberately -- both are open questions -- so every bucket is `unknown` and every
-    licence `manual_review` whatever evidence is behind them. That is the product
-    working as configured, and a demo that let a reader conclude the columns were
-    broken would be worse than no demo.
+    It used to be a fixed sentence saying priority *and* licence were empty.
+    Recording a priority rule set at a newer version made that sentence false the
+    moment the seeder picked the newer version up -- a demo confidently explaining a
+    state it was no longer in, which is worse than one that says nothing. So the
+    report is read from the parameters the run actually applied, and this case checks
+    it against the same source rather than against a remembered string.
 
     Args:
         seeded: What the seeder reported.
 
     """
-    assert "priority_rules" in str(seeded["unconfigured"])
-    assert "license_rules" in str(seeded["unconfigured"])
-    assert set(PackageHealth.objects.values_list("priority_status", flat=True)) == {OutcomeState.UNKNOWN.value}
+    from conda_sentinel.policies.parameters import parameters_for  # noqa: PLC0415 - read beside the claim
+
+    recorded = parameters_for(str(seeded["policy_version"]))
+    reported = str(seeded["unconfigured"])
+
+    assert ("license_rules" in reported) == (not recorded.license_rules)
+    assert ("priority_rules" in reported) == (not recorded.priority_rules)
+
+
+@pytest.mark.django_db
+def test_the_demo_runs_at_a_version_that_records_priority_rules(seeded: dict[str, object]) -> None:
+    """The precondition of the case below, asserted rather than skipped around.
+
+    `tests/unit/test_suite_policy.py` bans `pytest.skip` in a test body, and is right
+    to: a skipped case reads in a report as a gate that ran. So the precondition is
+    its own assertion.
+
+    **If the proposed rule set is withdrawn, this is the case to delete** -- together
+    with the one below it. Both exist because the seeded demo currently runs at a
+    version that records rules, which is what makes the ranking checkable at all.
+
+    Args:
+        seeded: What the seeder reported.
+
+    """
+    assert parameters_for_run(seeded), (
+        f"the demo ran at {seeded['policy_version']}, which records no priority rules -- so the priority "
+        f"column is inert and the ranking case below has nothing to check"
+    )
+
+
+@pytest.mark.django_db
+def test_a_vulnerable_package_never_falls_through_to_the_backlog(seeded: dict[str, object]) -> None:
+    """The hole the demo found in the proposed rule set, kept closed.
+
+    Every priority rule that conditions on a *second* domain is implicitly a
+    condition on that domain having reached a verdict, and every domain can be
+    `unknown`. The first draft's vulnerability rules all named
+    `remediation_readiness`, so a package with a critical advisory and no remediation
+    verdict matched none of them and landed in "behind upstream".
+
+    Whatever the rule set says, a package the product knows is vulnerable must not
+    rank below one that is merely out of date.
+
+    Args:
+        seeded: What the seeder reported.
+
+    """
+    from conda_sentinel.policies.models import PackageVulnerability  # noqa: PLC0415 - read beside the claim
+    from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS  # noqa: PLC0415 - as above
+
+    run_id = PackageHealth.objects.values_list("policy_run_id", flat=True).first()
+    vulnerable = set(
+        PackageVulnerability.objects.filter(
+            policy_run_id=run_id,
+            vulnerability_status="advisories_matched",
+        ).values_list("package_id", flat=True),
+    )
+    assert vulnerable, "the demo seeded no vulnerable package, so this proves nothing"
+
+    order = {bucket: rank for rank, bucket in enumerate(PRIORITY_BUCKETS)}
+    worst_allowed = order["p3"]
+    for row in PackageHealth.objects.filter(package_id__in=vulnerable):
+        assert row.priority_status in order, row.priority_status
+        assert order[row.priority_status] <= worst_allowed, (
+            f"{row.package.canonical_name} is vulnerable and ranked {row.priority_status}"
+        )
+
+
+def parameters_for_run(seeded: dict[str, object]) -> tuple[object, ...]:
+    """Return the priority rules the seeded run applied.
+
+    Args:
+        seeded: What the seeder reported.
+
+    Returns:
+        The recorded rules, empty when the version records none.
+
+    """
+    from conda_sentinel.policies.parameters import parameters_for  # noqa: PLC0415 - after django.setup()
+
+    return tuple(parameters_for(str(seeded["policy_version"])).priority_rules)
 
 
 @pytest.mark.django_db
