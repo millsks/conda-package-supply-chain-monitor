@@ -124,7 +124,7 @@ development_status:
   epic-app: backlog
   cpm-app-s01-pagination-role-checks-configured-once: done
   cpm-app-s02-current-package-health-view: done
-  cpm-app-s03-package-detail-traced-evidence: ready-for-dev
+  cpm-app-s03-package-detail-traced-evidence: done
   cpm-app-s04-workflow-table-keyed-stable-finding: ready-for-dev
   cpm-app-s05-three-role-scoped-queues-over: ready-for-dev
   cpm-app-s06-recurring-operational-reports: ready-for-dev

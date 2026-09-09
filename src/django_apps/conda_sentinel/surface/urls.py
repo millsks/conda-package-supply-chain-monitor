@@ -18,10 +18,16 @@ from __future__ import annotations
 
 from django.urls import path
 
+from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
 
 app_name = "conda_sentinel"
 
 urlpatterns = [
     path("packages/", PackageHealthView.as_view(), name="package-health"),
+    # Keyed on the canonical name so a link pasted into a ticket says which package
+    # it is about. `<str:>` rather than `<slug:>`: a canonical name may carry a dot
+    # or an underscore -- `ruamel.yaml`, `backports.zoneinfo` -- and `slug` matches
+    # neither, which would make exactly the packages with awkward names unreachable.
+    path("packages/<str:canonical_name>/", PackageDetailView.as_view(), name="package-detail"),
 ]

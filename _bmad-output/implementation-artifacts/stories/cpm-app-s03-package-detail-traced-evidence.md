@@ -1,6 +1,6 @@
 # CPM-APP-S03: Package detail traced to its evidence
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-APP` — The surface the three roles actually work in
 
@@ -26,9 +26,14 @@ so that I can check the reasoning rather than trusting the conclusion.
 
 ## Tasks / Subtasks
 
-- [ ] Planned by `bmad-build` against the codebase at implementation time.
-      Not pre-filled here: a task breakdown written now, before the epics ahead of
-      this one have shipped, would be stale by the time the story is picked up.
+- [x] `surface/detail.py` — the trace roster, the evidence projection, the identity
+      panel's data and the run ledger's.
+- [x] `surface/views.py` — `PackageDetailView`; `surface/urls.py` — the route, keyed
+      on the canonical name.
+- [x] Template `conda_sentinel/package_detail.html`; the health table now links to it.
+- [x] `tests/unit/django_apps/test_detail_traces.py`.
+- [x] `tests/integration/django_apps/test_package_detail_view.py`.
+- [x] `docs/development.md`.
 
 ## Dev Notes
 
@@ -77,3 +82,71 @@ so that I can check the reasoning rather than trusting the conclusion.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**The screen answers *why*, and the whole design follows from refusing to re-derive
+the answer.** Every pass cites the evidence it used, by foreign key, on the derived
+row. So "which observation produced this status" is a fact the policy engine already
+recorded, and reading it is the only answer that cannot drift from the verdict beside
+it. Working it out again here -- newest row at or before the cut-off -- would be the
+application deciding what a pass decided (`CPM-AD-10`), and would disagree silently
+the moment a pass's selection rule changed.
+`test_the_evidence_shown_is_the_row_the_run_cited_rather_than_the_newest` is the case
+that would catch that, and it is deliberately set up so the two answers differ.
+
+**Files added:** `surface/detail.py`, `templates/conda_sentinel/package_detail.html`,
+`tests/unit/django_apps/test_detail_traces.py`,
+`tests/integration/django_apps/test_package_detail_view.py`.
+
+**Files changed:** `surface/views.py`, `surface/urls.py`, the health template (the
+package name is now a link), `docs/development.md`. **No migration and no model
+change.**
+
+**Each acceptance criterion:**
+
+- **AC 1 (each status links to its evidence, with source, timestamp and confidence).**
+  Eight traces, each carrying the observations behind it. The confidence is
+  `match_confidence` and is labelled as such: the UX contract requires that identity
+  confidence and match confidence "are labelled differently everywhere they appear",
+  and this is the screen where both are on display.
+- **AC 2 (provenance, confidence, and any override with its reason).** The identity
+  panel carries `identity_source`, `associator_key` and `resolved_at` beside the
+  confidence. A human correction gets a panel of its own, headed as such, with the
+  actor, both prior values, both new values and the reason -- and a package nobody
+  corrected gets no panel at all, because a "Corrected by a human" heading over blank
+  fields reads as a correction whose details were lost.
+- **AC 3 (superseded evidence stays reachable; current shown without deleting
+  history).** Two claims that pull against each other, so every case asserts both.
+  Append-only (`CPM-AD-2`) is what keeps the history; marking the cited row is what
+  keeps the current value unambiguous. A case asserts the render mutates nothing,
+  over the rows themselves rather than a count -- the plausible mutation is an
+  *update*, which a count does not catch.
+
+**Two things worth recording.**
+
+*Rendering the screen found a bug the tests had not.* Currency and Python readiness
+choose their evidence relation per row, and a row that chose none fell into the same
+branch as a status genuinely derived from other verdicts -- so the screen said
+"derived from other verdicts, not from an observation" about currency, which is
+false. Currency *is* observed from a version surface; that row simply cited nothing.
+`NO_OBSERVATION_CITED` is now a third state, `Trace.observed` tells them apart, and
+`test_a_status_that_cited_no_observation_does_not_claim_to_be_derived` holds it. On a
+screen built to be checked, a false statement about how the product works is the
+worst defect available.
+
+*The route takes `<str:>` and not `<slug:>`.* A canonical name may carry a dot or an
+underscore -- `ruamel.yaml`, `backports.zoneinfo` -- and `slug` matches neither, so
+exactly the packages with awkward names would 404 while the health view linked
+straight at them. Keyed on the name rather than the primary key because a URL pasted
+into a ticket should say which package it is about; `CPM-FR-42` makes the name unique
+and correctable, and the key stays the surrogate integer so a correction changes the
+URL and breaks no foreign key.
+
+**Coverage:** the new module at 100%.
+
+**Gate:** `pixi run ci` cannot complete on this machine -- `test_image_payload.py`'s
+`docker build` child zombies and pytest blocks, which reproduces on unmodified
+`main`. Steps run individually; the GitHub gate runs that module.
