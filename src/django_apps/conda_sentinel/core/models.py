@@ -110,9 +110,12 @@ from conda_sentinel.policies.outcomes import FEEDSTOCK_UNKNOWN
 from conda_sentinel.policies.outcomes import PRIORITY_BUCKET_LENGTH
 from conda_sentinel.policies.outcomes import PRIORITY_STATUS_UNKNOWN
 from conda_sentinel.policies.outcomes import UNKNOWN as CURRENCY_UNKNOWN
+from conda_sentinel.policies.outcomes import WORK_TYPE_LENGTH
+from conda_sentinel.policies.outcomes import WORK_TYPE_UNKNOWN
 from conda_sentinel.policies.outcomes import CurrencyOutcome
 from conda_sentinel.policies.outcomes import FeedstockOutcome
 from conda_sentinel.policies.outcomes import PriorityBucket
+from conda_sentinel.policies.outcomes import WorkType
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -1151,6 +1154,25 @@ class PackageHealth(models.Model):
         max_length=PRIORITY_BUCKET_LENGTH,
         choices=PriorityBucket.choices,
         default=PRIORITY_STATUS_UNKNOWN,
+        editable=False,
+    )
+
+    #: Which of `CPM-FR-21`'s eight work types this package's state recommends,
+    #: gated by `CPM-AD-4` on the way in. The fourth domain status column, added by
+    #: `CPM-PRIORITY-S02` with the pass that produces it.
+    #:
+    #: **It is not derived from `priority_status` and the two are not coupled**,
+    #: which is `CPM-PRIORITY-S02`'s AC 1. They sit side by side on this row because
+    #: a queue shows both, and that adjacency is the whole hazard: a low-priority
+    #: package still has a recommended action, and a reader who inferred one column
+    #: from the other would lose exactly that. `policies/work_type.py` reads neither
+    #: the bucket nor the priority table, and is registered *before* the priority
+    #: pass so it could not.
+    work_type_status = models.CharField(
+        _("work type"),
+        max_length=WORK_TYPE_LENGTH,
+        choices=WorkType.choices,
+        default=WORK_TYPE_UNKNOWN,
         editable=False,
     )
 

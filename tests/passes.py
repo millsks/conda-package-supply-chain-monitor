@@ -106,6 +106,8 @@ from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLIC
 from conda_sentinel.policies.remediation import RemediationPass
 from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from conda_sentinel.policies.vulnerability import VulnerabilityPass
+from conda_sentinel.policies.work_type import POLICY_NAME as WORK_TYPE_POLICY_NAME
+from conda_sentinel.policies.work_type import WorkTypePass
 from tests.model_registry import FIXTURE_APP
 from tests.model_registry import FIXTURE_LABEL
 
@@ -189,6 +191,7 @@ ADOPTED_PASS_NAMES: Final[tuple[str, ...]] = (
     LICENCE_POLICY_NAME,
     REMEDIATION_POLICY_NAME,
     PY314_READINESS_POLICY_NAME,
+    WORK_TYPE_POLICY_NAME,
     PRIORITY_POLICY_NAME,
 )
 
@@ -200,6 +203,7 @@ ADOPTED_PASSES: Final[tuple[type[PolicyPass], ...]] = (
     LicensePass,
     RemediationPass,
     Py314ReadinessPass,
+    WorkTypePass,
     PriorityPass,
 )
 
