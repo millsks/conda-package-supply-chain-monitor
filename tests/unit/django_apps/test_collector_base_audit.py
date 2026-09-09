@@ -32,7 +32,7 @@ need not ask for again. They share a backend and share nothing else -- different
 key namespaces, different lifetimes, different failure modes (an expired counter
 is a fresh window; an unusable entry is a fetch). Folding them into one module
 would put a counter and a body under one `clear()`, and folding the rule into
-"any module in `core` may read the cache" would give the nine collectors the
+"any module in `core` may read the cache" would give the ten collectors the
 door this file exists to shut.
 
 **Every evidence write is inside a `transaction.atomic()`.** `CPM-AD-23` fixes

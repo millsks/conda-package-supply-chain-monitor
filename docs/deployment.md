@@ -1780,11 +1780,136 @@ document that lists every file of every release. Raise the allowance against wha
 `pypi.org` actually tolerates, remembering the PyPI release sweep is asking the same
 host daily and spending its own.
 
+## Python 3.14 verification runs nothing until you declare what runs it
+
+`cpm.verify.py314_build` is the expensive half of `CPM-FR-14`: an actual build and an
+actual import of a package under Python 3.14, recorded with the platform and the
+architecture it ran on and a reference to its log. Everything the section above
+records is what a project *claimed*; this is what a build *did*.
+
+**Nothing ships that can run one.** Verification means executing somebody else's
+build script and importing somebody else's code, and nothing in this product's
+requirements or architecture decides how that is isolated — not a sandbox, not a
+container, not a resource bound, not a network posture. So this component ships the
+mechanism and no execution backend, exactly as it ships the vulnerability collector
+with no advisory source. Every trigger raises until you declare one:
+
+```
+VerificationBackendError: no Python 3.14 execution backend is declared, so there is
+nothing to build this package with.
+```
+
+That refusal happens before any run is recorded, so an unconfigured component leaves
+no ledger row and no evidence row claiming to have verified anything. **This is the
+shipped state and it is not a misconfiguration** — the component starts, every other
+collector runs, and nothing about verification is quietly on.
+
+**It is triggered, and it is never swept.** No beat entry names it, no schedule can
+sweep it, and the dispatch refuses it by name if one tries. A verification happens
+because somebody asked for it, one package at a time:
+
+```python
+from conda_sentinel.collectors.tasks import verify_py314_build
+
+verify_py314_build.apply_async(kwargs={"package_id": 42})
+```
+
+There is no `force` argument, because there is no observation window to bypass: the
+trigger *is* the decision to run, and asking twice writes two rows rather than
+silently reusing the first.
+
+**It runs on the `verify` queue.** That follows from the task's declared name and
+from nothing else. The shipped `worker` process already drains it — its `-Q` names
+`celery,collect,policy,verify` — so nothing needs configuring for a trigger to be
+picked up. If you run a worker with a `-Q` of your own, keep `verify` in it: routing
+without consumption is inert, and the component would accept triggers and never run
+them. The whole reason the queue is separate is that a five-minute build must not
+share a worker with the daily security sweep; if you split the processes, give
+`verify` its own worker and that separation becomes real rather than nominal.
+
+**Read the six answers apart:**
+
+| The row says | What it means |
+|---|---|
+| `verified_compatible` | a build **and** an import succeeded, on the platform and architecture the row names. Proof, and proof about *that runner* — not a claim about every platform |
+| `verification_failed` | verification ran and did not produce a working build, on the platform the row names, with `log_reference` pointing at why. A **result**, not a failure of this product — and deliberately not called `verified_incompatible`, because builds fail for reasons that are not the interpreter |
+| `error` | the backend itself raised, the allowance was spent, or its answer could not be read. Nothing was verified and there is no log to open |
+| `not_found` | the backend reports it cannot obtain the artifact at all — an absence from wherever it fetches from, not a package that fails to build |
+| `unknown` | reserved by the shared vocabulary; no shipped path writes it |
+| `not_applicable` | identity established that this package has **no release ecosystem**, so there is nothing to build. `detail` names identity as the reason; this is the only way the state is ever written |
+
+**A failed build and a broken backend are different rows, on purpose.** The first
+carries a log reference and leaves the run `succeeded` in the ledger — the
+verification worked and the answer was negative. The second is an `error` row and a
+`failed` run. Alert on the second; triage the first.
+
+**The state values are not the static collector's, and that is the point.**
+`verified_compatible` and `inferred_compatible` are deliberately different strings
+because `CPM-FR-14` requires proof and inference to be distinguishable wherever a
+status is rendered. If you build a queue, a report or an export over these tables,
+carry the values verbatim — collapsing either to `compatible` is exactly the
+confusion the naming prevents.
+
+**Every determinate row says where it ran, and the database enforces it.** A backend
+that answers a verdict without a platform, an architecture and a log reference has
+its answer refused: the row is `error` and says what was missing. A build succeeds on
+a platform, and a verdict with nowhere attached would be a claim about every platform
+made from an execution on one.
+
+### What declaring a backend commits you to
+
+An execution backend is a `Transport` — the same substitution seam the inventory
+adapter and the advisory source use — declared in an `AppConfig.ready()`:
+
+```python
+from conda_sentinel.collectors.verification import declare_verification_backend
+
+declare_verification_backend(YourBuildRunner(...))
+```
+
+One slot. A second declaration is refused rather than allowed to replace the first,
+because which machine runs somebody else's build is not a question that should be
+answered by import order.
+
+It is handed `py314-verify://declared-backend/<the package's purl>` and must answer a
+JSON object carrying exactly `verified` (a boolean), `platform`, `architecture` and
+`log_reference` (non-blank strings), plus an optional `detail`. Any other field is
+refused rather than ignored — a backend that grows a `partial` flag has changed what
+its verdict means. `found: false` means the artifact cannot be obtained; it does not
+mean the build failed. Every failure must be raised as `TransportError`.
+
+**The hard constraint to design around is the inherited soft time limit.** Celery
+kills a task at `CELERY_TASK_SOFT_TIME_LIMIT`, the platform fixes that value, and
+this product does not raise it. The `verify` queue keeps a long build from *starving*
+the daily sweeps; it does not give the build more time. So a backend whose `fetch`
+blocks for the length of a real build will be killed with no row written. A backend
+that works drives the build somewhere else — a CI run, a build cluster, a container
+scheduler — and answers about a run that has **already finished**. Plan the trigger
+as two steps if you need to: something that starts the build, and a trigger of this
+task once it has.
+
+**What it costs.** One build per trigger, no automatic retry — a retry here would
+re-run somebody's build over a failure nobody has looked at — and a declared allowance
+of six verifications a minute across the whole component. That allowance is a bound
+on a trigger loop rather than a throughput target: a build takes minutes, so reaching
+it means triggers are arriving far faster than the backend can serve them. A
+verification result is read as current for thirty days, which is a **provisional**
+number: PRD Open Question 7c has no cadence to derive a freshness target from, and
+this is a target measured from the request. Revisit it once you have a backend and
+know how fast its answers actually go out of date.
+
+**No readiness verdict is on this table.** Whether a package is *ready*, and which
+kind of evidence produced that answer, is a policy over this table and the static one
+beside it, and no such policy exists yet.
+
 ## The full-inventory sweep: what beat fires, and what it does not do
 
-**Nine collectors are registered and eight of them are swept one package at a
+**Ten collectors are registered and eight of them are swept one package at a
 time.** The ninth is inventory ingestion, which reads one document naming many
-packages and is deliberately absent from the schedule below; every count in this
+packages and is deliberately absent from the schedule below. The tenth is Python 3.14
+verification, which is *triggered* rather than swept and is absent from the schedule
+for a different reason: it is not run across the inventory at all, by design, and a
+schedule entry naming it is refused at the first tick. Every count in this
 section is the eight unless it says otherwise. What runs those eight across the
 whole inventory is one **dispatch** task, `cpm.collect.sweep`, fired by
 `django_celery_beat` once per collector at the cadence that collector declares

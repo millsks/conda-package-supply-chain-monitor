@@ -122,7 +122,7 @@ class CollectorsConfig(AppConfig):
         declaration.** There are two of them rather than three:
         `CPM-SECURITY-S03`'s licence collector needs no adapter at all, because it
         reads the channels an operator has already declared, so the seams below are
-        the whole of what this epic leaves undeclared.
+        the whole of what that epic leaves undeclared.
         `collectors/advisories.py` opens the one-slot seam for
         `CPM-FR-11`'s vulnerability collector and `collectors/kev.py` opens a
         second one for `CPM-FR-12`'s KEV collector, and this hook deliberately
@@ -143,6 +143,22 @@ class CollectorsConfig(AppConfig):
         and an operator may reasonably have one and not the other. Declaring one
         leaves the other's collector observing nothing and saying so, which is a
         state this component can be in honestly.
+
+        **A third seam is left undeclared here, and it is the one with the most
+        behind it.** `collectors/verification.py` opens the slot for
+        `CPM-PY314-S02`'s Python 3.14 execution backend, and this hook makes no call
+        into it either. What the two security seams substitute is *which source is
+        read*; what this one substitutes is **what code runs on which machine** --
+        verification means executing somebody else's build and somebody else's
+        import, and nothing in this product's requirements or architecture decides
+        how that is isolated. A backend chosen by default would run arbitrary build
+        scripts on whatever host the worker happens to be, in the one product whose
+        subject is what arbitrary code from the internet does to an organisation.
+        Nothing is refused at boot over it, for the reason nothing is refused over
+        the two above: an undeclared backend is the *shipped* state. What it costs
+        is a task that refuses by name -- and, unlike the two security collectors,
+        not one wasted dispatch either, because nothing sweeps this collector at
+        all (`CPM-PY314-S02` AC 3).
 
         **The two refusals about what a collector *declares* are made here, and
         here is the only place they can be made.** `CPM-AD-28`'s freshness
@@ -199,6 +215,7 @@ class CollectorsConfig(AppConfig):
         from conda_sentinel.collectors.feedstock import FeedstockCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.kev import KevCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.license import LicenseCollector  # noqa: PLC0415 - see above
+        from conda_sentinel.collectors.py314_verification import Py314VerificationCollector  # noqa: PLC0415
         from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.python_readiness import PythonReadinessCollector  # noqa: PLC0415 - see above
         from conda_sentinel.collectors.source_release import SourceReleaseCollector  # noqa: PLC0415 - see above
@@ -223,6 +240,7 @@ class CollectorsConfig(AppConfig):
             KevCollector,
             LicenseCollector,
             PythonReadinessCollector,
+            Py314VerificationCollector,
         ):
             if registrations().get(collector.name) is not collector:
                 register(collector)

@@ -2,14 +2,23 @@
 
 `CPM-AD-5` composes every per-status vocabulary in this product from
 `core.outcomes.outcome_type`, and these are `CPM-SECURITY-S01`'s,
-`CPM-SECURITY-S02`'s, `CPM-SECURITY-S03`'s and `CPM-PY314-S01`'s.
-`VulnerabilityOutcome` is the vocabulary `vulnerability_findings.state` is drawn
-from, `KevOutcome` is `kev_findings.state`'s, `LicenseOutcome` is
-`license_findings.state`'s and `PythonReadinessOutcome` is
-`python_readiness_assessments.state`'s, and the whole of why any of them exists
-rather than the bare `OutcomeState` is one sentence: **a determinate row here is
-never merely "fine"**, and `core`'s single precedence order ranks `ok` best of
-five.
+`CPM-SECURITY-S02`'s, `CPM-SECURITY-S03`'s, `CPM-PY314-S01`'s and
+`CPM-PY314-S02`'s. `VulnerabilityOutcome` is the vocabulary
+`vulnerability_findings.state` is drawn from, `KevOutcome` is
+`kev_findings.state`'s, `LicenseOutcome` is `license_findings.state`'s,
+`PythonReadinessOutcome` is `python_readiness_assessments.state`'s and
+`PythonVerificationOutcome` is `python_verification_results.state`'s, and the
+whole of why any of them exists rather than the bare `OutcomeState` is one
+sentence: **a determinate row here is never merely "fine"**, and `core`'s single
+precedence order ranks `ok` best of five.
+
+**The last two are the pair `CPM-FR-14` requires to stay apart.** Inferred
+compatibility and *verified* compatibility are distinct recorded states, and
+`CPM-AD-24` carries a state's value verbatim onto every read surface -- so the
+distinction has to survive the projection, which means it has to live in the
+values themselves. `inferred_compatible` and `verified_compatible` read
+differently on a queue; `compatible` and `compatible` do not. That is the whole
+of `CPM-EP-PY314`'s title, made structural in two `TextChoices` types.
 
 **What using `ok` here would have done.** `CPM-AD-24` makes every derived status
 carry its value verbatim onto every read surface, so the first view over this
@@ -37,12 +46,16 @@ same solution: the vocabulary is the half of the pair that depends on nothing, s
 the vocabulary is the half that moves. This module imports `core.outcomes` and
 nothing else, in either direction.
 
-**All four vocabularies live here rather than one per collector**, which is the
+**All five vocabularies live here rather than one per collector**, which is the
 one place this module departs from "a leaf per story". They are the same kind of
 thing declared for the same reason, they are read by the same models module, and a
 second file would be a second copy of every argument below — while a reader
 comparing the determinate values, which is the comparison `CPM-SECURITY-S01`'s
-review turned on, would have to open four files to make it.
+review turned on, would have to open five files to make it. The last two make
+that argument load-bearing rather than merely convenient: `inferred_compatible`
+and `verified_compatible` are one scroll apart in this file, and a reviewer
+asking whether they can be told apart on a queue can see both without opening
+anything.
 
 **Bound once, at module scope, and that is load-bearing.** `outcome_type` mints a
 distinct class on every call, so two calls would produce two types whose members
@@ -61,10 +74,11 @@ not exist either. An order declared here would be data no function reads — whi
 `tests/unit/django_apps/test_single_ordering_audit.py` would have to license by
 name, and which the next reader would take for a ranking this product applies
 somewhere. Until then `core.outcomes.aggregate` **refuses** `matched`, `listed`,
-`not_listed`, `normalized`, `inferred_compatible` and `inferred_incompatible`
-outright, which is the safe failure and exactly what that module says it is for: a
-caller that reduced these rows without deciding the order is told, loudly, rather
-than having `matched` silently ranked beside `ok`.
+`not_listed`, `normalized`, `inferred_compatible`, `inferred_incompatible`,
+`verified_compatible` and `verification_failed` outright, which is the safe
+failure and exactly what that module says it is for: a caller that reduced these
+rows without deciding the order is told, loudly, rather than having `matched`
+silently ranked beside `ok`.
 
 **Why this module names no `OutcomeState` member.** The four sentinels are read
 back off the composed type rather than written out, so nothing here is a literal
@@ -112,6 +126,14 @@ __all__ = [
     "READINESS_NOT_APPLICABLE",
     "READINESS_NOT_FOUND",
     "READINESS_UNKNOWN",
+    "VERIFICATION_ERROR",
+    "VERIFICATION_FAILED",
+    "VERIFICATION_FAILED_MEMBER",
+    "VERIFICATION_NOT_APPLICABLE",
+    "VERIFICATION_NOT_FOUND",
+    "VERIFICATION_UNKNOWN",
+    "VERIFIED_COMPATIBLE",
+    "VERIFIED_COMPATIBLE_MEMBER",
     "VULNERABILITY_ERROR",
     "VULNERABILITY_NOT_APPLICABLE",
     "VULNERABILITY_NOT_FOUND",
@@ -119,6 +141,7 @@ __all__ = [
     "KevOutcome",
     "LicenseOutcome",
     "PythonReadinessOutcome",
+    "PythonVerificationOutcome",
     "VulnerabilityOutcome",
 ]
 
@@ -449,3 +472,126 @@ READINESS_NOT_FOUND: Final[str] = _READINESS_MEMBER_VALUES["NOT_FOUND"]
 #: reading an unresolved identity as an inapplicable question is the absence trap
 #: the preceding epic met in every story.
 READINESS_NOT_APPLICABLE: Final[str] = _READINESS_MEMBER_VALUES["NOT_APPLICABLE"]
+
+
+#: The determinate verdict for a row recording that a build and an import of this
+#: package actually **succeeded** under the target Python, declared once as the
+#: `(member name, value)` pair `outcome_type` takes.
+#:
+#: **`verified_compatible`, and the prefix is the entire point of the epic.**
+#: `CPM-FR-14` requires inferred compatibility and verified compatibility to be
+#: *distinct recorded states*, and `CPM-AD-24` carries a state's value verbatim
+#: onto every read surface -- so a bare `compatible` here would sit on a queue
+#: beside `INFERRED_COMPATIBLE` above and read identically, which is "inferred and
+#: verified, kept apart" undone in the one column a policy pass reads first. The
+#: two values are deliberately the same word with different prefixes: a reader who
+#: sees only the value can tell proof from inference, and a reader who sees both
+#: can tell they are answers to the same question.
+#:
+#: `ok` is refused here for the reason every vocabulary above refuses it, and for
+#: one this table adds: `ok` cannot say *what kind of evidence* produced it, which
+#: is `CPM-PY314-S03`'s whole subject.
+#:
+#: What the row can honestly claim is bounded by what the row records beside it.
+#: A verification is an execution on **one** platform and **one** architecture, so
+#: this value never means "this package works everywhere" -- it means a build and
+#: an import succeeded on the platform and the architecture this row names, with
+#: the log reference to show for it. `python_verification_results` refuses a
+#: determinate row that cannot name all three.
+VERIFIED_COMPATIBLE_MEMBER: Final[tuple[str, str]] = ("VERIFIED_COMPATIBLE", "verified_compatible")
+
+#: The determinate verdict for a row recording that verification ran and did
+#: **not** succeed.
+#:
+#: **A second determinate member rather than a sentinel**, on the terms
+#: `NOT_LISTED_MEMBER` states: "we built it and the build did not come out" is a
+#: negative that was *established* by an execution, which is different from
+#: `unknown` (nothing was established), different from `not_found` (the backend
+#: says the artifact is not there) and different again from `error` (the backend
+#: itself raised, so no verification happened at all). A failed build is a
+#: **result**, and folding it into `error` would lose the one row an engineer most
+#: wants to open -- the one with a log reference attached.
+#:
+#: **`verification_failed` rather than `verified_incompatible`, and this is the
+#: one place this vocabulary declines the symmetry the value above sets up.** A
+#: build fails for reasons that are not the target Python: a missing system
+#: library, a compiler this runner does not have, a network fetch the sandbox
+#: refused. Recording that as `verified_incompatible` would be a claim about
+#: somebody else's package that the evidence does not carry -- the same
+#: over-claim `INFERRED_INCOMPATIBLE_MEMBER` is careful not to make from a
+#: specifier, made here from a build log. What *did* happen is that verification
+#: was attempted and did not produce a working build on the platform this row
+#: names, which is exactly what the value says. What it *means* for a package is
+#: `CPM-FR-19`'s readiness policy (`CPM-PY314-S03`, `CPM-AD-8`), which is where a
+#: verdict is allowed to be reached.
+#:
+#: It is also emphatically **not** the ledger's `failed`. That word is a *run*
+#: state in `core/runs.py` and says the collection did not complete; this one is
+#: an *evidence* state and says the collection completed perfectly, carrying a
+#: negative result. A run that records this row is finalized `ok`.
+VERIFICATION_FAILED_MEMBER: Final[tuple[str, str]] = ("VERIFICATION_FAILED", "verification_failed")
+
+#: The verified-compatibility vocabulary: `core`'s four sentinels plus the two
+#: verdicts an execution can reach.
+#:
+#: **Two determinate members and not three.** There is no member for "verification
+#: has not been asked for", and there could not be: nothing is written for a
+#: package nobody triggered. A package with no row here is reported `unknown` for
+#: want of an observation by `core/freshness.py`'s `UNOBSERVED_STATUS`, which is
+#: what every unverified package in a real inventory is -- and, `CPM-PY314-S02`'s
+#: AC 3 being what it is, that is most of it, permanently and on purpose.
+PythonVerificationOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "PythonVerificationOutcome",
+    [VERIFIED_COMPATIBLE_MEMBER, VERIFICATION_FAILED_MEMBER],
+)
+
+#: `PythonVerificationOutcome`'s own members, by name, read off the composed type
+#: itself for the reason `_MEMBER_VALUES` above is read off its own.
+_VERIFICATION_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in PythonVerificationOutcome}
+
+#: A build and an import of this package succeeded under the target Python, on the
+#: platform and the architecture the row names. Proof, and never an inference from
+#: published metadata.
+VERIFIED_COMPATIBLE: Final[str] = _VERIFICATION_MEMBER_VALUES["VERIFIED_COMPATIBLE"]
+
+#: Verification ran and did not produce a working build, on the platform and the
+#: architecture the row names, with the log reference to show for it. A result,
+#: never an error -- and never a claim that the package cannot be made to work.
+VERIFICATION_FAILED: Final[str] = _VERIFICATION_MEMBER_VALUES["VERIFICATION_FAILED"]
+
+#: The run established nothing about whether this package builds -- which on this
+#: table means the backend answered a document that reached no verdict. Never
+#: clean (`CPM-FR-6`, `CPM-SM-2`): a package nobody has built is not a package that
+#: builds.
+#:
+#: **A package with no execution backend declared is deliberately not on that
+#: list**, because no row is written for it at all: `verification_backend()`
+#: refuses before the recorder opens, so an unconfigured component leaves no row
+#: claiming to have verified anything. That is the state this component ships in.
+VERIFICATION_UNKNOWN: Final[str] = _VERIFICATION_MEMBER_VALUES["UNKNOWN"]
+
+#: Looking failed -- the backend raised, the allowance was refused, or the document
+#: it answered could not be read. Distinct from `verification_failed` above, and
+#: the distinction is the one this table exists to keep: a build that failed is a
+#: result about the package, and a backend that fell over is a fact about the
+#: runner.
+VERIFICATION_ERROR: Final[str] = _VERIFICATION_MEMBER_VALUES["ERROR"]
+
+#: The backend reports that the artifact it was asked to build does not exist,
+#: which is an absence from wherever it fetches from rather than a package that
+#: fails to build.
+VERIFICATION_NOT_FOUND: Final[str] = _VERIFICATION_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", and the second composed
+#: vocabulary in this module whose table really does hold it.
+#:
+#: One path to it, and it is `CPM-PY314-S01`'s exactly: `identity` recorded this
+#: package's release-ecosystem mapping as `not_applicable`, which is resolution
+#: saying the package has no release ecosystem a Python question could be asked
+#: of. A mapping that is `unknown`, `error` or `not_found` establishes **nothing**
+#: and never reaches this value -- reading an unresolved identity as an
+#: inapplicable question is the absence trap the preceding epic met in every
+#: story, and it would be worse here than there: a `not_applicable` verification
+#: row is this product saying it need never build a package it simply has not
+#: resolved yet.
+VERIFICATION_NOT_APPLICABLE: Final[str] = _VERIFICATION_MEMBER_VALUES["NOT_APPLICABLE"]

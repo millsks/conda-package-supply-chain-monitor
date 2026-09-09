@@ -74,6 +74,7 @@ from conda_sentinel.collectors.conda_package import COLLECTOR_NAME as CONDA_PACK
 from conda_sentinel.collectors.feedstock import COLLECTOR_NAME as FEEDSTOCK_NAME
 from conda_sentinel.collectors.kev import COLLECTOR_NAME as KEV_NAME
 from conda_sentinel.collectors.license import COLLECTOR_NAME as LICENSE_NAME
+from conda_sentinel.collectors.py314_verification import COLLECTOR_NAME as PY314_VERIFICATION_NAME
 from conda_sentinel.collectors.pypi_release import COLLECTOR_NAME as PYPI_RELEASE_NAME
 from conda_sentinel.collectors.python_readiness import COLLECTOR_NAME as PYTHON_READINESS_NAME
 from conda_sentinel.collectors.source_release import COLLECTOR_NAME as SOURCE_RELEASE_NAME
@@ -252,15 +253,26 @@ def test_the_registry_this_repository_ships_passes_condition_ten() -> None:
     `CPM-IDENTITY-S06` adopted the first real collector, `CPM-CURRENCY-S01` the
     second, `CPM-CURRENCY-S02` the third, `CPM-CURRENCY-S03` the fourth,
     `CPM-CURRENCY-S04` the fifth, `CPM-SECURITY-S01` the sixth,
-    `CPM-SECURITY-S02` the seventh and `CPM-SECURITY-S03` the eighth, so the
+    `CPM-SECURITY-S02` the seventh, `CPM-SECURITY-S03` the eighth,
+    `CPM-PY314-S01` the ninth and `CPM-PY314-S02` the tenth, so the
     registry a deployed boot sweeps is no longer empty: `CollectorsConfig.ready()`
     registers inventory ingestion, upstream release collection, PyPI release
     collection, feedstock collection, published-conda-package collection,
-    vulnerability collection, KEV cross-referencing and licence collection during
-    `django.setup()`, and the sweep meets all eight on every boot in this tree.
+    vulnerability collection, KEV cross-referencing, licence collection, static
+    Python-readiness assessment and Python 3.14 verification during
+    `django.setup()`, and the sweep meets all ten on every boot in this tree.
     That is asserted rather than assumed, and both halves matter -- the roster is
     what it is meant to be, and stage two passes over it without a fixture in
     sight.
+
+    **The tenth is registered and is swept by nothing**, which is the shape
+    condition 10 has to pass over rather than refuse. `CPM-PY314-S02`'s
+    verification collector is triggered rather than scheduled, so it declares no
+    cadence and answers `selectable_packages` with `None` -- and it still declares
+    a freshness target, because `CPM-AD-28` demands one of every registered
+    collector whether or not anything schedules it. The loop below asserts exactly
+    that, over the whole roster, so a triggered collector that quietly dropped its
+    target would fail here rather than at the first boot that swept it.
 
     The roster is asserted as a whole rather than as "contains", which is the
     difference between a test that notices an adoption disappearing and one that
@@ -287,6 +299,7 @@ def test_the_registry_this_repository_ships_passes_condition_ten() -> None:
             KEV_NAME,
             LICENSE_NAME,
             PYTHON_READINESS_NAME,
+            PY314_VERIFICATION_NAME,
         ],
     )
 
@@ -339,7 +352,7 @@ def _schedule_with(*entries: tuple[str, timedelta | None]) -> dict[str, dict[str
     """Return the shipped `CELERY_BEAT_SCHEDULE` plus one dispatch entry per pair.
 
     **Built on top of the shipped schedule rather than replacing it**, and that is
-    forced rather than tidy: all nine real collectors are registered in this
+    forced rather than tidy: all ten real collectors are registered in this
     process and eight of them declare a cadence, so a schedule that dropped their
     entries would make every case here refuse for eight reasons it was not written
     about. What each case configures is

@@ -42,14 +42,19 @@ module fails the gate as a first one anywhere else would, and a record that no
 longer describes the tree fails from the other side. A path skipped wholesale
 would do none of that.
 
-**The anti-vacuity half is the load-bearing one today.** No collector, policy
-pass or verification build exists yet -- the first arrives with
-`CPM-EP-CURRENCY` -- so the sweep passes over one exempted task and nothing else,
-which is how an audit becomes permanently green and permanently useless. What
-keeps it honest is that the detector is measured against fixture tasks registered
-in the real registry and removed afterwards, one per row of this story's
-edge-case matrix. `tests/celery_tasks.py` owns the registration and the removal,
-and states why celery has no `isolate_apps` equivalent to borrow.
+**The anti-vacuity half was the load-bearing one, and all three namespaces are
+now occupied by real tasks.** When this module was written no collector, policy
+pass or verification build existed, so the sweep passed over one exempted task and
+nothing else -- which is how an audit becomes permanently green and permanently
+useless. `CPM-EP-CURRENCY` filled `cpm.collect.`, `CPM-EP-CURRENCY`'s policy run
+filled `cpm.policy.`, and `CPM-PY314-S02` filled `cpm.verify.` with
+`cpm.verify.py314_build`, which is the task `core/queues.py`'s docstring had been
+using as its worked example since before there was one. The fixture half stays,
+because the detector's *refusals* still have nothing real to measure against: a
+product task in an unknown namespace and one that declared no name at all are
+shapes this repository does not contain and must still fail. `tests/celery_tasks.py`
+owns the registration and the removal, and states why celery has no `isolate_apps`
+equivalent to borrow.
 
 Reads the task registry and calls a pure resolver: no database, no network, no
 broker.
@@ -110,9 +115,15 @@ A_CELERY_BUILT_IN: Final[str] = "celery.chain"
 #: `cpm.collect.fixture_release` rather than a real collector's name: the registry
 #: refuses a fixture registered over a task it already holds, and
 #: `cpm.collect.pypi_release` became one of those with `CPM-CURRENCY-S02`.
+#: `cpm.verify.fixture_build` for the same reason and by the same route:
+#: `cpm.verify.py314_build` was the obvious name for a verification fixture right
+#: up until `CPM-PY314-S02` registered a real task under it. The pattern is now
+#: twice-observed rather than once -- a fixture named after the plausible real
+#: task is a fixture that collides the moment the story lands -- so all three
+#: namespaces are represented by names no story will take.
 A_COLLECTOR_TASK: Final[str] = "cpm.collect.fixture_release"
 A_POLICY_TASK: Final[str] = "cpm.policy.currency"
-A_VERIFICATION_TASK: Final[str] = "cpm.verify.py314_build"
+A_VERIFICATION_TASK: Final[str] = "cpm.verify.fixture_build"
 A_PRODUCT_TASK_IN_NO_NAMESPACE: Final[str] = "cpm.sweep.thing"
 A_PRODUCT_TASK_WITH_A_BARE_NAME: Final[str] = "conda_sentinel.collectors.tasks.fetch"
 A_SECOND_TASK_IN_THE_EXEMPTED_MODULE: Final[str] = "django_service.users.tasks.count_something_else"
