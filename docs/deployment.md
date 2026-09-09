@@ -3509,3 +3509,76 @@ about it is an open question.
 One row per package per run, never updated and never deleted, every relation
 `PROTECT`. The reasoning and the consequences are exactly the seven sibling tables',
 above.
+
+## Replaying a policy run: reproducing what the system concluded
+
+`CPM-PRIORITY-S03` gives `CPM-FR-22` a front door. The capability has been there
+since the orchestration was built — a policy run takes its evidence cut-off rather
+than choosing one — but until now using it meant writing Python. A compliance
+reviewer asking "what did this system conclude on 12 June, and can you show me
+again?" runs:
+
+```sh
+pixi run -e dev manage replay_policy_run --of-run 417
+```
+
+That reads the policy version and the evidence cut-off off run 417, executes a new
+run at both, compares every column of every derived row against what run 417
+concluded, and **exits non-zero if anything differs**. The exit status is the answer;
+the printed differences are why.
+
+You can also state both directly, for a version and instant taken from a report:
+
+```sh
+pixi run -e dev manage replay_policy_run \
+  --policy-version 2026.09.3 --evidence-cutoff 2026-06-12T02:00:00+00:00
+```
+
+The cut-off must carry a timezone — every instant this product records is aware, and
+a naive one would read a window nobody chose. Stating a version and a cut-off with no
+`--of-run` runs the policy but compares nothing, and the output says so rather than
+reporting a success it did not check.
+
+### It rewrites current health — know this before you run it
+
+**This is the one consequence that surprises people.** `package_health` holds exactly
+one row per package and a policy run *replaces* it. So replaying a three-month-old
+cut-off leaves the current-health table showing what was true three months ago, and
+every view, export and API read shows that, until the next scheduled policy run puts
+it back.
+
+Nothing is hidden: each row carries `computed_at` and the `evidence_cutoff` it was
+computed at, so a reader can see the state is historical. But they have to look. The
+command therefore prints the warning and asks for confirmation before doing anything;
+`--no-input` skips the prompt for scripted use.
+
+If that is unacceptable in your deployment, replay against a restored copy of the
+database rather than against production. The derived tables — `package_currency`,
+`package_vulnerability`, `package_priority` and the rest — are keyed by run and
+accumulate, so both runs' conclusions survive there either way; it is only the rollup
+that is replaced.
+
+### What a replay does not do
+
+**It collects nothing.** No collector runs, no outbound call is made, and no evidence
+row is written or changed. Every pass reads evidence `observed_at <= cutoff`, and
+evidence is append-only, so the rows the original run read are still there and still
+say the same thing. That is what "re-runnable against historical evidence" means.
+
+**It does not touch the run it replays.** Derived tables are keyed
+`(package, policy_run)`, so the replay adds its own rows beside the original's. That
+is what makes the comparison possible at all.
+
+### When a replay does not reproduce
+
+A difference is a real finding, and there are three things it can mean:
+
+- **a pass is not deterministic** at a fixed cut-off — it read a clock, or the newest
+  row rather than the newest row at or before the cut-off;
+- **the reviewed parameter file changed for that version** — entries are supposed to
+  be added and never edited, precisely so this cannot happen;
+- **evidence was not append-only** — something updated or deleted a row the original
+  run read.
+
+The report names the table, the package and the column for each difference, which is
+usually enough to tell which of the three it is.

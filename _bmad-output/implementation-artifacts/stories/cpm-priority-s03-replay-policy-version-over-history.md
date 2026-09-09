@@ -1,6 +1,6 @@
 # CPM-PRIORITY-S03: Replay a policy version over history
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-PRIORITY` — A ranked, explainable queue of work
 
@@ -78,3 +78,53 @@ so that I can reproduce exactly what the system concluded at a point in time.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**What this story found already built, and what it therefore is.**
+`execute_policy_run` has taken `evidence_cutoff` as a parameter since the
+orchestration was built, and its docstring already cites `CPM-FR-22`'s replay as the
+reason. Every pass reads `observed_at <= cutoff` and each already has a per-domain
+replay case. So the *capability* was there; what was missing was a way for the person
+who needs it to use it, and any way at all to check that a replay actually
+reproduced.
+
+This story is those two things: a front door, and a comparison.
+
+**Files added:** `core/replay.py` (the comparison),
+`core/management/commands/replay_policy_run.py` (the command), the `management`
+package, and `tests/integration/django_apps/test_policy_replay.py`.
+
+**Files changed:** `docs/deployment.md`. **No migration and no model change** — the
+requirement is about reproducing what the tables already hold.
+
+**Each acceptance criterion:**
+
+- **AC 1 (reproduces, needs no recollection).** `compare_runs` reads every registered
+  pass's derived table and compares every column of every package's row, excluding
+  only the primary key and the run reference. The load-bearing case writes *new
+  evidence after the cut-off between the two runs* and asserts the replay still
+  reproduces — a replay that reproduced only because nothing changed would prove the
+  passes are not random and nothing else. "No recollection" is asserted as the
+  evidence tables being byte-identical and no collection run being opened.
+- **AC 2 (records version, timestamp, cut-off, status).** Asserted as the four the
+  requirement names on one finished ledger row.
+- **AC 3 (never mutates evidence).** Asserted over the rows themselves rather than a
+  count: a count catches an insert or a delete, and an *update* is the mutation a
+  pass could plausibly perform by reaching for `save()` on a row it read.
+
+**The negative control is what makes the rest mean anything.** Two runs at
+*different* cut-offs must differ, and the comparison must name the package and the
+column. Without it a comparison that always reported success would satisfy every
+other case in the module.
+
+**One operational consequence is stated three times, deliberately.** A replay
+rewrites `package_health` — `CPM-AD-11` gives it one row per package and the writer
+replaces it — so replaying an old cut-off leaves current health historical until the
+next scheduled run. It is visible on the row (`computed_at`, `evidence_cutoff`) but
+only to a reader who looks, so the command warns, asks for confirmation, and
+`docs/deployment.md` says what to do instead if that is unacceptable.
+
+**Coverage:** both new modules at 100%.
