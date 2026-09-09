@@ -107,10 +107,10 @@ development_status:
   epic-rename-retrospective: optional
 
   # CPM-EP-PY314: Inferred and verified compatibility, kept apart
-  epic-py314: in-progress
+  epic-py314: done
   cpm-py314-s01-static-readiness-assessment: done
   cpm-py314-s02-verified-compatibility-own-queue: done
-  cpm-py314-s03-readiness-states-own-evidence-type: ready-for-dev
+  cpm-py314-s03-readiness-states-own-evidence-type: done
   epic-py314-retrospective: optional
 
   # CPM-EP-PRIORITY: A ranked, explainable queue of work
