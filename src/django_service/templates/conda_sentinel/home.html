@@ -1,0 +1,104 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Home" %}{% endblock title %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{% translate "Conda Sentinel" %}</h2>
+      <div class="sub">
+        {% blocktranslate count total=coverage.inventory trimmed %}
+          Watching {{ total }} package
+        {% plural %}
+          Watching {{ total }} packages
+        {% endblocktranslate %}
+      </div>
+    </div>
+  </div>
+
+  {% comment %}
+    CPM-AD-11 requires every view to show the run's stamps, and this screen needs
+    them most: it is the first thing a reader sees, and a dashboard nobody can date
+    is a dashboard that goes on being believed after it stops being true.
+  {% endcomment %}
+  {% if coverage.computed_at %}
+    <div class="freshbar">
+      <div><span class="lbl">{% translate "rollup computed" %}</span><b>{{ coverage.computed_at|date:"Y-m-d H:i" }}Z</b></div>
+      <div><span class="lbl">{% translate "evidence cut-off" %}</span><b>{{ coverage.evidence_cutoff|date:"Y-m-d H:i" }}Z</b></div>
+    </div>
+  {% else %}
+    <div class="freshbar">
+      <div>
+        <span class="lbl">{% translate "rollup" %}</span>
+        <b>{% translate "no policy run has completed yet — nothing below is a conclusion" %}</b>
+      </div>
+    </div>
+  {% endif %}
+
+  {% comment %}
+    Every counter is a link into a filtered health view rather than a number in a
+    box. A dashboard whose counters do not lead anywhere is one people read once.
+  {% endcomment %}
+  <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">
+    <a class="panel" style="text-decoration:none" href="{% url 'conda_sentinel:package-health' %}">
+      <header><h4>{% translate "The whole estate" %}</h4></header>
+      <div class="body">
+        <div class="mono" style="font-size:26px">{{ coverage.inventory }}</div>
+        <div class="ev">{% translate "browse, filter and sort current package health" %}</div>
+      </div>
+    </a>
+
+    {% if coverage.unmapped %}
+      <a class="panel"
+         style="text-decoration:none"
+         href="{% url 'conda_sentinel:package-health' %}?confidence=unmapped">
+        <header><h4>{% translate "No established identity" %}</h4></header>
+        <div class="body">
+          <div class="mono" style="font-size:26px">{{ coverage.unmapped }}</div>
+          <div class="ev">{% translate "every status on these is gated to unknown until somebody resolves them" %}</div>
+        </div>
+      </a>
+    {% endif %}
+
+    {% for gap in coverage.gaps %}
+      <a class="panel" style="text-decoration:none" href="{% url 'conda_sentinel:coverage' %}">
+        <header><h4>{{ gap.label }}</h4><span class="hx">{% translate "no verdict" %}</span></header>
+        <div class="body">
+          <div class="mono" style="font-size:26px">{{ gap.inconclusive }}</div>
+          <div class="ev">{{ gap.share }}% {% translate "of the inventory" %}</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <header>
+      <h4>{% translate "What the monitor could not see" %}</h4>
+      <span class="hx"><a href="{% url 'conda_sentinel:coverage' %}">{% translate "full coverage" %}</a></span>
+    </header>
+    <table class="tbl">
+      <tbody>
+        {% for collector in collectors %}
+          {% if not collector.has_ever_run or not collector.inside_target or collector.failures %}
+            <tr>
+              <td class="pkg">{{ collector.name }}</td>
+              <td class="mono">
+                {% if not collector.has_ever_run %}
+                  {% translate "has never run" %}
+                {% elif not collector.inside_target %}
+                  {% translate "last finished" %} {{ collector.last_finished_at|date:"Y-m-d H:i" }}Z &middot;
+                  {% translate "outside its declared target" %}
+                {% else %}
+                  {{ collector.failures }} {% translate "of" %} {{ collector.runs }} {% translate "runs failed" %}
+                {% endif %}
+              </td>
+            </tr>
+          {% endif %}
+        {% empty %}
+          <tr><td>{% translate "No collector is registered." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock content %}

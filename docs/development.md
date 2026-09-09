@@ -1042,6 +1042,23 @@ A module that has to know that a vulnerability verdict lives on
 `package_vulnerability.vulnerability_status` belongs in `surface`.
 `tests/unit/django_apps/test_app_layering_audit.py` holds the line.
 
+**The coverage screen counts absence, not health.** `surface/coverage.py` reports
+how many packages have no established identity and how many carry no verdict in
+each rollup column — never a percentage healthy. `CPM-FR-5` forbids presenting a
+package as clean without evidence, and this is where the aggregate of that is
+visible. Its collector roster comes from `core/registry.py`, never a list written
+in the view: a hand-written roster gives a clean bill of health to a collector
+nobody added to it, and the omission is invisible because the screen looks
+complete. Each collector is judged against the `freshness_target` it declares for
+itself — the targets genuinely differ, two days for an advisory sweep and thirty
+for a Python 3.14 build — and one that has never run says so rather than rendering
+blank.
+
+Both that screen and the home view were built without a story: no PRD requirement
+commissions them, and their acceptance criteria were written by the implementing
+agent. `_bmad-output/implementation-artifacts/stories/cpm-app-x01-coverage-and-home.md`
+carries the warning; treat the metric definitions as a proposal.
+
 **Evidence is read off the derived row's own citation, never re-derived.** Every
 pass records what it used — `PackageVulnerability` names its `vulnerability_finding`,
 `PackageCurrency` names the snapshot for the authority it chose, and

@@ -32,10 +32,16 @@
              {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
             {% translate "Packages" %}
           </a>
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Home" %}</a>
+          <a href="{% url 'conda_sentinel:home' %}"
+             {% if request.resolver_match.url_name == 'home' %}class="on" aria-current="page"{% endif %}>
+            {% translate "Home" %}
+          </a>
           <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "My queue" %}</a>
           <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Reports" %}</a>
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Coverage" %}</a>
+          <a href="{% url 'conda_sentinel:coverage' %}"
+             {% if request.resolver_match.url_name == 'coverage' %}class="on" aria-current="page"{% endif %}>
+            {% translate "Coverage" %}
+          </a>
         </nav>
         <div class="who">
           {% if request.user.is_authenticated %}

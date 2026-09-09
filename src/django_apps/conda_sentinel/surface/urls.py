@@ -18,12 +18,19 @@ from __future__ import annotations
 
 from django.urls import path
 
+from conda_sentinel.surface.views import CoverageView
+from conda_sentinel.surface.views import HomeView
 from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
 
 app_name = "conda_sentinel"
 
 urlpatterns = [
+    # Not mounted at `/`: the root belongs to the platform's own template, and taking
+    # it would mean this product decided what an accelerator-built component's front
+    # page is. `home` is the product's front page and the nav points at it.
+    path("home/", HomeView.as_view(), name="home"),
+    path("coverage/", CoverageView.as_view(), name="coverage"),
     path("packages/", PackageHealthView.as_view(), name="package-health"),
     # Keyed on the canonical name so a link pasted into a ticket says which package
     # it is about. `<str:>` rather than `<slug:>`: a canonical name may carry a dot

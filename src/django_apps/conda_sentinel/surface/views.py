@@ -49,13 +49,17 @@ from django.db.models import Value
 from django.db.models import When
 from django.views.generic import DetailView
 from django.views.generic import ListView
+from django.views.generic import TemplateView
 
+from conda_sentinel.core.clock import SystemClock
 from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.core.pagination import DEFAULT_PAGE_SIZE
 from conda_sentinel.core.permissions import PRODUCT_ROLES
 from conda_sentinel.core.permissions import RoleRequiredMixin
 from conda_sentinel.policies.models import PackagePriority
 from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
+from conda_sentinel.surface.coverage import collector_health
+from conda_sentinel.surface.coverage import coverage_of
 from conda_sentinel.surface.detail import identity_of
 from conda_sentinel.surface.detail import recent_runs
 from conda_sentinel.surface.detail import traces_for
@@ -279,5 +283,77 @@ class PackageDetailView(RoleRequiredMixin, DetailView):  # type: ignore[type-arg
             traces=traces_for(row),
             identity=identity_of(row.package),
             runs=recent_runs(row.package),
+        )
+        return context
+
+
+class CoverageView(RoleRequiredMixin, TemplateView):
+    """What the monitor cannot see, which is the question a coverage screen is for.
+
+    **No story commissions this and no requirement names it.** It is built from the
+    UX mockups' `S8`, and `CPM-APP-X01`'s acceptance criteria were written for it
+    rather than derived from the PRD. See `surface/coverage.py`.
+
+    The screen it deliberately is not is the one that reports a percentage healthy.
+    `CPM-FR-5` forbids presenting a package as clean without evidence, and this is
+    where the aggregate of that is visible: how many packages have no established
+    identity, how many statuses are sentinels rather than verdicts, and which
+    collector has not completed a run inside the window it declared.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+    template_name = "conda_sentinel/coverage.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the coverage counts and the collector roster.
+
+        Args:
+            **kwargs: Django's context.
+
+        Returns:
+            The context.
+
+        """
+        context = super().get_context_data(**kwargs)
+        # `CPM-AD-26`: the clock is injected, never read by the module that needs it.
+        context.update(
+            coverage=coverage_of(),
+            collectors=collector_health(now=SystemClock().now()),
+        )
+        return context
+
+
+class HomeView(RoleRequiredMixin, TemplateView):
+    """Where a reader starts: how fresh the picture is, and what is missing from it.
+
+    **No story commissions this either**, and what it can show is bounded by what
+    exists: the mockups' `S2` leads with "top of my queue", and there is no queue --
+    `CPM-AD-22`'s workflow application arrives with `CPM-APP-S04`. Building a
+    placeholder queue would be inventing the product's central abstraction on a
+    screen nobody asked for, so this shows the two things that *are* real: how
+    current the rollup is, and the size of what the monitor cannot see.
+
+    Everything on it is a link into a filtered health view rather than a number in a
+    box. A dashboard whose counters do not lead anywhere is a dashboard people read
+    once.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+    template_name = "conda_sentinel/home.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the freshness stamps and the coverage counts.
+
+        Args:
+            **kwargs: Django's context.
+
+        Returns:
+            The context.
+
+        """
+        context = super().get_context_data(**kwargs)
+        context.update(
+            coverage=coverage_of(),
+            collectors=collector_health(now=SystemClock().now()),
         )
         return context
