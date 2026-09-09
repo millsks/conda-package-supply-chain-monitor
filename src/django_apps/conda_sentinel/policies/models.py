@@ -145,6 +145,8 @@ from conda_sentinel.policies.outcomes import RULE_DISPOSITIONS
 from conda_sentinel.policies.outcomes import STAGED_RECIPE_PENDING
 from conda_sentinel.policies.outcomes import SURFACE_NOT_READ
 from conda_sentinel.policies.outcomes import VULNERABILITY_STATE_LENGTH
+from conda_sentinel.policies.outcomes import WORK_TYPE_LENGTH
+from conda_sentinel.policies.outcomes import WORK_TYPE_UNKNOWN
 from conda_sentinel.policies.outcomes import CurrencyOutcome
 from conda_sentinel.policies.outcomes import FeedstockOutcome
 from conda_sentinel.policies.outcomes import FixAvailability
@@ -155,6 +157,7 @@ from conda_sentinel.policies.outcomes import PackageVulnerabilityOutcome
 from conda_sentinel.policies.outcomes import PriorityBucket
 from conda_sentinel.policies.outcomes import ReadinessEvidence
 from conda_sentinel.policies.outcomes import RemediationReadiness
+from conda_sentinel.policies.outcomes import WorkType
 from conda_sentinel.policies.parameters import MAX_LICENSE_EXPRESSION_CHARACTERS
 from conda_sentinel.policies.parameters import MAX_PRIORITY_TEXT_CHARACTERS
 from conda_sentinel.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
@@ -176,6 +179,7 @@ __all__ = [
     "A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT",
     "A_SCORE_IS_IN_RANGE_OR_ABSENT",
     "A_VERIFIED_VERDICT_RESTS_ON_A_VERIFICATION",
+    "A_WORK_TYPE_IS_ONE_OF_THE_CLOSED_SET",
     "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
     "DETERMINATE_READINESS_VERDICTS",
@@ -196,6 +200,7 @@ __all__ = [
     "ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_WORK_TYPE_ROW_PER_PACKAGE_PER_RUN",
     "PRIORITY_ROW_NAMES_ITS_POLICY_VERSION",
     "PYTHON_READINESS_ROW_NAMES_ITS_POLICY_VERSION",
     "PYTHON_READINESS_ROW_NAMES_THE_SERIES_IT_JUDGED",
@@ -205,6 +210,7 @@ __all__ = [
     "THE_JUDGED_LICENSE_OUTCOME_NEEDS_ITS_FINDING",
     "THRESHOLD_IS_A_POSITIVE_INTERVAL",
     "VULNERABILITY_ROW_NAMES_ITS_POLICY_VERSION",
+    "WORK_TYPE_ROW_NAMES_ITS_POLICY_VERSION",
     "AuthorityOrderSource",
     "PackageCurrency",
     "PackageFeedstockPresence",
@@ -213,6 +219,7 @@ __all__ = [
     "PackagePythonReadiness",
     "PackageRemediation",
     "PackageVulnerability",
+    "PackageWorkType",
 ]
 
 #: How wide the two short vocabulary columns are. `VersionSurface`'s longest
@@ -2659,3 +2666,135 @@ class PackagePriority(models.Model):
         run = "no run" if self.policy_run_id is None else f"run {self.policy_run_id}"
         scored = "unscored" if self.score is None else f"score {self.score}"
         return f"{scope}: {self.bucket}, {scored} ({run})"
+
+
+#: The constraint making one row per package per run the database's rule
+#: (`CPM-AD-21`), by name.
+ONE_WORK_TYPE_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_work_type_row_per_package_per_run"
+
+#: The constraint holding a derived work type to `CPM-FR-21`'s closed set, by name.
+#:
+#: **This is `CPM-PRIORITY-S02`'s AC 2, and `choices` alone would not be it.**
+#: Django enforces `choices` on neither `save()` nor a migration, so a value
+#: outside the eight -- a typo in a later pass, a hand-written `INSERT`, a data
+#: migration -- reaches the column unchallenged. The requirement says a value
+#: outside the set is *rejected*, and a rejection that only happens when somebody
+#: remembers to call `full_clean()` is not one.
+#:
+#: The four sentinels are inside the constraint as well as the eight: they are what
+#: the column holds for a package no work type was derived for, and for one the
+#: confidence gate replaced. What is refused is anything the vocabulary does not
+#: offer at all.
+A_WORK_TYPE_IS_ONE_OF_THE_CLOSED_SET: Final[str] = "work_type_is_one_of_the_closed_set"
+
+#: The constraint requiring every row to name the policy version that produced it,
+#: by name.
+WORK_TYPE_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "work_type_row_names_its_policy_version"
+
+
+class PackageWorkType(models.Model):
+    """What one policy run recommends doing about a package. Table `package_work_type`.
+
+    `CPM-FR-21` as a row: which of the eight actions PRD Appendix A.1 names this
+    package's state recommends, and why.
+
+    **It is derived independently of the priority bucket, and that is the
+    requirement rather than a design preference.** `CPM-PRIORITY-S02`'s AC 1 is that
+    a work type is computable for a package in *any* bucket and that the two are not
+    coupled -- because a low-priority package still has a recommended action, and a
+    queue that only told you what to do about `P1` packages would leave every other
+    row saying nothing. So this is its own table written by its own pass, and that
+    pass reads neither `package_priority` nor the rollup's bucket. It is registered
+    **before** the priority pass, so it could not read them even by mistake.
+
+    **The eight are a closed set and the database holds them to it.**
+    `A_WORK_TYPE_IS_ONE_OF_THE_CLOSED_SET` refuses a value the vocabulary does not
+    offer, because `choices` is enforced by neither `save()` nor a migration and AC 2
+    asks for a rejection rather than a convention.
+
+    **One of the eight is unreachable, and the table keeps it.** `already_tracked`
+    means a record exists and the work is somebody else's to progress, which needs
+    the workflow queue `CPM-AD-22` gives to an application `CPM-EP-APP` has not
+    built. `policies/outcomes.py` argues it; `CPM-PRIORITY-S02` records the gap.
+
+    **`unknown` is not "nothing to do".** The closed set offers no member for a
+    package in good order, so a package with nothing to act on and a package nothing
+    is known about both read `unknown` here. That is a gap in the set rather than in
+    the derivation, and inventing a ninth value the PRD does not name would be this
+    component extending a set the PRD closed.
+
+    **Every relation is `PROTECT`**, and the row copies the policy version and the
+    cut-off, on the terms every sibling derived table states.
+    """
+
+    #: The package this recommendation is about.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="work_type_policy_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that produced it. With the package, `CPM-AD-21`'s key.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="work_type_policy_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: The recommended action, over `WorkType` and emitted verbatim (`CPM-AD-24`).
+    work_type = models.CharField(
+        _("work type"),
+        max_length=WORK_TYPE_LENGTH,
+        choices=WorkType.choices,
+        default=WORK_TYPE_UNKNOWN,
+        editable=False,
+    )
+
+    #: Which derived status recommended it, in words -- so a reader can tell a
+    #: `fix_vulnerability` that came from a matched advisory from one that came from
+    #: anything else, without re-deriving it.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    #: The policy version that produced this row.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant evidence was read as of (`CPM-AD-21`).
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    class Meta:
+        """The table `CPM-PRIORITY-S02` adds, not the `policies_packageworktype` Django derives."""
+
+        db_table = "package_work_type"
+        verbose_name = _("package work type")
+        verbose_name_plural = _("package work type")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_WORK_TYPE_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # AC 2: the closed set, enforced by the database rather than by
+            # `choices`, which nothing checks on the way in.
+            models.CheckConstraint(
+                condition=models.Q(work_type__in=tuple(WorkType.values)),
+                name=A_WORK_TYPE_IS_ONE_OF_THE_CLOSED_SET,
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=WORK_TYPE_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this row recommends, for an admin list and a debugger.
+
+        Returns:
+            The work type, with the package and the run it belongs to. Reads
+            `package_id` and `policy_run_id` rather than the relations, so an
+            unsaved instance renders inside a traceback rather than raising from it.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        run = "no run" if self.policy_run_id is None else f"run {self.policy_run_id}"
+        return f"{scope}: {self.work_type} ({run})"

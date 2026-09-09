@@ -1,6 +1,6 @@
 # CPM-PRIORITY-S02: Work type, derived independently of priority
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-PRIORITY` — A ranked, explainable queue of work
 
@@ -71,3 +71,47 @@ so that low-priority work still tells me what to do.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**What ships.** The eighth policy pass, the fourth domain column on the rollup, and a
+**working** derivation -- unlike `CPM-PRIORITY-S01`, whose rule set the PRD leaves
+open, this story's closed set is fixed by PRD Appendix A.1 and what each of the eight
+words means fixes when it applies.
+
+**Files added:** `policies/work_type.py`,
+`core/migrations/0009_package_health_work_type_status.py`,
+`policies/migrations/0008_package_work_type.py`, and both test modules.
+
+**Files changed:** `policies/outcomes.py` (the closed set as a composed vocabulary),
+`core/models.py` (the rollup column), `policies/models.py` (the derived table),
+`policies/apps.py` (registered **before** the priority pass), `docs/deployment.md`,
+and six test modules carrying a roster, a module list, a migration list, the
+rollup's contributable column set, its gated-column sweep or its version map.
+
+**AC 1 (independent of priority)** is made structural three ways: the derivation's
+signature is not offered a bucket, the module is swept for any mention of the
+priority table, and the pass is registered *first* so no priority row exists for the
+run when it executes. The integration tier asserts the two columns disagree on one
+real rollup row -- which is the case that matters, because the shipped priority rule
+set is empty and a coupled derivation would recommend nothing for anything.
+
+**AC 2 (the closed set)** is a database check constraint rather than `choices`, which
+Django enforces on neither `save()` nor a migration. The vocabulary is reconciled
+against PRD Appendix A.1's own eight phrases rather than against itself.
+
+**Two defects the tests found, and both changed the design for the better:**
+
+1. `tests/unit/django_apps/test_confidence_gate_audit.py` caught the pass testing an
+   identity confidence to derive `resolve_identity`. That is a second implementation
+   of `CPM-AD-4`'s gate -- and it would have claimed something the product then
+   erases, since the gate replaces every contributed value for an unmapped package.
+   The confidence read is gone and `resolve_identity` is recorded as unreachable.
+2. An integration case caught `validate_python_314` being recommended for a package
+   nobody had collected anything about. The rule read "every readiness but
+   `verified_ready`", which is true of `unknown`. It now fires on an *inference*,
+   which is what `CPM-FR-14` says the static pass exists to point verification at.
+
+**Coverage:** the new pass, table and vocabulary are at 100%.

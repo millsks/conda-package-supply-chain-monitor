@@ -3427,3 +3427,85 @@ which is what keeps a replay at a stated version and cut-off reproducible.
 One row per package per run, never updated and never deleted, every relation
 `PROTECT`. The reasoning and the consequences are exactly the six sibling tables',
 above.
+
+## The work-type policy: what to do, decided without looking at the priority
+
+`CPM-PRIORITY-S02` adds the eighth policy pass. It reads the six domain passes'
+derived rows for the same run and recommends one of the eight actions PRD Appendix
+A.1 names — `CPM-FR-21`. Unlike the priority rules, **this one ships working**: the
+PRD fixes the closed set, and what each of the eight words means fixes when it
+applies.
+
+**It is deliberately not derived from the priority bucket, and it runs before the
+pass that assigns one.** A low-priority package still has a recommended action, and
+a queue that only told you what to do about `P1` rows would leave every other row
+silent. That independence is made structural rather than promised: the work-type
+pass is registered *first*, so there is no priority row for the run when it
+executes.
+
+This matters more than it sounds, because the shipped priority rule set is empty —
+**every** package is `unknown` for priority. If the two were coupled at all, nothing
+would ever be recommended. They are not, so the queue is useful today.
+
+**The eight, and when each is recommended:**
+
+| Work type | Recommended when |
+|---|---|
+| `fix_vulnerability` | an advisory matched this package. First, because it is the finding with a clock on it |
+| `review_license` | the licence was forbidden, restricted, or no rule named it. Above the packaging actions because it can make them pointless |
+| `create_recipe` | no conda-forge feedstock exists, so there is nothing to update |
+| `update_feedstock` | a feedstock exists and needs work — nobody is pushing to it, or its recipe is still staged |
+| `validate_python_314` | readiness rests on what the metadata *claims* rather than on a build that ran |
+| `file_tracking_issue` | a 3.14 build ran and did not come out, or the package is behind on a surface, and no more specific action names it. Last, because a catch-all above anything else makes that thing unreachable |
+| `already_tracked` | **never, today** — see below |
+| `resolve_identity` | **never, today** — see below |
+
+**Two of the eight are unreachable, on purpose, and the gap is recorded.**
+
+`already_tracked` means a record exists and the work is somebody else's to progress.
+Knowing that means reading the workflow queue, which belongs to an application this
+product has not built. Nothing currently recorded distinguishes "nobody has filed
+this" from "somebody has", so no derivation may claim the second.
+
+`resolve_identity` is the sharper one. Its only signal is the package's identity
+confidence, and this product gives that exactly one consumer: the rollup writer's
+confidence gate. A second reader would be a second gate — and it would claim
+something the product then erases, because the gate replaces every contributed value
+for an unmapped package with `unknown`. So an unmapped package's `work_type_status`
+reads `unknown` on the rollup whatever was derived, and the derived row keeps what
+the pass computed.
+
+Both values exist in the vocabulary and the database accepts them, so the day either
+signal exists the value and its constraint are already in place.
+
+**`unknown` is not "nothing to do".** The closed set offers no member for a package
+in good order, so a package with nothing to act on and a package nothing was
+established about both read `unknown`, and `detail` says so. That is a gap in
+`CPM-FR-21`'s set rather than in the derivation — inventing a ninth value would be
+this component extending a set the PRD closed.
+
+**`validate_python_314` fires on an inference, not on every unverified package.** A
+package whose static readiness is `unknown` — which includes every package nobody
+has collected anything about — is **not** told to go and verify it. `CPM-FR-14` says
+the static pass says where verification is worth spending, and it says so by reaching
+an *inferred* verdict. A package with no assessment has made no claim to check.
+
+### Where the result lands
+
+`package_work_type`, one row per package per policy run, and `package_health`'s
+`work_type_status` column — the fourth the rollup has grown. A check constraint holds
+the column to the closed set: `choices` is enforced by neither `save()` nor a
+migration, and the requirement says a value outside the set is *rejected*.
+
+### What a run costs
+
+Six indexed reads per package — the same rows the priority pass reads, read again
+because the two passes are independent — and one insert. No outbound call, and no
+parameter file: this derivation is code, because the PRD closed the set and nothing
+about it is an open question.
+
+### `package_work_type` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, every relation
+`PROTECT`. The reasoning and the consequences are exactly the seven sibling tables',
+above.

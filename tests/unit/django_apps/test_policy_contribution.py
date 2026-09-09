@@ -51,6 +51,7 @@ from conda_sentinel.core.rollup import permitted_values
 from conda_sentinel.policies.currency import ROLLUP_COLUMN
 from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from conda_sentinel.policies.priority import ROLLUP_COLUMN as PRIORITY_ROLLUP_COLUMN
+from conda_sentinel.policies.work_type import ROLLUP_COLUMN as WORK_TYPE_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import FIRST_DOMAIN
 from tests.passes import rollup_with_a_domain_column
@@ -210,7 +211,7 @@ def test_a_column_declaring_no_vocabulary_is_refused_rather_than_waved_through()
 def test_the_real_rollups_columns_already_have_owners() -> None:
     """The honest statement of what this module stands in for, now that the columns are real.
 
-    `PackageHealth` declares three contributable columns -- `currency_status`
+    `PackageHealth` declares four contributable columns -- `currency_status`
     (`CPM-CURRENCY-S06`), `feedstock_presence_status` (`CPM-CURRENCY-S07`) and
     `priority_status` (`CPM-PRIORITY-S01`) -- and an adopted pass owns each from
     `django.setup()` onwards. So the refusals
@@ -229,7 +230,7 @@ def test_the_real_rollups_columns_already_have_owners() -> None:
     refusal in this module about a column a pass is entitled to.
     """
     assert contributable_columns() == frozenset(
-        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN},
+        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN, WORK_TYPE_ROLLUP_COLUMN},
     )
     assert rollup_module.ROLLUP_MODEL is PackageHealth
     assert A_STAMP not in contributable_columns()

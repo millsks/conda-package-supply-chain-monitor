@@ -116,7 +116,7 @@ development_status:
   # CPM-EP-PRIORITY: A ranked, explainable queue of work
   epic-priority: in-progress
   cpm-priority-s01-explainable-priority-bucket-score: done
-  cpm-priority-s02-work-type-derived-independently-priority: ready-for-dev
+  cpm-priority-s02-work-type-derived-independently-priority: done
   cpm-priority-s03-replay-policy-version-over-history: ready-for-dev
   epic-priority-retrospective: optional
 

@@ -139,6 +139,7 @@ __all__ = [
     "ADVISORIES_MATCHED_MEMBER",
     "ALLOWED",
     "ALLOWED_MEMBER",
+    "ALREADY_TRACKED",
     "AWAITING_BUILD",
     "AWAITING_BUILD_MEMBER",
     "AWAITING_PACKAGING",
@@ -147,6 +148,7 @@ __all__ = [
     "BEHIND_MEMBER",
     "BLOCKED",
     "BLOCKED_MEMBER",
+    "CREATE_RECIPE",
     "CURRENCY_PRECEDENCE",
     "CURRENCY_STATE_LENGTH",
     "CURRENT",
@@ -161,9 +163,11 @@ __all__ = [
     "FEEDSTOCK_NOT_FOUND",
     "FEEDSTOCK_STATE_LENGTH",
     "FEEDSTOCK_UNKNOWN",
+    "FILE_TRACKING_ISSUE",
     "FIX_AVAILABILITY_LENGTH",
     "FIX_NOT_PUBLISHED",
     "FIX_PUBLISHED",
+    "FIX_VULNERABILITY",
     "FORBIDDEN",
     "FORBIDDEN_MEMBER",
     "INACTIVE_MEMBER",
@@ -214,13 +218,17 @@ __all__ = [
     "READINESS_UNKNOWN",
     "READY",
     "READY_MEMBER",
+    "RESOLVE_IDENTITY",
     "RESTRICTED",
     "RESTRICTED_MEMBER",
+    "REVIEW_LICENSE",
     "RULE_DISPOSITIONS",
     "STAGED_MEMBER",
     "STAGED_RECIPE_PENDING",
     "SURFACE_NOT_READ",
     "UNKNOWN",
+    "UPDATE_FEEDSTOCK",
+    "VALIDATE_PYTHON_314",
     "VERIFIED_NOT_READY",
     "VERIFIED_NOT_READY_MEMBER",
     "VERIFIED_READY",
@@ -231,6 +239,13 @@ __all__ = [
     "VULNERABILITY_STATUS_NOT_APPLICABLE",
     "VULNERABILITY_STATUS_NOT_FOUND",
     "VULNERABILITY_STATUS_UNKNOWN",
+    "WORK_TYPES",
+    "WORK_TYPE_ERROR",
+    "WORK_TYPE_LENGTH",
+    "WORK_TYPE_MEMBERS",
+    "WORK_TYPE_NOT_APPLICABLE",
+    "WORK_TYPE_NOT_FOUND",
+    "WORK_TYPE_UNKNOWN",
     "CurrencyOutcome",
     "FeedstockOutcome",
     "FixAvailability",
@@ -241,6 +256,7 @@ __all__ = [
     "PriorityBucket",
     "ReadinessEvidence",
     "RemediationReadiness",
+    "WorkType",
     "worst_currency",
     "worst_kev_membership",
     "worst_license",
@@ -1713,3 +1729,115 @@ PRIORITY_STATUS_NOT_APPLICABLE: Final[str] = _PRIORITY_MEMBER_VALUES["NOT_APPLIC
 #: characters and `p10` is three; the rest is headroom, on the terms every width in
 #: this module is argued.
 PRIORITY_BUCKET_LENGTH: Final[int] = 32
+
+
+#: `CPM-FR-21`'s closed work-type set, as the `(member name, value)` pairs
+#: `outcome_type` takes, in the order PRD Appendix A.1 lists them.
+#:
+#: **Eight values, and the set is closed by the PRD rather than by this
+#: component.** This is the one vocabulary in this module whose *content* was
+#: decided somewhere else: Appendix A.1 names all eight, so nothing here is a
+#: judgement about what work exists -- only about which of them a package's state
+#: recommends, which `policies/work_type.py` owns and argues.
+#:
+#: Written out in the PRD's own order rather than in the order they are matched.
+#: The matching order is `WORK_TYPE_PRECEDENCE` below and is a decision this
+#: component makes; this is a transcription, and keeping the two apart is what
+#: lets a reader check the transcription against the PRD without also having to
+#: agree with the ranking.
+WORK_TYPE_MEMBERS: Final[tuple[tuple[str, str], ...]] = (
+    ("FIX_VULNERABILITY", "fix_vulnerability"),
+    ("CREATE_RECIPE", "create_recipe"),
+    ("FILE_TRACKING_ISSUE", "file_tracking_issue"),
+    ("ALREADY_TRACKED", "already_tracked"),
+    ("UPDATE_FEEDSTOCK", "update_feedstock"),
+    ("VALIDATE_PYTHON_314", "validate_python_314"),
+    ("REVIEW_LICENSE", "review_license"),
+    ("RESOLVE_IDENTITY", "resolve_identity"),
+)
+
+#: The work-type vocabulary: `core`'s four sentinels plus the closed set of eight.
+#:
+#: **A composed type rather than a bare `TextChoices`**, on exactly the terms
+#: `PriorityBucket` states: `core/confidence.py`'s gate writes
+#: `OutcomeState.UNKNOWN.value` into every contributed rollup column for an
+#: unmapped package, and `core/policy_run.py` refuses a value the column does not
+#: offer. `CPM-FR-21`'s eight are the values a *derivation* may reach; the
+#: sentinels are what the column has to hold besides.
+WorkType: Final[type[models.TextChoices]] = outcome_type("WorkType", list(WORK_TYPE_MEMBERS))
+
+#: `WorkType`'s own members, by name, read off the composed type itself for the
+#: reason `_MEMBER_VALUES` above is read off its own.
+_WORK_TYPE_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in WorkType}
+
+#: The eight `CPM-FR-21` names, as the set a derived row is held to.
+#:
+#: Built from the member pairs rather than from the type's `values`, because the
+#: type carries the four sentinels first and they are not work types: a package
+#: with nothing to recommend has no work type, which is not the same as being
+#: recommended a sentinel.
+WORK_TYPES: Final[tuple[str, ...]] = tuple(value for _name, value in WORK_TYPE_MEMBERS)
+
+#: An advisory matched this package and something has to be done about it.
+FIX_VULNERABILITY: Final[str] = _WORK_TYPE_MEMBER_VALUES["FIX_VULNERABILITY"]
+
+#: No conda-forge feedstock exists for this package, so one has to be written.
+CREATE_RECIPE: Final[str] = _WORK_TYPE_MEMBER_VALUES["CREATE_RECIPE"]
+
+#: Something about this package needs a human record that does not exist yet.
+FILE_TRACKING_ISSUE: Final[str] = _WORK_TYPE_MEMBER_VALUES["FILE_TRACKING_ISSUE"]
+
+#: A record already exists and the work is somebody else's to progress.
+#:
+#: **Unreachable today, and the vocabulary keeps it anyway.** Knowing that a
+#: package is already tracked means reading the workflow queue, which `CPM-AD-22`
+#: gives to a `workflow` application `CPM-EP-APP` has not built. Nothing this
+#: product currently records distinguishes "nobody has filed this" from "somebody
+#: has", so no derivation may claim the second. `CPM-FR-21` requires the value to
+#: exist and to be distinct from the other seven, and the day the queue exists the
+#: value and the closed-set rule that guards it are already in place --
+#: `policies/work_type.py` says so where a reader will look, and
+#: `CPM-PRIORITY-S02` records it as deferred work. A value defined and unreachable,
+#: with the gap recorded, is the honest shipping state; a value reached by a guess
+#: is not.
+ALREADY_TRACKED: Final[str] = _WORK_TYPE_MEMBER_VALUES["ALREADY_TRACKED"]
+
+#: A feedstock exists and needs work -- it is behind, or nobody is pushing to it.
+UPDATE_FEEDSTOCK: Final[str] = _WORK_TYPE_MEMBER_VALUES["UPDATE_FEEDSTOCK"]
+
+#: This package's Python 3.14 readiness has not been proved and somebody should
+#: prove it.
+VALIDATE_PYTHON_314: Final[str] = _WORK_TYPE_MEMBER_VALUES["VALIDATE_PYTHON_314"]
+
+#: This package's licence needs a human decision.
+REVIEW_LICENSE: Final[str] = _WORK_TYPE_MEMBER_VALUES["REVIEW_LICENSE"]
+
+#: This product cannot say what this package is, so nothing else about it can be
+#: acted on.
+RESOLVE_IDENTITY: Final[str] = _WORK_TYPE_MEMBER_VALUES["RESOLVE_IDENTITY"]
+
+#: No work type was derived. Two things reach it and `detail` says which: nothing
+#: this run established recommends any of the eight, or the package's identity was
+#: never established and the rollup's gate replaced whatever was derived.
+#:
+#: **It is not "nothing to do".** `CPM-FR-21`'s closed set offers no member for a
+#: package in good order, so a package with nothing to act on and a package nothing
+#: is known about both land here -- which `CPM-PRIORITY-S02` records as deferred
+#: work rather than resolving by inventing a ninth value the PRD does not name.
+WORK_TYPE_UNKNOWN: Final[str] = _WORK_TYPE_MEMBER_VALUES["UNKNOWN"]
+
+#: Reserved by the composed vocabulary and produced by nothing: this pass reads
+#: rows other passes already wrote, so there is no look to fail.
+WORK_TYPE_ERROR: Final[str] = _WORK_TYPE_MEMBER_VALUES["ERROR"]
+
+#: Reserved on the same terms.
+WORK_TYPE_NOT_FOUND: Final[str] = _WORK_TYPE_MEMBER_VALUES["NOT_FOUND"]
+
+#: Reserved on the same terms: a work type applies to every package in the
+#: inventory, so nothing here answers that the question was never ours to ask.
+WORK_TYPE_NOT_APPLICABLE: Final[str] = _WORK_TYPE_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `validate_python_314` is
+#: nineteen characters, the longest in either half of the vocabulary; the rest is
+#: headroom, on the terms every width in this module is argued.
+WORK_TYPE_LENGTH: Final[int] = 32

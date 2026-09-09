@@ -60,15 +60,24 @@ class PoliciesConfig(AppConfig):
         feedstock presence (`CPM-CURRENCY-S07`), then vulnerability
         (`CPM-SECURITY-S04`), then licence (`CPM-SECURITY-S05`), then
         remediation readiness (`CPM-SECURITY-S06`), then Python 3.14 readiness
-        (`CPM-PY314-S03`), then priority (`CPM-PRIORITY-S01`).
+        (`CPM-PY314-S03`), then work type (`CPM-PRIORITY-S02`), then priority
+        (`CPM-PRIORITY-S01`).
 
         **The order is now load bearing, and the seventh pass is why.** The first
         six read evidence and write their own derived tables, so they could be
         adopted in any order with identical results -- and this docstring said so,
         while recording the order anyway, against the day a pass started reading an
-        earlier pass's rows. `PriorityPass` is that pass: `CPM-FR-20` assigns a
-        bucket from the *derived statuses* the six produce, so it reads all six of
-        this run's rows and **must** be registered after them. Recording the
+        earlier pass's rows. The last two are those passes: `CPM-FR-20` assigns a
+        bucket from the *derived statuses* the six produce and `CPM-FR-21` derives a
+        work type from the same six, so both read this run's rows and both **must**
+        be registered after them.
+
+        **`WorkTypePass` sits before `PriorityPass`, and that placement is an
+        acceptance criterion rather than a preference.** `CPM-PRIORITY-S02`'s AC 1
+        is that a work type is computable in any bucket and that the two are not
+        coupled; running the work-type pass first means there is no priority row for
+        this run when it executes, so it could not read one even by mistake. A later
+        edit that tried would find nothing there. Recording the
         order while it was free is what makes this an addition to a declaration
         somebody chose rather than a constraint discovered on the day it started
         mattering. `tests/unit/django_apps/test_policies_app.py` asserts the
@@ -122,6 +131,7 @@ class PoliciesConfig(AppConfig):
         from conda_sentinel.policies.py314_readiness import Py314ReadinessPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.remediation import RemediationPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.vulnerability import VulnerabilityPass  # noqa: PLC0415 - see above
+        from conda_sentinel.policies.work_type import WorkTypePass  # noqa: PLC0415 - see above
 
         for policy_pass in (
             CurrencyPass,
@@ -130,6 +140,7 @@ class PoliciesConfig(AppConfig):
             LicensePass,
             RemediationPass,
             Py314ReadinessPass,
+            WorkTypePass,
             PriorityPass,
         ):
             if pass_registrations().get(policy_pass.name) is not policy_pass:

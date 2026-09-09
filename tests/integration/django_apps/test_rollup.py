@@ -63,12 +63,15 @@ from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NA
 from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_sentinel.policies.outcomes import BEHIND
+from conda_sentinel.policies.outcomes import FILE_TRACKING_ISSUE
 from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
 from conda_sentinel.policies.priority import POLICY_NAME as PRIORITY_POLICY_NAME
 from conda_sentinel.policies.priority import ROLLUP_COLUMN as PRIORITY_ROLLUP_COLUMN
 from conda_sentinel.policies.py314_readiness import POLICY_NAME as PY314_READINESS_POLICY_NAME
 from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
 from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
+from conda_sentinel.policies.work_type import POLICY_NAME as WORK_TYPE_POLICY_NAME
+from conda_sentinel.policies.work_type import ROLLUP_COLUMN as WORK_TYPE_ROLLUP_COLUMN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.clocks import OBSERVATION_GAP
@@ -253,6 +256,7 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
             REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
             PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
             PRIORITY_POLICY_NAME: A_POLICY_VERSION,
+            WORK_TYPE_POLICY_NAME: A_POLICY_VERSION,
             FIRST_DOMAIN: A_POLICY_VERSION,
         }
 
@@ -289,6 +293,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
         REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
         PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
         PRIORITY_POLICY_NAME: A_POLICY_VERSION,
+        WORK_TYPE_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }
@@ -423,8 +428,19 @@ def test_an_unmapped_package_still_gets_a_row_recording_that_it_is_unmapped() ->
     # set and asserts the gate replaces an actual bucket there, which is where that
     # claim belongs.
     assert PackageHealth.objects.get(package=unmapped).priority_status == GATED_VALUE
+    # The fourth domain column, added by `CPM-PRIORITY-S02`, and gated for a reason
+    # that story turns on: the work-type pass deliberately reads no identity
+    # confidence -- `CPM-AD-4` gives that exactly one consumer and this writer is it
+    # -- so whatever it derived for an unmapped package is replaced here and nowhere
+    # else. Both packages here are behind on a surface, which the work-type pass
+    # reads as `file_tracking_issue`, so the gate does have something to replace.
+    assert PackageHealth.objects.get(package=unmapped).work_type_status == GATED_VALUE
+    assert PackageHealth.objects.get(package=verified).work_type_status == FILE_TRACKING_ISSUE
+    assert GATED_VALUE != FILE_TRACKING_ISSUE, (
+        "the gate must change this value too, or a third of this case asserts nothing"
+    )
     assert contributable_columns() == frozenset(
-        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN},
+        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN, WORK_TYPE_ROLLUP_COLUMN},
     ), "the rollup declares a contributable column this case does not assert the gated value on"
 
 

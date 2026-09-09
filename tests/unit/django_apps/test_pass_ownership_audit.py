@@ -57,6 +57,8 @@ from conda_sentinel.policies.feedstock import POLICY_NAME as FEEDSTOCK_POLICY_NA
 from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
 from conda_sentinel.policies.priority import POLICY_NAME as PRIORITY_POLICY_NAME
 from conda_sentinel.policies.priority import ROLLUP_COLUMN as PRIORITY_ROLLUP_COLUMN
+from conda_sentinel.policies.work_type import POLICY_NAME as WORK_TYPE_POLICY_NAME
+from conda_sentinel.policies.work_type import ROLLUP_COLUMN as WORK_TYPE_ROLLUP_COLUMN
 from tests.passes import A_DOMAIN_STATUS
 from tests.passes import ADOPTED_PASS_NAMES
 from tests.passes import FIRST_DOMAIN
@@ -74,7 +76,8 @@ if TYPE_CHECKING:
 
 #: The column the substituted rollup offers, for the cases that need a
 #: contributable column *nobody owns* -- the real rollup's two columns,
-#: `currency_status`, `feedstock_presence_status` and `priority_status`, are owned
+#: `currency_status`, `feedstock_presence_status`, `priority_status` and
+#: `work_type_status`, are owned
 #: and `FeedstockPresencePass` from `django.setup()` onwards.
 #:
 #: `tests/passes.py` owns both the name and the model that declares it, so the
@@ -339,7 +342,7 @@ def test_the_audit_reaches_a_pass_that_is_actually_registered() -> None:
         assert declared in registered_passes()
         assert rollup_claimants(registered_passes()) == []
         # The fixture pass contributes nothing, so the only entries in the map
-        # are the three adopted passes' own columns. Asserted as equality rather
+        # are the four adopted passes' own columns. Asserted as equality rather
         # than as a containment check: an ownership map that had acquired a
         # second owner for either column some other way is exactly what this
         # audit is for.
@@ -347,6 +350,7 @@ def test_the_audit_reaches_a_pass_that_is_actually_registered() -> None:
             ROLLUP_COLUMN: CURRENCY_POLICY_NAME,
             FEEDSTOCK_ROLLUP_COLUMN: FEEDSTOCK_POLICY_NAME,
             PRIORITY_ROLLUP_COLUMN: PRIORITY_POLICY_NAME,
+            WORK_TYPE_ROLLUP_COLUMN: WORK_TYPE_POLICY_NAME,
         }
 
 
