@@ -112,6 +112,7 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
     "models.py",
     "outcomes.py",
     "parameters.py",
+    "py314_readiness.py",
     "remediation.py",
     "vulnerability.py",
 )
@@ -152,6 +153,7 @@ EXPECTED_MIGRATIONS: Final[tuple[str, ...]] = (
     "0003_package_vulnerability.py",
     "0004_package_license.py",
     "0005_package_remediation.py",
+    "0006_package_python_readiness.py",
 )
 
 
@@ -272,7 +274,7 @@ def test_the_passes_were_adopted_in_the_order_the_hook_declares() -> None:
     `core/policy.py` keeps *registration* order where the collector registry sorts
     by name, because `CPM-AD-21` lets a later pass read an earlier pass's derived
     rows for the same run -- and `policies/apps.py` spends four paragraphs saying
-    which order it chose and why the remediation pass is last. Every other
+    which order it chose and why each pass sits where it does. Every other
     assertion about the roster sorts or takes a set, so reordering that tuple
     failed nothing anywhere: the reasoning was a claim about a decision no case
     could tell had been made.

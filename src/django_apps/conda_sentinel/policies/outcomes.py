@@ -152,6 +152,10 @@ __all__ = [
     "CURRENT",
     "CURRENT_MEMBER",
     "ERROR",
+    "EVIDENCE_INFERRED",
+    "EVIDENCE_NONE",
+    "EVIDENCE_TYPE_LENGTH",
+    "EVIDENCE_VERIFIED",
     "FEEDSTOCK_ERROR",
     "FEEDSTOCK_NOT_APPLICABLE",
     "FEEDSTOCK_NOT_FOUND",
@@ -163,6 +167,10 @@ __all__ = [
     "FORBIDDEN",
     "FORBIDDEN_MEMBER",
     "INACTIVE_MEMBER",
+    "INFERRED_NOT_READY",
+    "INFERRED_NOT_READY_MEMBER",
+    "INFERRED_READY",
+    "INFERRED_READY_MEMBER",
     "KEV_LISTED",
     "KEV_MEMBERSHIP_LENGTH",
     "KEV_MEMBERSHIP_PRECEDENCE",
@@ -183,6 +191,14 @@ __all__ = [
     "NO_ADVISORY_MATCHED_MEMBER",
     "PRESENT_AND_INACTIVE",
     "PRESENT_AND_MAINTAINED",
+    "PY314_DECIDED_VERDICTS",
+    "PY314_INFERRED_VERDICTS",
+    "PY314_READINESS_ERROR",
+    "PY314_READINESS_NOT_APPLICABLE",
+    "PY314_READINESS_NOT_FOUND",
+    "PY314_READINESS_STATE_LENGTH",
+    "PY314_READINESS_UNKNOWN",
+    "PY314_VERIFIED_VERDICTS",
     "READINESS_ERROR",
     "READINESS_NOT_APPLICABLE",
     "READINESS_NOT_FOUND",
@@ -198,6 +214,10 @@ __all__ = [
     "STAGED_RECIPE_PENDING",
     "SURFACE_NOT_READ",
     "UNKNOWN",
+    "VERIFIED_NOT_READY",
+    "VERIFIED_NOT_READY_MEMBER",
+    "VERIFIED_READY",
+    "VERIFIED_READY_MEMBER",
     "VULNERABILITY_PRECEDENCE",
     "VULNERABILITY_STATE_LENGTH",
     "VULNERABILITY_STATUS_ERROR",
@@ -209,7 +229,9 @@ __all__ = [
     "FixAvailability",
     "KevMembership",
     "PackageLicenseOutcome",
+    "PackagePythonReadinessOutcome",
     "PackageVulnerabilityOutcome",
+    "ReadinessEvidence",
     "RemediationReadiness",
     "worst_currency",
     "worst_kev_membership",
@@ -1417,3 +1439,192 @@ FIX_NOT_PUBLISHED: Final[str] = FixAvailability.NOT_PUBLISHED.value
 #: a statement that the fix is absent, which is the defect this vocabulary exists
 #: to prevent.
 SURFACE_NOT_READ: Final[str] = FixAvailability.NOT_READ.value
+
+
+#: The determinate verdict for a package a build and an import actually
+#: succeeded for, declared once as the `(member name, value)` pair `outcome_type`
+#: takes.
+#:
+#: **The value names the evidence type, and that is `CPM-FR-19` made
+#: structural.** The requirement is that "a readiness claim states which evidence
+#: type produced it", and `CPM-AD-24` carries a state's value verbatim onto every
+#: read surface -- so a queue rendering this column alone must still be unable to
+#: mistake proof for inference. `verified_ready` beside `inferred_ready` says it
+#: in the one string a surface is guaranteed to show. The `evidence_type` column
+#: beside it carries the same fact where a query can filter on it; it is the
+#: second half of AC 1 and never a substitute for this half.
+#:
+#: `ready` rather than `compatible`, and the difference is which question is being
+#: answered. `collectors/outcomes.py`'s values say what the *evidence* found --
+#: metadata admits this Python, a build came out. This says what the *product*
+#: concludes about the package, which is a verdict only a policy may reach
+#: (`CPM-AD-8`). Two vocabularies, two registers, and a reader holding a row from
+#: each can see which is which.
+VERIFIED_READY_MEMBER: Final[tuple[str, str]] = ("VERIFIED_READY", "verified_ready")
+
+#: The determinate verdict for a package whose verification ran and did not
+#: produce a working build.
+#:
+#: **This is where a policy may say what the collector could not.**
+#: `collectors/outcomes.py` refuses `verified_incompatible` and records
+#: `verification_failed` instead, because a build fails for reasons that are not
+#: the interpreter and a collector may not reach a verdict at all (`CPM-AD-8`).
+#: A *policy* may: "this package is not ready" is a conclusion about the package
+#: drawn from the best evidence there is, which is exactly what a policy pass
+#: exists to do. It is still not a claim that the package can never work -- the
+#: row cites the verification, which names the one platform it ran on, and a
+#: later build on a later day is a new row.
+VERIFIED_NOT_READY_MEMBER: Final[tuple[str, str]] = ("VERIFIED_NOT_READY", "verified_not_ready")
+
+#: The determinate verdict for a package whose published metadata admits the
+#: assessed Python and which nobody has built.
+#:
+#: The weaker of the two positive verdicts, and the prefix is what says so. A
+#: reader who sees only this value knows that no build has been run, which is the
+#: whole of what `CPM-EP-PY314` exists to keep visible.
+INFERRED_READY_MEMBER: Final[tuple[str, str]] = ("INFERRED_READY", "inferred_ready")
+
+#: The determinate verdict for a package whose published metadata cannot admit the
+#: assessed Python and which nobody has built.
+#:
+#: An inference from a claim the project published, on the terms
+#: `collectors/outcomes.py`'s `inferred_incompatible` states: a project whose
+#: specifier excludes this Python today may well build under it, and the prefix is
+#: what stops this reading as proof that it does not.
+INFERRED_NOT_READY_MEMBER: Final[tuple[str, str]] = ("INFERRED_NOT_READY", "inferred_not_ready")
+
+#: `CPM-FR-19`'s vocabulary: `core`'s four sentinels plus the four verdicts, one
+#: per (evidence type, answer) pair.
+#:
+#: **Four determinate members and not two.** Collapsing the pairs into `ready` and
+#: `not_ready` with the evidence type carried only in a neighbouring column was the
+#: alternative, and it fails the one requirement this story has: `CPM-AD-24`
+#: renders a value verbatim, so any surface that projected the status without
+#: joining the second column would show `ready` for a package nobody has ever
+#: built. The redundancy between this value and `evidence_type` is deliberate and
+#: is the point.
+PackagePythonReadinessOutcome: Final[type[models.TextChoices]] = outcome_type(
+    "PackagePythonReadinessOutcome",
+    [VERIFIED_READY_MEMBER, VERIFIED_NOT_READY_MEMBER, INFERRED_READY_MEMBER, INFERRED_NOT_READY_MEMBER],
+)
+
+#: `PackagePythonReadinessOutcome`'s own members, by name, read off the composed
+#: type itself for the reason `_MEMBER_VALUES` above is read off its own.
+_PY314_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in PackagePythonReadinessOutcome}
+
+#: A build and an import of this package succeeded under the assessed Python.
+VERIFIED_READY: Final[str] = _PY314_MEMBER_VALUES["VERIFIED_READY"]
+
+#: Verification ran for this package and did not produce a working build.
+VERIFIED_NOT_READY: Final[str] = _PY314_MEMBER_VALUES["VERIFIED_NOT_READY"]
+
+#: The package's published metadata admits the assessed Python, and nobody has
+#: built it.
+INFERRED_READY: Final[str] = _PY314_MEMBER_VALUES["INFERRED_READY"]
+
+#: The package's published metadata cannot admit the assessed Python, and nobody
+#: has built it.
+INFERRED_NOT_READY: Final[str] = _PY314_MEMBER_VALUES["INFERRED_NOT_READY"]
+
+#: Nothing was established about this package's readiness -- and in a real
+#: inventory this is most of it, on purpose.
+#:
+#: Six things reach it and `detail` says which: no evidence of either kind at the
+#: cut-off; evidence that established nothing; a look that failed; a source that
+#: reported the package absent; evidence older than the collector's declared
+#: freshness target; and evidence about a different Python series. **None of them
+#: is a statement that the package is not ready**, and reading any of them as one
+#: is the defect class both preceding stories in this epic were written against.
+PY314_READINESS_UNKNOWN: Final[str] = _PY314_MEMBER_VALUES["UNKNOWN"]
+
+#: Reserved by the composed vocabulary and produced by nothing. A *look* that
+#: failed is the collector's `error`, and this pass records that as
+#: `PY314_READINESS_UNKNOWN` with the reason: a policy that could not read its
+#: evidence has established nothing, which is what `unknown` already means. Kept in
+#: the vocabulary by construction so the column's choices are `core`'s complete
+#: sentinel set.
+PY314_READINESS_ERROR: Final[str] = _PY314_MEMBER_VALUES["ERROR"]
+
+#: Reserved on the same terms. "The release ecosystem does not know this package"
+#: is an evidence-level absence; what this pass concludes from it is that nothing
+#: was established, which is `unknown`.
+PY314_READINESS_NOT_FOUND: Final[str] = _PY314_MEMBER_VALUES["NOT_FOUND"]
+
+#: `core`'s "the question was never ours to ask", and this vocabulary really does
+#: hold it.
+#:
+#: One path to it, inherited whole from `CPM-PY314-S01`: `identity` recorded the
+#: package's release-ecosystem mapping as `not_applicable`, so there is no Python
+#: metadata to assess and no artifact to build. Evidence that is `unknown`,
+#: `error` or `not_found` establishes **nothing** and never reaches this value.
+PY314_READINESS_NOT_APPLICABLE: Final[str] = _PY314_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `verified_not_ready` is
+#: eighteen characters and `not_applicable` fourteen; the rest is headroom, on the
+#: terms every width in this module is argued.
+PY314_READINESS_STATE_LENGTH: Final[int] = 32
+
+#: The two verdicts a *verification* produces, and the two an *assessment*
+#: produces, as the sets the derived table's constraints are written against.
+#:
+#: Built by comprehension over the member pairs rather than written as literals,
+#: for the reason `_PY314_MEMBER_VALUES` is: a member renamed on one side and not
+#: the other fails at import rather than silently making a constraint vacuous. It
+#: also keeps them out of `tests/unit/django_apps/test_single_ordering_audit.py`'s
+#: reach -- these are membership sets with no order in them, and this module's one
+#: ordering decision remains `CURRENCY_PRECEDENCE`.
+PY314_VERIFIED_VERDICTS: Final[tuple[str, ...]] = tuple(
+    value for _name, value in (VERIFIED_READY_MEMBER, VERIFIED_NOT_READY_MEMBER)
+)
+PY314_INFERRED_VERDICTS: Final[tuple[str, ...]] = tuple(
+    value for _name, value in (INFERRED_READY_MEMBER, INFERRED_NOT_READY_MEMBER)
+)
+
+#: Every verdict this pass reaches from evidence, which is the complement of the
+#: rows whose evidence type is `none`.
+PY314_DECIDED_VERDICTS: Final[tuple[str, ...]] = PY314_VERIFIED_VERDICTS + PY314_INFERRED_VERDICTS
+
+
+class ReadinessEvidence(models.TextChoices):
+    """Which kind of evidence produced a readiness verdict. `CPM-FR-19`'s AC 1, as a column.
+
+    **A plain `TextChoices` and not a composed outcome type**, on the terms
+    `KevMembership` and `FixAvailability` state: this is not a *status* and it
+    holds no sentinel. `error`, `not_found` and `not_applicable` are things that
+    happen to evidence; this column answers a different question -- which kind of
+    evidence the verdict in the neighbouring column rests on -- and a run that
+    established nothing answers it with `none` rather than with a sentinel
+    borrowed from a vocabulary it is not drawn from.
+
+    **`none` is a value and never `NULL`.** A nullable column would make "no
+    evidence produced this verdict" indistinguishable from "this column was never
+    written", which is the same absence-read-as-answer confusion the whole epic is
+    written against -- and every row this pass writes has an answer to this
+    question, including the rows about packages nobody has looked at.
+
+    **It declares no order.** Verified outranking inferred is a rule
+    `policies/py314_readiness.py` applies to two named sources, written as a branch
+    a reader can follow; an order declared here would be data nothing reads, which
+    the next reader would take for a ranking this product applies somewhere.
+    """
+
+    VERIFIED = "verified"
+    INFERRED = "inferred"
+    NONE = "none"
+
+
+#: How wide a column holding one of these values is. `inferred` is eight
+#: characters; the rest is headroom, on the terms every width in this module is
+#: argued.
+EVIDENCE_TYPE_LENGTH: Final[int] = 32
+
+#: An execution produced this verdict: a build and an import were run and the row
+#: cites the result.
+EVIDENCE_VERIFIED: Final[str] = ReadinessEvidence.VERIFIED.value
+
+#: Published metadata produced this verdict, and no build was run.
+EVIDENCE_INFERRED: Final[str] = ReadinessEvidence.INFERRED.value
+
+#: Nothing produced this verdict. Never a statement about the package -- only
+#: about what this product has looked at.
+EVIDENCE_NONE: Final[str] = ReadinessEvidence.NONE.value

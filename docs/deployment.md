@@ -3203,3 +3203,106 @@ old runs would have to delete these rows first, and no story currently claims it
 This table references more evidence rows than any of its siblings, so it is also
 the one that will most constrain a future retention story. Size the database
 accordingly, or run the policy less often than you collect.
+
+## The Python 3.14 readiness policy: ready, and on whose word
+
+`CPM-PY314-S03` adds the sixth policy pass, and it is the one `CPM-EP-PY314` was
+built toward. Like the five before it, it runs inside the orchestrating policy run
+rather than on a schedule of its own, makes no outbound call of any kind, and reads
+only evidence a collector has already written — here the epic's own two tables,
+`python_readiness_assessments` for what a project's metadata *claims* and
+`python_verification_results` for what a build *did*. It answers `CPM-FR-19`: is
+this package ready for Python 3.14, and — the half the requirement is actually
+about — **what kind of evidence says so**.
+
+**Read the verdict and the evidence type as one answer.** Every row carries both,
+deliberately:
+
+| `readiness` | `evidence_type` | What it means |
+|---|---|---|
+| `verified_ready` | `verified` | a build **and** an import succeeded, on the platform the cited verification names. Proof |
+| `verified_not_ready` | `verified` | verification ran and did not produce a working build. Also proof — of what happened on that runner, not of what the package can never do |
+| `inferred_ready` | `inferred` | the project's published metadata admits 3.14 and **nobody has built it** |
+| `inferred_not_ready` | `inferred` | the project's published metadata cannot admit 3.14, and nobody has built it |
+| `unknown` | `none` | nothing was established. Six things reach it and `detail` says which |
+| `not_applicable` | `none` | identity established this package has no release ecosystem, so there is nothing to assess and nothing to build |
+
+**The evidence type is in the value on purpose, and it is not redundant.** A queue,
+a report or an export that projects `readiness` alone still cannot mistake proof
+for inference, because the string says which it is. That is the whole of
+`CPM-FR-19`: a surface that forgot to join `evidence_type` is exactly the surface
+the requirement is written about. Carry the value verbatim; shortening
+`verified_ready` to `ready` in a view undoes three stories of work in one line.
+
+**Verified outranks inferred, always.** When a package has both kinds of evidence,
+the verification decides the verdict and the row cites **both** rows — the
+assessment is not discarded. Where the two disagree (metadata that admits 3.14
+beside a build that did not come out), the verdict is `verified_not_ready` and
+`detail` says so in as many words. A build that ran outranks a claim a project
+published; the claim is preserved beside it because a build fails for reasons that
+are not the interpreter.
+
+**`unknown` is the majority answer, and it is not bad news.** Verification is
+triggered by hand and the static sweep runs weekly, so most of a real inventory has
+one kind of evidence or neither. Six things reach `unknown`, and `detail`
+distinguishes them: no evidence of either kind at the cut-off; evidence that
+established nothing; a look that failed; a source that reported the package absent;
+evidence older than its collector's freshness target; and evidence about a
+different Python series. **None of them is a statement that the package is not
+ready.** If you build a queue over this table, do not sort `unknown` beside
+`inferred_not_ready` — one is a package to look at, the other is a package to
+investigate.
+
+### Stale evidence withholds the verdict, not the row
+
+Evidence that has aged past its collector's declared freshness target cannot
+produce a determinate verdict (`CPM-FR-38`: stale never displays as clean). The row
+is still written, `evidence_stale` is `true`, and `detail` says the conclusion was
+withheld rather than that the package failed. Staleness is measured from the run's
+**cut-off**, never from a wall clock, so replaying a version at a cut-off gives the
+same answer it gave the first time.
+
+A stale *verification* beside a fresh assessment does not throw the whole answer
+away: the verdict falls through to the inference, `evidence_stale` records that
+something behind the row was old, and both rows are still cited.
+
+### It judges one Python series, and reads evidence about no other
+
+The pass judges `3.14`, and evidence rows about any other series are not read at
+all — the filter is in the query rather than a comparison after it. A row about
+3.15 is not evidence that disagrees; it is evidence about a different question.
+When this product assesses a later Python, that is a new series, new evidence rows
+and a decision about this pass — not a silent reinterpretation of the rows you
+already have.
+
+### Where the result lands
+
+`package_python_readiness`, one row per package per policy run, keyed
+`(package, policy_run)` exactly as `CPM-AD-21` requires. It contributes **no**
+column to `package_health`: no pass writes the rollup, and which columns that table
+grows belongs to `CPM-EP-PRIORITY`. The row copies the policy version and the
+cut-off, so comparing two runs is a query over this table alone.
+
+Three check constraints hold the requirement at the database rather than at the
+pass's discretion: a verified verdict must cite a verification and declare
+`verified`, an inferred verdict must cite an assessment and declare `inferred`, and
+a row that decided nothing must declare `none`. A hand-written `INSERT` that went
+round the pass is refused by PostgreSQL.
+
+### What a run costs
+
+Two indexed reads per package — one per evidence table, each bounded by the run's
+cut-off and the series — and one insert. No outbound call, no parameter file, and
+no rule set to review: unlike the currency, feedstock and licence passes, this one
+reads no versioned parameter, because "verified outranks inferred" is this epic's
+own semantics rather than a risk posture somebody has to choose. There is nothing
+here to tune and nothing to fill in before it works.
+
+### `package_python_readiness` accumulates, and nothing prunes it
+
+One row per package per run, never updated and never deleted, with every relation
+`PROTECT` — to the package, to the policy run, and to the two evidence rows the
+verdict cites. The reasoning and the consequences are exactly the five sibling
+tables', above: there is no retention path, deleting old runs would have to delete
+these rows first, and no story currently claims it. Size the database accordingly,
+or run the policy less often than you collect.

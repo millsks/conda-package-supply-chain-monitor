@@ -100,6 +100,8 @@ from conda_sentinel.collectors.models import FeedstockSnapshot
 from conda_sentinel.collectors.models import KevFinding
 from conda_sentinel.collectors.models import LicenseFinding
 from conda_sentinel.collectors.models import PyPIReleaseSnapshot
+from conda_sentinel.collectors.models import PythonReadinessAssessment
+from conda_sentinel.collectors.models import PythonVerificationResult
 from conda_sentinel.collectors.models import SourceReleaseSnapshot
 from conda_sentinel.collectors.models import VulnerabilityFinding
 from conda_sentinel.core.models import PolicyRun
@@ -114,6 +116,10 @@ from conda_sentinel.policies.outcomes import BEHIND
 from conda_sentinel.policies.outcomes import BLOCKED
 from conda_sentinel.policies.outcomes import CURRENCY_STATE_LENGTH
 from conda_sentinel.policies.outcomes import CURRENT
+from conda_sentinel.policies.outcomes import EVIDENCE_INFERRED
+from conda_sentinel.policies.outcomes import EVIDENCE_NONE
+from conda_sentinel.policies.outcomes import EVIDENCE_TYPE_LENGTH
+from conda_sentinel.policies.outcomes import EVIDENCE_VERIFIED
 from conda_sentinel.policies.outcomes import FEEDSTOCK_STATE_LENGTH
 from conda_sentinel.policies.outcomes import FIX_AVAILABILITY_LENGTH
 from conda_sentinel.policies.outcomes import FIX_NOT_PUBLISHED
@@ -126,6 +132,10 @@ from conda_sentinel.policies.outcomes import MANUAL_REVIEW
 from conda_sentinel.policies.outcomes import NO_ADVISORY_MATCHED
 from conda_sentinel.policies.outcomes import PRESENT_AND_INACTIVE
 from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_sentinel.policies.outcomes import PY314_DECIDED_VERDICTS
+from conda_sentinel.policies.outcomes import PY314_INFERRED_VERDICTS
+from conda_sentinel.policies.outcomes import PY314_READINESS_STATE_LENGTH
+from conda_sentinel.policies.outcomes import PY314_VERIFIED_VERDICTS
 from conda_sentinel.policies.outcomes import READINESS_STATE_LENGTH
 from conda_sentinel.policies.outcomes import READY
 from conda_sentinel.policies.outcomes import RULE_DISPOSITIONS
@@ -137,7 +147,9 @@ from conda_sentinel.policies.outcomes import FeedstockOutcome
 from conda_sentinel.policies.outcomes import FixAvailability
 from conda_sentinel.policies.outcomes import KevMembership
 from conda_sentinel.policies.outcomes import PackageLicenseOutcome
+from conda_sentinel.policies.outcomes import PackagePythonReadinessOutcome
 from conda_sentinel.policies.outcomes import PackageVulnerabilityOutcome
+from conda_sentinel.policies.outcomes import ReadinessEvidence
 from conda_sentinel.policies.outcomes import RemediationReadiness
 from conda_sentinel.policies.parameters import MAX_LICENSE_EXPRESSION_CHARACTERS
 from conda_sentinel.policies.parameters import MAX_RISK_LEVEL_CHARACTERS
@@ -146,6 +158,8 @@ __all__ = [
     "AN_AGE_EXACTLY_WHEN_THERE_IS_AN_INSTANT",
     "AN_AWAITING_BUILD_ROW_NAMES_THE_RECIPE_THAT_CARRIES_THE_FIX",
     "AN_AWAITING_PACKAGING_ROW_NAMES_THE_RELEASE_THAT_CARRIES_THE_FIX",
+    "AN_INFERRED_VERDICT_RESTS_ON_AN_ASSESSMENT",
+    "AN_UNDECIDED_VERDICT_CLAIMS_NO_EVIDENCE_TYPE",
     "AUTHORITY_IS_A_KNOWN_SURFACE",
     "A_BLOCKED_ROW_NEEDS_EVERY_SURFACE_READ",
     "A_DECIDED_SURFACE_NAMES_ITS_OBSERVATION",
@@ -154,6 +168,7 @@ __all__ = [
     "A_READY_ROW_NAMES_THE_CHANNEL_THAT_CARRIES_THE_FIX",
     "A_RISK_LEVEL_ONLY_WHERE_ADVISORIES_MATCHED",
     "A_RULED_OUTCOME_NAMES_THE_RULE_THAT_PRODUCED_IT",
+    "A_VERIFIED_VERDICT_RESTS_ON_A_VERIFICATION",
     "DETERMINATE_KEV_MEMBERSHIP_NEEDS_ITS_CROSS_REFERENCE",
     "DETERMINATE_PRESENCE_NEEDS_AN_OBSERVATION",
     "DETERMINATE_READINESS_VERDICTS",
@@ -167,9 +182,12 @@ __all__ = [
     "MEASURED_VERDICTS",
     "ONE_FEEDSTOCK_ROW_PER_PACKAGE_PER_RUN",
     "ONE_LICENSE_ROW_PER_PACKAGE_PER_RUN",
+    "ONE_PYTHON_READINESS_ROW_PER_PACKAGE_PER_RUN",
     "ONE_REMEDIATION_ROW_PER_PACKAGE_PER_RUN",
     "ONE_ROW_PER_PACKAGE_PER_RUN",
     "ONE_VULNERABILITY_ROW_PER_PACKAGE_PER_RUN",
+    "PYTHON_READINESS_ROW_NAMES_ITS_POLICY_VERSION",
+    "PYTHON_READINESS_ROW_NAMES_THE_SERIES_IT_JUDGED",
     "REMEDIATION_ROW_NAMES_ITS_POLICY_VERSION",
     "SURFACE_FIX_FIELDS",
     "SURFACE_STATUS_FIELDS",
@@ -180,6 +198,7 @@ __all__ = [
     "PackageCurrency",
     "PackageFeedstockPresence",
     "PackageLicense",
+    "PackagePythonReadiness",
     "PackageRemediation",
     "PackageVulnerability",
 ]
@@ -2145,3 +2164,261 @@ class PackageRemediation(models.Model):
         readiness = self.readiness_status or "(no verdict)"
         fixed = self.fixed_version or "no fixed version"
         return f"remediation of {scope}: {readiness} for {fixed}"
+
+
+#: The constraint making one row per package per run the database's rule rather
+#: than the writer's promise, by name. `CPM-AD-21` keys a derived table
+#: `(package, policy_run)` so a replay can be compared against the original
+#: without either having overwritten the other.
+ONE_PYTHON_READINESS_ROW_PER_PACKAGE_PER_RUN: Final[str] = "one_python_readiness_row_per_package_per_run"
+
+#: The constraint requiring a verified verdict to name the verification it rests
+#: on **and** to declare its evidence type, by name.
+#:
+#: One constraint over two columns rather than two, because they are one claim:
+#: `CPM-FR-19` asks that a readiness claim state which evidence type produced it,
+#: and a row saying `verified` while citing no verification states an evidence
+#: type it cannot show. A hand-written `INSERT` that went round the pass entirely
+#: is refused by PostgreSQL.
+A_VERIFIED_VERDICT_RESTS_ON_A_VERIFICATION: Final[str] = "python_readiness_verified_verdict_cites_its_build"
+
+#: The same rule for the inferred half: an inferred verdict names the assessment
+#: it rests on and declares its evidence type.
+AN_INFERRED_VERDICT_RESTS_ON_AN_ASSESSMENT: Final[str] = "python_readiness_inferred_verdict_cites_its_claim"
+
+#: The constraint forbidding a row that decided nothing from claiming an evidence
+#: type, by name.
+#:
+#: The third side of AC 1, and the one that stops the column from drifting into
+#: decoration: a package nobody has looked at must answer "which evidence type
+#: produced this verdict" with `none`, not with the type of the evidence that
+#: happened to be absent. Without it, `unknown` rows could carry `inferred` and a
+#: reader filtering on evidence type would count packages nobody had assessed.
+AN_UNDECIDED_VERDICT_CLAIMS_NO_EVIDENCE_TYPE: Final[str] = "python_readiness_undecided_claims_no_evidence"
+
+#: The constraint requiring every row to name the policy version that produced it,
+#: by name, on the terms every derived table here requires one.
+PYTHON_READINESS_ROW_NAMES_ITS_POLICY_VERSION: Final[str] = "python_readiness_row_names_its_policy_version"
+
+#: The constraint requiring every row to name the Python series it judged, by
+#: name.
+#:
+#: The derived echo of the rule both evidence tables already carry. A readiness
+#: verdict that could not say which Python it is about would make a 3.14 answer
+#: indistinguishable from an answer about whatever comes next -- and this table is
+#: the one a read surface projects, so it is the last place the series can be lost.
+PYTHON_READINESS_ROW_NAMES_THE_SERIES_IT_JUDGED: Final[str] = "python_readiness_row_names_its_series"
+
+
+class PackagePythonReadiness(models.Model):
+    """What one policy run concluded about one package's Python readiness. Table `package_python_readiness`.
+
+    `CPM-FR-19` as a row: is this package ready for the assessed Python, and --
+    the half the requirement is actually about -- **what kind of evidence says
+    so**. Named by the same convention `package_currency`,
+    `package_feedstock_presence`, `package_vulnerability`, `package_license`,
+    `package_remediation` and `package_health` are: the architecture names the
+    schema, and a derived `policies_packagepythonreadiness` would make the table
+    depend on which application happened to declare the model.
+
+    **The evidence type is carried twice, and the redundancy is the design.**
+    `readiness` names it (`verified_ready`, `inferred_ready`, ...) and
+    `evidence_type` states it as a value a query can filter on. `CPM-AD-24`
+    carries a status verbatim onto every read surface, so a projection of
+    `readiness` alone must still be unable to mistake proof for inference --
+    which a bare `ready` beside a separate column would not survive, because the
+    surface that forgot the join is exactly the surface `CPM-FR-19` is written
+    about. The three check constraints below keep the two columns agreeing.
+
+    **`CPM-EP-PY314`'s whole title lands here.** Two collectors spent two stories
+    keeping inference and proof in separate tables with separate vocabularies;
+    this is the one table that reads both, and therefore the one place they could
+    be quietly re-merged. They are not: a row that had both cites both, and the
+    verdict says which one it rests on.
+
+    **Verified outranks inferred, and a disagreement is recorded rather than
+    resolved.** When a package has an assessment saying its metadata admits this
+    Python and a verification saying the build did not come out, the row is
+    `verified_not_ready` and cites **both** rows, with `detail` naming the
+    disagreement. A build that ran is proof and published metadata is a claim; the
+    claim is preserved beside the verdict rather than deleted by it.
+
+    **Never a determinate verdict from an absence.** No evidence, evidence that
+    established nothing, a failed look, an absent package and stale evidence are
+    all `unknown` with `evidence_type` `none`. Reading "nobody has checked" as "it
+    does not work" is the defect class both preceding stories in this epic were
+    written against, and it would be worse here: this is the row a queue renders.
+
+    **Every package gets a row**, including one with no evidence of either kind.
+    The absence of a row would read as never-evaluated, which is a different fact
+    from evaluated-and-nothing-established.
+
+    **`evidence_stale` is a boolean beside the verdict rather than a state.**
+    `core/freshness.py` fixes that staleness is a property of an answer and never
+    one of its values, and `PackageRemediation` already carries the column on those
+    terms. A `stale` member of the vocabulary would make "old" and "not ready"
+    compete for one column.
+
+    **This is not the health rollup and contributes no column to it.**
+    `CPM-AD-21` says no pass writes `package_health`; each writes only its own
+    per-domain table keyed `(package, policy_run)`, and `CPM-EP-PRIORITY` owns the
+    orchestrating writer. Nor does it hold a priority, a score, a rank or a work
+    type (`CPM-FR-20`, PRD Open Question 8).
+
+    **Every relation is `PROTECT`**, on exactly the terms `PackageCurrency`
+    states: an evidence row is the *support* for a verdict, and one deleted out
+    from under a row that cites it would leave the row claiming a build nothing can
+    be shown for.
+
+    **It copies the policy version and the cut-off**, so `CPM-FR-22`'s replay --
+    a diff of two runs' rows over one cut-off -- is a query over this table alone.
+
+    **It declares no `computed_at`**: `CPM-AD-11` requires that column of the
+    *rollup*, and `core/policy_run.py` hands a pass no clock at all.
+    """
+
+    #: The package this verdict is about.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="python_readiness_policy_findings",
+        verbose_name=_("package"),
+    )
+
+    #: The run that produced it. With the package, `CPM-AD-21`'s key.
+    policy_run = models.ForeignKey(
+        PolicyRun,
+        on_delete=models.PROTECT,
+        related_name="python_readiness_policy_findings",
+        verbose_name=_("policy run"),
+    )
+
+    #: The verdict, over `PackagePythonReadinessOutcome` and emitted verbatim
+    #: (`CPM-AD-24`). The determinate values name the evidence type behind them --
+    #: see the class docstring for why that is not redundant with the column below.
+    readiness = models.CharField(
+        _("readiness"),
+        max_length=PY314_READINESS_STATE_LENGTH,
+        choices=PackagePythonReadinessOutcome.choices,
+        editable=False,
+    )
+
+    #: Which kind of evidence produced the verdict, over `ReadinessEvidence`.
+    #: `CPM-FR-19`'s AC 1 as a column a query can filter on. Never `NULL`: a row
+    #: that decided nothing answers `none`.
+    evidence_type = models.CharField(
+        _("evidence type"),
+        max_length=EVIDENCE_TYPE_LENGTH,
+        choices=ReadinessEvidence.choices,
+        editable=False,
+    )
+
+    #: The Python series this verdict is about, dotted -- `3.14`. Required of every
+    #: row: this is the table a read surface projects, so it is the last place the
+    #: series could be lost.
+    python_series = models.CharField(_("python series"), max_length=_VOCABULARY_LENGTH, editable=False)
+
+    #: The static assessment this verdict read, where there was one. Present on
+    #: every inferred verdict, and **also** on a verified verdict that had an
+    #: assessment beside it -- which is what makes AC 2's "the distinction survives"
+    #: a property of the row rather than of the writer's intentions.
+    assessment = models.ForeignKey(
+        PythonReadinessAssessment,
+        on_delete=models.PROTECT,
+        related_name="python_readiness_policy_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("python readiness assessment"),
+    )
+
+    #: The verification this verdict read, where there was one. Present on every
+    #: verified verdict, and it is what names the platform and the log the verdict
+    #: rests on.
+    verification = models.ForeignKey(
+        PythonVerificationResult,
+        on_delete=models.PROTECT,
+        related_name="python_readiness_policy_findings",
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name=_("python verification result"),
+    )
+
+    #: Whether the evidence behind this verdict had aged past its collector's
+    #: declared freshness target at the cut-off (`CPM-FR-38`, `CPM-AD-28`). A
+    #: property beside the verdict, never one of its values.
+    evidence_stale = models.BooleanField(_("evidence stale"), default=False, editable=False)
+
+    #: The policy version that produced this row.
+    policy_version = models.CharField(_("policy version"), max_length=_POLICY_VERSION_LENGTH, editable=False)
+
+    #: The instant evidence was read as of (`CPM-AD-21`).
+    evidence_cutoff = models.DateTimeField(_("evidence cutoff"), editable=False)
+
+    #: What the pass had to say -- which absence an `unknown` row is, what the two
+    #: evidence kinds disagreed about, or what identity established.
+    detail = models.TextField(_("detail"), blank=True, default="", editable=False)
+
+    class Meta:
+        """The table `CPM-PY314-S03` adds, not the `policies_packagepythonreadiness` Django derives."""
+
+        db_table = "package_python_readiness"
+        verbose_name = _("package python readiness")
+        verbose_name_plural = _("package python readiness")
+        constraints = [
+            # `CPM-AD-21`'s key, as the database's rule.
+            models.UniqueConstraint(
+                fields=["package", "policy_run"],
+                name=ONE_PYTHON_READINESS_ROW_PER_PACKAGE_PER_RUN,
+            ),
+            # A verified verdict names the build it rests on and says so in the
+            # evidence-type column. Both halves in one constraint because they are
+            # one claim -- see the constant's own comment.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(readiness__in=PY314_VERIFIED_VERDICTS)
+                    | (models.Q(evidence_type=EVIDENCE_VERIFIED) & models.Q(verification__isnull=False))
+                ),
+                name=A_VERIFIED_VERDICT_RESTS_ON_A_VERIFICATION,
+            ),
+            # The same rule for the inferred half.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(readiness__in=PY314_INFERRED_VERDICTS)
+                    | (models.Q(evidence_type=EVIDENCE_INFERRED) & models.Q(assessment__isnull=False))
+                ),
+                name=AN_INFERRED_VERDICT_RESTS_ON_AN_ASSESSMENT,
+            ),
+            # And the third side: a row that decided nothing claims no evidence
+            # type. Without it, an `unknown` row could carry `inferred` and a
+            # reader filtering on evidence type would count packages nobody
+            # assessed.
+            models.CheckConstraint(
+                condition=models.Q(readiness__in=PY314_DECIDED_VERDICTS) | models.Q(evidence_type=EVIDENCE_NONE),
+                name=AN_UNDECIDED_VERDICT_CLAIMS_NO_EVIDENCE_TYPE,
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(policy_version=""),
+                name=PYTHON_READINESS_ROW_NAMES_ITS_POLICY_VERSION,
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(python_series=""),
+                name=PYTHON_READINESS_ROW_NAMES_THE_SERIES_IT_JUDGED,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this row concluded, for an admin list and a debugger.
+
+        Returns:
+            The series, the verdict and the evidence type behind it, with the
+            package and the run it belongs to. Reads `package_id` and
+            `policy_run_id` rather than the relations, so an unsaved instance
+            renders inside a traceback rather than raising from it.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        run = "no run" if self.policy_run_id is None else f"run {self.policy_run_id}"
+        series = self.python_series or "(no series)"
+        return f"Python {series} for {scope}: {self.readiness} from {self.evidence_type} evidence ({run})"

@@ -64,6 +64,7 @@ from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_
 from conda_sentinel.policies.licence import POLICY_NAME as LICENCE_POLICY_NAME
 from conda_sentinel.policies.outcomes import BEHIND
 from conda_sentinel.policies.outcomes import PRESENT_AND_MAINTAINED
+from conda_sentinel.policies.py314_readiness import POLICY_NAME as PY314_READINESS_POLICY_NAME
 from conda_sentinel.policies.remediation import POLICY_NAME as REMEDIATION_POLICY_NAME
 from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from tests.clocks import FIXED_INSTANT
@@ -248,6 +249,7 @@ def test_every_package_gets_exactly_one_row_carrying_the_runs_stamps() -> None:
             VULNERABILITY_POLICY_NAME: A_POLICY_VERSION,
             LICENCE_POLICY_NAME: A_POLICY_VERSION,
             REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
+            PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
             FIRST_DOMAIN: A_POLICY_VERSION,
         }
 
@@ -282,6 +284,7 @@ def test_two_passes_in_two_domains_both_survive_the_compose(
         VULNERABILITY_POLICY_NAME: A_POLICY_VERSION,
         LICENCE_POLICY_NAME: A_POLICY_VERSION,
         REMEDIATION_POLICY_NAME: A_POLICY_VERSION,
+        PY314_READINESS_POLICY_NAME: A_POLICY_VERSION,
         FIRST_DOMAIN: A_POLICY_VERSION,
         SECOND_DOMAIN: A_POLICY_VERSION,
     }
