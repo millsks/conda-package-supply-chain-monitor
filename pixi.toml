@@ -576,6 +576,12 @@ beat = { cmd = "celery -A config.celery_app beat -l INFO --scheduler django_cele
 # COMPONENT_RUNTIME=local; bare `pixi run seed-personas` resolves in `default`,
 # reads *deployed*, and is correctly refused with ImproperlyConfigured.
 seed-personas = { cmd = "python -m config.local_dev.seed", default-environment = "default", description = "Seed the local development personas" }
+# The demo inventory (local only). It writes packages and *evidence* and then runs
+# the real policy engine over both, so every status the screens show was concluded
+# by the pass that owns it -- see src/config/local_dev/demo_data.py for why nothing
+# here fabricates a verdict. Refuses outside a local run: evidence is append-only,
+# so a fictional observation cannot be taken back.
+seed-demo = { cmd = "python -m config.local_dev.seed_demo", default-environment = "default", description = "Seed a local demo inventory with evidence behind it" }
 # The local programmatic credential (FR-20). Mints a JWT signed by the keypair
 # `src/config/local_dev/keys.py` generates on demand into the gitignored
 # `.local-dev-keys/`, which local settings point the JWKS location at, so the
