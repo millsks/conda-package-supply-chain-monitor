@@ -55,14 +55,15 @@ class PoliciesConfig(AppConfig):
         **The order is a declaration, and it is why this is a tuple.**
         `core/policy.py` keeps registration order where the collector registry
         sorts by name, because `CPM-AD-21` lets a later pass read an earlier
-        pass's derived rows for the same run. Five passes today, in the order
+        pass's derived rows for the same run. Six passes today, in the order
         this component's epics landed them: currency (`CPM-CURRENCY-S06`), then
         feedstock presence (`CPM-CURRENCY-S07`), then vulnerability
         (`CPM-SECURITY-S04`), then licence (`CPM-SECURITY-S05`), then
-        remediation readiness (`CPM-SECURITY-S06`).
+        remediation readiness (`CPM-SECURITY-S06`), then Python 3.14 readiness
+        (`CPM-PY314-S03`).
 
         **None reads another, and the order is therefore not yet load
-        bearing -- which is exactly why it is worth stating now.** All five read
+        bearing -- which is exactly why it is worth stating now.** All six read
         evidence and write their own derived tables, so today they could be
         adopted in any order with identical results. Recording the order
         while it is free is what makes it a declaration somebody chose rather
@@ -114,9 +115,17 @@ class PoliciesConfig(AppConfig):
         from conda_sentinel.policies.currency import CurrencyPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.feedstock import FeedstockPresencePass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.licence import LicensePass  # noqa: PLC0415 - see above
+        from conda_sentinel.policies.py314_readiness import Py314ReadinessPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.remediation import RemediationPass  # noqa: PLC0415 - see above
         from conda_sentinel.policies.vulnerability import VulnerabilityPass  # noqa: PLC0415 - see above
 
-        for policy_pass in (CurrencyPass, FeedstockPresencePass, VulnerabilityPass, LicensePass, RemediationPass):
+        for policy_pass in (
+            CurrencyPass,
+            FeedstockPresencePass,
+            VulnerabilityPass,
+            LicensePass,
+            RemediationPass,
+            Py314ReadinessPass,
+        ):
             if pass_registrations().get(policy_pass.name) is not policy_pass:
                 register_pass(policy_pass)
