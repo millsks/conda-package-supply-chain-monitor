@@ -2,7 +2,7 @@
 title: 'CPM-PY314-S02: Verified compatibility on its own queue'
 type: 'feature'
 created: '2026-09-08'
-status: 'review'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 baseline_revision: 'f7199f3'

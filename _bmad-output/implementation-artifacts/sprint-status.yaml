@@ -109,7 +109,7 @@ development_status:
   # CPM-EP-PY314: Inferred and verified compatibility, kept apart
   epic-py314: in-progress
   cpm-py314-s01-static-readiness-assessment: done
-  cpm-py314-s02-verified-compatibility-own-queue: ready-for-dev
+  cpm-py314-s02-verified-compatibility-own-queue: done
   cpm-py314-s03-readiness-states-own-evidence-type: ready-for-dev
   epic-py314-retrospective: optional
 
