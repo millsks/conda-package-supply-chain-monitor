@@ -217,6 +217,14 @@ LOCAL_APPS = [
     # declaration order: a later pass may read an earlier pass's derived rows, so
     # the order applications are adopted in is part of what is declared.
     "conda_sentinel.policies",
+    # The read surfaces (`CPM-EP-APP`, `CPM-APP-S02`). Last, and after `policies`
+    # rather than merely after the stage-2 owner: it reads every pass's derived
+    # table by name, so it depends on those applications rather than the other way
+    # round. It declares no models, no `ready()` and no migrations -- `CPM-AD-10`
+    # gives the application layer no write path to a derived status, so a read
+    # surface with a model of its own would be declaring the one thing the decision
+    # forbids it.
+    "conda_sentinel.surface",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -291,6 +299,34 @@ CLAIMS_CONTRACT = load_claims_contract(env)
 # See src/django_apps/conda_sentinel/core/roles.py and
 # docs/authentication.md.
 ROLE_CONTRACT = load_role_contract(env)
+
+# CPM-NFR-5's latency budget for the current package-health view, in milliseconds
+# at the 95th percentile, measured server-side at full inventory size with filters
+# applied.
+#
+# **PROVISIONAL.** The PRD states the budget as a requirement to exist and defers
+# its value to the architecture pass, tracked as Open Question 5 and recorded in the
+# assumptions index; CPM-APP-S02 is required to configure a budget and enforce it,
+# not to choose the number. 800ms is chosen and written down so the enforcement is
+# real rather than notional, and the reasoning is here so whoever sets the real one
+# knows what they are overriding:
+#
+#   * The screen is server-rendered and a reader interacts with it in a loop --
+#     tick a facet, read, tick another. The classic threshold for an interaction
+#     still feeling like part of a train of thought is one second, and 800ms leaves
+#     roughly 200ms of that for the network and the browser's own render.
+#   * The work behind it is bounded and does not grow with the inventory: one
+#     filtered page of fifty rollup rows plus a fixed number of derived-table reads,
+#     every one of them over an indexed column. A budget that had to grow with
+#     CPM-NFR-1's ten thousand packages would be describing a different design.
+#   * It is deliberately not tight. A budget nobody can meet gets raised, and a
+#     budget raised once gets raised again; this one is meant to hold, so the test
+#     that enforces it fails on a regression rather than on a slow morning.
+#
+# Read from the environment so a deployment on slower storage can state its own
+# without a code change -- which is also what makes the number replaceable when
+# Open Question 5 is answered.
+CPM_HEALTH_VIEW_P95_BUDGET_MS = env.int("CPM_HEALTH_VIEW_P95_BUDGET_MS", default=800)
 # The inventory source's file (CPM-AD-29, CPM-FR-42): the versioned watchlist the
 # declared adapter reads, selected by locality.
 #

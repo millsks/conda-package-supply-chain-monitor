@@ -1,0 +1,144 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n health %}
+
+{% block title %}{% translate "Current package health" %}{% endblock title %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{% translate "Current package health" %}</h2>
+      <div class="sub">
+        {% blocktranslate count total=paginator.count trimmed %}
+          {{ total }} package matches
+        {% plural %}
+          {{ total }} packages match
+        {% endblocktranslate %}
+        {% if applied %}&middot; {% translate "filtered" %}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% comment %} CPM-AD-11: every view displays computed_at, the run's cut-off and the
+     per-domain version map. Read off the freshest row rather than off a run,
+     because a replay (CPM-PRIORITY-S03) can leave rows from more than one run and
+     each row carries its own stamps below. {% endcomment %}
+  {% if freshest %}
+    <div class="freshbar">
+      <div><span class="lbl">{% translate "rollup computed" %}</span><b>{{ freshest.computed_at|date:"Y-m-d H:i" }}Z</b></div>
+      <div><span class="lbl">{% translate "evidence cut-off" %}</span><b>{{ freshest.evidence_cutoff|date:"Y-m-d H:i" }}Z</b></div>
+      <div>
+        <span class="lbl">{% translate "policy versions" %}</span>
+        <b>{% for domain, version in freshest.policy_versions.items %}{{ domain }}@{{ version }} {% endfor %}</b>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="split">
+    <aside class="side">
+      <form method="get">
+        {% comment %} The sort survives a filter change and the page does not: a reader who
+           ticks a facet wants the first page of the new result, not page seven of
+           a result that may have fewer than seven pages. {% endcomment %}
+        <input type="hidden" name="sort" value="{{ ordering }}" />
+        {% for entry in facets %}
+          <div class="grp">
+            <h5>{{ entry.facet.label }}</h5>
+            {% for value, label in entry.facet.choices %}
+              <label class="facet{% if value in entry.selected %} on{% endif %}">
+                <input type="checkbox"
+                       name="{{ entry.facet.param }}"
+                       value="{{ value }}"
+                       {% if value in entry.selected %}checked{% endif %} />
+                {{ value }}
+              </label>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        <button class="btn primary" type="submit">{% translate "Apply filters" %}</button>
+        {% if applied %}
+          <a class="btn ghost" href="{% url 'conda_sentinel:package-health' %}">{% translate "Clear" %}</a>
+        {% endif %}
+      </form>
+    </aside>
+
+    <div class="main-pane">
+      <div class="applied">
+        <span>{% translate "Sorted by" %}</span>
+        {% for key in orderings %}
+          {% if key == ordering %}
+            <span class="filterpill">{{ key }}</span>
+          {% else %}
+            <a class="btn sm" href="?{% querystring request.GET sort=key page=None %}">{{ key }}</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>{% translate "Package" %}</th>
+            <th>{% translate "P" %}</th>
+            <th>{% translate "Score" %}</th>
+            <th>{% translate "Work" %}</th>
+            {% for column in columns %}<th>{{ column.label }}</th>{% endfor %}
+            <th>{% translate "Confidence" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td class="pkg">{{ row.canonical_name }}</td>
+              <td><span class="pbucket {{ row.priority|tone }}">{{ row.priority }}</span></td>
+              {% comment %} `default_if_none` rather than an `{% if %}`: a score of zero is a real score
+                 and is falsy, so a truthiness test would blank the package nothing has
+                 raised the priority of -- which is the row a reader is most likely to
+                 misread as missing data. {% endcomment %}
+              <td class="num">{{ row.score|default_if_none:"" }}</td>
+              <td>{{ row.work_type }}</td>
+              {% comment %} CPM-APP-S02 AC 4, and it is why every cell below prints
+                 `cell.status` with no `{% if %}` around it: a status renders as
+                 itself, never as blank and never as clean. The tone filter cannot
+                 return an empty class and `core/tone.py`'s audit is what keeps a
+                 new outcome from arriving as an undecorated chip. {% endcomment %}
+              {% for cell in row.cells %}
+                <td>
+                  <span class="chip {{ cell.status|tone }}">{{ cell.status }}</span>
+                  <div class="ev">
+                    {{ cell.note }}{% if cell.observed_at %} &middot; {{ cell.observed_at|date:"m-d H:i" }}Z{% endif %}
+                  </div>
+                </td>
+              {% endfor %}
+              <td><span class="conf {{ row.confidence|tone }}">{{ row.confidence }}</span></td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="11">
+                {% translate "No package matches these filters." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% comment %} CPM-AD-12: the page size is a global setting and not a reader's choice, so
+         the pager offers no size selector. It offers page numbers rather than
+         prev/next alone because a reader at ten thousand packages needs to know how
+         far in they are. {% endcomment %}
+      {% if page_obj.has_other_pages %}
+        <div class="applied">
+          {% if page_obj.has_previous %}
+            <a class="btn sm" href="?{% querystring request.GET page=page_obj.previous_page_number %}">{% translate "Previous" %}</a>
+          {% endif %}
+          <span>
+            {% blocktranslate with current=page_obj.number total=paginator.num_pages trimmed %}
+              Page {{ current }} of {{ total }}
+            {% endblocktranslate %}
+          </span>
+          {% if page_obj.has_next %}
+            <a class="btn sm" href="?{% querystring request.GET page=page_obj.next_page_number %}">{% translate "Next" %}</a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock content %}

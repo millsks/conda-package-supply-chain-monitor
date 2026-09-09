@@ -1009,6 +1009,47 @@ opens that parameter.
 If a caller genuinely needs more rows than a page holds, the answer is an export,
 which is a task rather than an unpaginated response.
 
+### The product's screens
+
+`CPM-AD-19` gives every app under `src/django_apps/` two kinds of surface: an
+app-level `urls.py` with `app_name` for HTML views, and an `api/` subpackage
+routed centrally. The screens live in `conda_sentinel.surface`, which is the
+read layer and has no models of its own — `CPM-AD-10` gives the application
+layer no write path to a derived status, so a read surface that declared a model
+would be declaring the one thing the decision forbids it.
+
+**`surface` may import a derived model; `core` may not.** `core` reaches every
+policy pass through the registry `policies/apps.py` fills at `ready()`, never by
+importing one, which is what lets a pass be added without touching the
+orchestrator. It may import a domain application's *vocabulary* — `PackageHealth`
+takes its columns' `choices` from `policies.outcomes` — but never its tables.
+A module that has to know that a vulnerability verdict lives on
+`package_vulnerability.vulnerability_status` belongs in `surface`.
+`tests/unit/django_apps/test_app_layering_audit.py` holds the line.
+
+**A status read out of a derived table has to be gated on the way to the screen.**
+The rollup's own columns went through `CPM-AD-4`'s confidence gate when the run
+wrote them; a derived table holds what the pass wrote, and a pass computes its
+verdict without knowing anything about identity. `surface/health.py` calls
+`core.confidence.gated_status` for the four statuses it reads that way. Skipping
+it puts a confident claim about an unidentified package next to five columns
+correctly saying `unknown`, and every other cell on the row looks right.
+
+**Statuses render verbatim, and tones are prefixed so they cannot be mistaken for
+them.** `CPM-AD-24` reserves blank for a field with no value and never for a
+status, so a cell with no derived row says `unknown` and says why. How a status
+is drawn is `surface/tone.py`, whose values are all prefixed `tone-`: the
+mockups' chip variants are named `ok`, `warn`, `unknown` and `error`, four of
+which are also `OutcomeState` values, and an unprefixed table would be
+indistinguishable from a second confidence gate. Every value of every rendered
+vocabulary must have a tone; `tests/unit/django_apps/test_tone.py` fails on one
+that does not, so a new outcome is a failing test rather than a silently grey
+chip.
+
+**Multi-line `{# #}` is not a Django comment.** Django's lexer does not match
+across newlines, so a multi-line `{# ... #}` renders as literal text and any
+`{% %}` inside it is parsed. Use `{% comment %}` for anything longer than a line.
+
 ### Every surface declares the role it needs
 
 Authorization is declared per view and decided in one place —
