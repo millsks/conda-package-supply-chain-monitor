@@ -534,6 +534,40 @@ authorization:
 | `engineer` | `local-dev:persona:engineer` | the **packaging engineer** role group | the product's read surfaces |
 | `leader` | `local-dev:persona:leader` | the **leadership** role group | the product's read surfaces |
 
+### Seeding something to look at
+
+```console
+pixi run -e dev seed-demo
+```
+
+Ten packages with evidence behind them, and one real policy run over both. Without
+it the screens render `unknown` everywhere — correct, and useless for judging a
+design, because every cell then has the value it would also have if the projection
+were broken.
+
+**It writes evidence, never a verdict.** Every status the seeded screens show was
+concluded by the pass that owns it, from the parameter file that ships. Identity
+goes through `resolve_package_shell` and `record_resolution` (`CPM-AD-14`,
+`CPM-AD-25`), never `Package.objects.create` — so the unmapped package in the demo
+is genuinely unmapped and the confidence gate blanking its row is the gate working,
+not a fixture imitating it.
+
+Two consequences worth expecting:
+
+- **Priority is `unknown` and licence is `manual_review` for every package.** The
+  shipped parameter file records `priority_rules = []` and `license_rules = []`
+  deliberately — both are open PRD questions — so those columns are inert until
+  someone records a rule set at a new version. The seeder says so in its output
+  rather than letting you conclude the columns are broken.
+- **Running it twice appends.** Evidence is append-only (`CPM-AD-2`), so a second
+  run adds a second observation of each fact rather than replacing the first. That
+  is realistic, and it is what gives the package detail view's superseded-evidence
+  list something to show.
+
+It refuses outside a local run, more firmly than the persona seeder: a fictional
+observation written by a deployed component cannot be deleted, and every replayed
+policy run would read it afterwards.
+
 **Sign in as `reviewer`, `engineer` or `leader` to reach the product's own
 screens.** Every surface declares the role it requires (`CPM-AD-13`), and neither
 `staff` nor `reader` holds one — `staff` reaches the Django admin and `reader`
