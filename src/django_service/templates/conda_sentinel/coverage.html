@@ -1,0 +1,127 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n health %}
+
+{% block title %}{% translate "Coverage" %}{% endblock title %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{% translate "Coverage and collector health" %}</h2>
+      <div class="sub">
+        {% blocktranslate count total=coverage.inventory trimmed %}
+          {{ total }} package in the inventory
+        {% plural %}
+          {{ total }} packages in the inventory
+        {% endblocktranslate %}
+      </div>
+    </div>
+  </div>
+
+  {% if coverage.computed_at %}
+    <div class="freshbar">
+      <div><span class="lbl">{% translate "rollup computed" %}</span><b>{{ coverage.computed_at|date:"Y-m-d H:i" }}Z</b></div>
+      <div><span class="lbl">{% translate "evidence cut-off" %}</span><b>{{ coverage.evidence_cutoff|date:"Y-m-d H:i" }}Z</b></div>
+    </div>
+  {% endif %}
+
+  {% comment %}
+    Counts of absence, deliberately. A coverage screen built the obvious way reports
+    a percentage healthy and tells an operator the product is working; what they need
+    is what it cannot see. CPM-FR-5 forbids presenting a package as clean without
+    evidence, and this is the aggregate of that.
+  {% endcomment %}
+  <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+    <div class="panel">
+      <header><h4>{% translate "Identity" %}</h4></header>
+      <div class="body">
+        <dl class="kv" style="grid-template-columns:minmax(0,1fr) 70px">
+          {% for value, count in coverage.identity.items %}
+            <dt><span class="conf {{ value|tone }}">{{ value }}</span></dt>
+            <dd class="mono">{{ count }}</dd>
+          {% empty %}
+            <dt>{% translate "no packages yet" %}</dt><dd class="mono">0</dd>
+          {% endfor %}
+        </dl>
+        {% if coverage.unmapped %}
+          <div class="ev" style="margin-top:11px">
+            {% blocktranslate count total=coverage.unmapped trimmed %}
+              {{ total }} package has no established identity, so every status on it is gated to unknown
+            {% plural %}
+              {{ total }} packages have no established identity, so every status on them is gated to unknown
+            {% endblocktranslate %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% for gap in coverage.gaps %}
+      <div class="panel">
+        <header><h4>{{ gap.label }}</h4><span class="hx">{% translate "no verdict" %}</span></header>
+        <div class="body">
+          <div class="mono" style="font-size:22px">{{ gap.no_verdict }}</div>
+          <div class="ev">{{ gap.share }}% {% translate "of" %} {{ gap.total }}</div>
+          {% if gap.answered_negatively %}
+            {% comment %}
+              Shown apart from the gap above, not folded into it. "No feedstock
+              exists" is a finding; "nothing has looked" is a hole in the
+              monitoring, and there is a different thing to do about each.
+            {% endcomment %}
+            <div class="ev">
+              {{ gap.answered_negatively }} {% translate "answered not_found or not_applicable" %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <header>
+      <h4>{% translate "Collector health" %}</h4>
+      <span class="hx">{% translate "every registered collector, including one that has never run" %}</span>
+    </header>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>{% translate "Collector" %}</th>
+          <th>{% translate "Freshness target" %}</th>
+          <th>{% translate "Last finished" %}</th>
+          <th>{% translate "Runs" %}</th>
+          <th>{% translate "Status" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for collector in collectors %}
+          <tr>
+            <td class="pkg">{{ collector.name }}</td>
+            <td class="mono">{{ collector.freshness_target|default:"—" }}</td>
+            <td class="mono">
+              {% if collector.has_ever_run %}
+                {{ collector.last_finished_at|date:"Y-m-d H:i" }}Z
+                {% if not collector.inside_target %}
+                  <div class="ev stale">{% translate "outside its declared target" %}</div>
+                {% endif %}
+              {% else %}
+                {% comment %}
+                  The row a hand-written roster omits and the one an operator most
+                  needs: a collector nothing has ever asked. Blank next to nine green
+                  rows reads as fine, so it says so.
+                {% endcomment %}
+                <span class="chip tone-unknown">{% translate "never run" %}</span>
+              {% endif %}
+            </td>
+            <td class="num">
+              {{ collector.runs }}
+              {% if collector.failures %}<div class="ev stale">{{ collector.failures }} {% translate "failed" %}</div>{% endif %}
+            </td>
+            <td>
+              <span class="chip {% if collector.last_status == 'ok' %}tone-ok{% elif collector.last_status == 'failing' %}tone-error{% else %}tone-unknown{% endif %}">
+                {{ collector.last_status }}
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock content %}

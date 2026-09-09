@@ -323,6 +323,14 @@ ROLE_CONTRACT = load_role_contract(env)
 #     budget raised once gets raised again; this one is meant to hold, so the test
 #     that enforces it fails on a regression rather than on a slow morning.
 #
+# **What actually guards this, and what does not.** The suite's timing case asserts
+# ten times this number, because a stopwatch on a shared CI runner cannot honestly
+# measure a p95 -- so it catches an order-of-magnitude regression (a full scan, an
+# N+1, a join that multiplied rows) and nothing finer. The real gate is the *exact*
+# query-count assertion beside it, which is strict and structural. When there is
+# production traffic, measure the p95 from it and set this number from that
+# measurement; do not read a green suite as evidence that the budget is met.
+#
 # Read from the environment so a deployment on slower storage can state its own
 # without a code change -- which is also what makes the number replaceable when
 # Open Question 5 is answered.
