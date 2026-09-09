@@ -1297,7 +1297,7 @@ def test_the_transport_records_what_a_real_server_said(
     A real request over a real socket to a real server, turned into the
     `Payload` every other case in this repository hands the base by hand. That
     equivalence is the whole argument for the seam: prove the recording once
-    here, and the nine collectors' parsing is unit-testable forever.
+    here, and the ten collectors' parsing is unit-testable forever.
 
     The body is not ASCII, deliberately. `requests`' `.text` would decode a
     `text/*` body with no charset as ISO-8859-1 and hand back mojibake, and the

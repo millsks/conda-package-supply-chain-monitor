@@ -91,11 +91,13 @@ from conda_sentinel.collectors.kev import declared_kev_source
 from conda_sentinel.collectors.kev import kev_source
 from conda_sentinel.collectors.license import LicenseCollector
 from conda_sentinel.collectors.models import InventorySnapshot
+from conda_sentinel.collectors.py314_verification import Py314VerificationCollector
 from conda_sentinel.collectors.pypi_release import PyPIReleaseCollector
 from conda_sentinel.collectors.python_readiness import PythonReadinessCollector
 from conda_sentinel.collectors.source_release import SourceReleaseCollector
 from conda_sentinel.collectors.sweep import SWEEP_TASK_NAME
 from conda_sentinel.collectors.sweep import dispatch
+from conda_sentinel.collectors.verification import verification_backend
 from conda_sentinel.collectors.vulnerability import VulnerabilityCollector
 from conda_sentinel.core.clock import SystemClock
 from conda_sentinel.core.collection import NO_CACHE
@@ -141,6 +143,7 @@ __all__ = [
     "REQUIRED_SIGNALS",
     "SOURCE_PACKAGE_KEY",
     "SWEEP_TASK_NAME",
+    "VERIFY_PY314_TASK_NAME",
     "InventoryAdapterError",
     "InventoryIngestionCollector",
     "InventoryRecord",
@@ -159,6 +162,7 @@ __all__ = [
     "ingest_inventory",
     "inventory_adapter",
     "records_in",
+    "verify_py314_build",
     "withdraw_inventory_adapter",
 ]
 
@@ -233,6 +237,31 @@ COLLECT_LICENSE_TASK_NAME: Final[str] = "cpm.collect.license"
 #: work and belongs where collection work goes; `CPM-PY314-S02` declares the
 #: `cpm.verify.` name.
 COLLECT_PYTHON_READINESS_TASK_NAME: Final[str] = "cpm.collect.python_readiness"
+
+#: The Python 3.14 verification task's declared name, and the first task this
+#: module declares outside the `cpm.collect.` namespace (`CPM-PY314-S02`,
+#: `CPM-FR-14`). `core/tasks.py` already declares the one `cpm.policy.` name, so
+#: what is new here is a third namespace reaching a third queue rather than a
+#: second namespace existing at all.
+#:
+#: **`cpm.verify.` is what routes it, and the name is `core/queues.py`'s own worked
+#: example** -- spelled there, verbatim, before this task existed, because that
+#: module's whole argument is that a task's workload class lives in its declared
+#: name rather than in its module: `CPM-EP-PY314`'s verification and
+#: `CPM-EP-CURRENCY`'s collection land in one package, so a route keyed on module
+#: path could not tell a compute-backed build from an HTTP read, and getting that
+#: wrong *is* `R-11`. Declaring this name is the whole of what puts verification on
+#: the `verify` queue: there is no route to add and no setting to edit.
+#:
+#: **`py314_build` and not the collector's own name**, which is the one place this
+#: constant departs from the nine above. Those are derived --
+#: `collectors/sweep.py` builds `cpm.collect.<collector name>` to enqueue a swept
+#: collection -- so their last segment *must* be the collector's name. Nothing
+#: sweeps this collector (`CPM-PY314-S02` AC 3), so nothing derives this name, and
+#: it is free to say what the task does. `tests/unit/django_apps/
+#: test_py314_verification.py` pins the string against `core/queues.py`'s example so
+#: the two cannot drift.
+VERIFY_PY314_TASK_NAME: Final[str] = "cpm.verify.py314_build"
 
 #: `SWEEP_TASK_NAME` is the one task name in this module that is **not** declared
 #: here. `CPM-CURRENCY-S05`'s dispatch task names no collector, because it takes
@@ -1738,6 +1767,102 @@ def collect_python_readiness(*, package_id: int, force: bool = False) -> str:
     """
     with PythonReadinessCollector(clock=SystemClock()) as collector:
         return str(collector.collect(package_id=package_id, force=force).state.value)
+
+
+@shared_task(name=VERIFY_PY314_TASK_NAME)  # type: ignore[untyped-decorator]
+def verify_py314_build(*, package_id: int) -> str:
+    """Build and import one package under Python 3.14 and record what happened (`CPM-FR-14`).
+
+    Package-scoped on the same terms as the nine collection tasks above: one
+    question per package (`CPM-AD-7`), one package's transaction and ledger row
+    (`CPM-AD-23`). Everything else about it is different, and each difference is an
+    acceptance criterion.
+
+    **It is on the `verify` queue, and the name is the whole of why.** `cpm.verify.`
+    is what `core/queues.py`'s derived route table sends there, so AC 1's queue
+    requirement is a property of the string above rather than of a route somebody
+    could get wrong or a setting somebody could edit. `CPM-AD-20` puts a
+    compute-backed build on its own queue precisely so a five-minute job cannot
+    starve the daily security sweep (`R-11`), and this is the first task in this
+    component that is such a job.
+
+    **Nothing schedules it, and nothing may.** `CPM-FR-14` makes verification "a
+    separate, optionally triggered capability" and AC 3 says it is not run across the
+    inventory by default. `Py314VerificationCollector.selectable_packages` answers
+    `None`, so `collectors/sweep.py` refuses to dispatch it by name and no
+    `CELERY_BEAT_SCHEDULE` entry names it: a beat entry added later would fail at its
+    first tick rather than quietly verifying ten thousand packages.
+
+    **The transport is passed rather than built, and it is the declared execution
+    backend** (`CPM-AD-29`) -- the same shape `collect_vulnerability` takes, for a
+    stronger reason. What is substituted there is which advisory database is read;
+    what is substituted here is **what code runs on which machine**.
+    `collectors/verification.py` is the slot and argues why this component ships
+    with none.
+
+    **This component ships with no backend declared**, so every enqueue of this task
+    raises `VerificationBackendError` until an operator declares one. The refusal
+    happens before the collector is constructed and therefore before the recorder
+    opens, so an unconfigured component leaves no ledger row and no evidence row
+    claiming to have verified anything -- and because nothing sweeps this collector,
+    there is no scheduled dispatch enqueueing raising tasks either.
+
+    **There is no `force`, and its absence is a decision.** Every collection task
+    above takes one, because every one of them is swept and a window is what stops a
+    sweep re-reading a source it read an hour ago. This collector declares
+    `NO_WINDOW`: a run happens because somebody asked for it, so there is nothing to
+    bypass, and a parameter that provably did nothing would read as a switch that
+    might.
+
+    It declares **no schedule and no time limit**: cadence is data in
+    `django_celery_beat` (`CPM-AD-20`, `CPM-NFR-2`) and the inherited limits are
+    settings' (`CPM-AD-9`). That second one bites harder here than anywhere else in
+    this module -- a backend whose `fetch` blocks for the length of a real build
+    meets the inherited soft limit and is killed with no row written, so a backend
+    drives the work elsewhere and answers about a run that has already finished.
+    `collectors/verification.py` states it as part of the adapter contract,
+    `docs/deployment.md` states it to an operator, and `CPM-PY314-S02` records it as
+    deferred work because resolving it means changing a limit `CPM-AD-9` owns.
+
+    **A misconfiguration leaves this task the same way a transient failure does, and
+    Celery cannot tell the two apart** -- the hazard `collect_conda_package` records,
+    reached here by a sixth route: `VerificationBackendError` is permanent by
+    construction, and with nothing declared *every* enqueue raises it. Nothing here
+    declares `autoretry_for`, and an automatic retry would be worse here than
+    anywhere else in this module: it would re-run somebody's build.
+
+    Args:
+        package_id: The package to verify, by the integer primary key `CPM-AD-3`
+            fixes. Keyword only, so a caller can never enqueue a build for the wrong
+            package by getting an argument's position wrong.
+
+    Returns:
+        How the run ended, as the `RunState` value the ledger row carries. A string
+        rather than the `CollectionResult`, because a task's return value is
+        serialized into the result backend and the durable record of the run is the
+        ledger row -- and the durable record of what the build *did* is the evidence
+        row, which outlives both.
+
+    Raises:
+        VerificationBackendError: When no execution backend is declared -- which is
+            what ships. Raised before the collector is constructed and therefore
+            before the recorder opens, so it leaves nothing behind at all.
+        RunLedgerError: When `package_id` names no package. The recorder checks the
+            key before it writes the opening row (`CPM-EVIDENCE-S09`), so this leaves
+            nothing behind either.
+        Py314VerificationIdentityError: When identity has established nothing about
+            the package's release ecosystem, or established it and recorded no purl.
+            The ledger row is finalized `failed` carrying the reason, no evidence row
+            is written, and the reason says the verification question is *unanswered*
+            rather than inapplicable.
+        Py314VerificationDocumentError: When the backend answered something that is
+            not a verification result -- including one that reached a verdict without
+            saying where it ran. An `error` evidence row is written first and the
+            ledger row is `failed`, so the run is on the record either way.
+
+    """
+    with Py314VerificationCollector(clock=SystemClock(), transport=verification_backend()) as collector:
+        return str(collector.collect(package_id=package_id).state.value)
 
 
 @shared_task(name=SWEEP_TASK_NAME)  # type: ignore[untyped-decorator]

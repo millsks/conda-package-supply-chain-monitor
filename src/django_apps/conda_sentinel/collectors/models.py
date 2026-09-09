@@ -4,19 +4,30 @@
 source ... and writes `inventory_snapshots` -- append-only rows carrying the
 source's package key, the internal usage signals as observed, `observed_at`, and
 the run's correlation identifiers." This module is that table, the one read
-against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04` and
-`CPM-SECURITY-S01` through `CPM-SECURITY-S03` and `CPM-PY314-S01` -- the eight
-surface tables beside it: upstream releases, PyPI releases, conda-forge
-feedstocks, published conda packages, advisory matches, KEV cross-references,
-licence findings and static Python-readiness assessments.
+against it, and -- since `CPM-CURRENCY-S01` through `CPM-CURRENCY-S04`,
+`CPM-SECURITY-S01` through `CPM-SECURITY-S03` and `CPM-PY314-S01` and
+`CPM-PY314-S02` -- the nine surface tables beside it: upstream releases, PyPI
+releases, conda-forge feedstocks, published conda packages, advisory matches, KEV
+cross-references, licence findings, static Python-readiness assessments and
+verified Python build results.
 
-**One module, nine tables, and no shared columns beyond the ones every evidence
+**One module, ten tables, and no shared columns beyond the ones every evidence
 row carries.** `CPM-AD-7` gives each collector its own evidence table, which is a
 rule about tables rather than about files: `inventory_snapshots`,
 `source_release_snapshots`, `pypi_release_snapshots`, `feedstock_snapshots`,
 `conda_package_snapshots`, `vulnerability_findings`, `kev_findings`,
-`license_findings` and `python_readiness_assessments` are written by nine collectors
-that share nothing but the log. They live together because Django auto-imports
+`license_findings`, `python_readiness_assessments` and
+`python_verification_results` are written by ten collectors
+that share nothing but the log.
+
+**The last two are one requirement split across two tables, deliberately.**
+`CPM-FR-14` reads a package's *declared* metadata and, separately and on demand,
+*builds* it. `CPM-AD-7` would give them separate tables in any case; what makes
+the separation load-bearing rather than merely conformant is that the epic's
+whole subject is the two staying distinguishable. Two tables, two vocabularies,
+two prefixes on the determinate values -- so a reader who joins them can still
+say which answer came from a claim and which from an execution, and one who reads
+only one of them cannot be misled about which they are holding. They live together because Django auto-imports
 `<app>.models` and no other module, so a model declared elsewhere in this
 application is registered only by whatever happens to import it -- which is a
 table that exists on a developer's machine and not in a migration.
@@ -112,10 +123,14 @@ from conda_sentinel.collectors.outcomes import MATCHED
 from conda_sentinel.collectors.outcomes import NORMALIZED
 from conda_sentinel.collectors.outcomes import NOT_LISTED
 from conda_sentinel.collectors.outcomes import READINESS_NOT_APPLICABLE
+from conda_sentinel.collectors.outcomes import VERIFICATION_FAILED
+from conda_sentinel.collectors.outcomes import VERIFICATION_NOT_APPLICABLE
+from conda_sentinel.collectors.outcomes import VERIFIED_COMPATIBLE
 from conda_sentinel.collectors.outcomes import VULNERABILITY_NOT_APPLICABLE
 from conda_sentinel.collectors.outcomes import KevOutcome
 from conda_sentinel.collectors.outcomes import LicenseOutcome
 from conda_sentinel.collectors.outcomes import PythonReadinessOutcome
+from conda_sentinel.collectors.outcomes import PythonVerificationOutcome
 from conda_sentinel.collectors.outcomes import VulnerabilityOutcome
 from conda_sentinel.collectors.spdx import DetectionMethod
 from conda_sentinel.collectors.specifiers import DecidingSignal
@@ -155,6 +170,10 @@ __all__ = [
     "SNAPSHOT_KEY_INDEX",
     "SNAPSHOT_READ_INDEX",
     "STAGED_RECIPE_CONSTRAINT",
+    "VERIFICATION_EVIDENCE_CONSTRAINT",
+    "VERIFICATION_READ_INDEX",
+    "VERIFICATION_REASON_CONSTRAINT",
+    "VERIFICATION_SERIES_CONSTRAINT",
     "VULNERABILITY_APPLICABILITY_CONSTRAINT",
     "VULNERABILITY_FACTS_CONSTRAINT",
     "VULNERABILITY_READ_INDEX",
@@ -166,6 +185,7 @@ __all__ = [
     "LicenseFinding",
     "PyPIReleaseSnapshot",
     "PythonReadinessAssessment",
+    "PythonVerificationResult",
     "SourceReleaseSnapshot",
     "VulnerabilityFinding",
     "snapshot_as_of",
@@ -597,6 +617,82 @@ READINESS_SIGNAL_CONSTRAINT: Final[str] = "readiness_signal_present_exactly_when
 READINESS_REASON_CONSTRAINT: Final[str] = "readiness_not_applicable_states_its_reason"
 READINESS_SERIES_CONSTRAINT: Final[str] = "readiness_names_the_series_it_assessed"
 READINESS_READ_INDEX: Final[str] = "py_readiness_pkg_observed"
+
+#: How wide the column recording the platform a verification **ran on** is.
+#:
+#: Its own constant rather than `_PLATFORM_LENGTH` reused, on the terms
+#: `_REQUIRES_PYTHON_LENGTH` states its own separation from `_SPECIFIER_LENGTH`:
+#: the two answer to different sources. `conda_package_snapshots.platform` holds a
+#: conda subdir an operator declared -- `linux-64`, `osx-arm64` -- and is sized
+#: against that vocabulary. This one holds whatever the execution backend says it
+#: ran on, and no backend is shipped (`CPM-PY314-S02`), so there is no vocabulary
+#: to size against at all: 64 is headroom for a platform string a runner reports,
+#: not a measurement of one. The two being the same number today is a coincidence
+#: this comment exists to stop a later reader from reading as a shared decision.
+_VERIFICATION_PLATFORM_LENGTH: Final[int] = 64
+
+#: How wide the column recording the architecture a verification ran on is.
+#:
+#: Sized beside the platform and for the same reason: `x86_64`, `aarch64`,
+#: `arm64`, `ppc64le` are what a runner reports, and a backend nobody has chosen
+#: may report something longer. Separate from the platform's constant because the
+#: two are separate facts -- `CPM-PY314-S02`'s AC 1 names them separately, and a
+#: row that could name only one of them would be a row that cannot say where it
+#: ran.
+_ARCHITECTURE_LENGTH: Final[int] = 64
+
+#: How wide the log-reference column is.
+#:
+#: Sized as a locator rather than as a name, on the terms `_ADVISORY_LOCATOR_LENGTH`
+#: is: what goes in it is a URL, an object-store key or a run identifier some other
+#: system minted, and none of those is a word a person picked. 768 rather than
+#: `_LOCATOR_LENGTH`'s 512 for the reason the advisory locator takes it: a
+#: reference this product did not build is one it cannot bound by construction.
+#:
+#: **A reference wider than this is refused where it enters and never truncated.**
+#: A truncated log reference resolves to nothing, so a row carrying one would be a
+#: determinate verification result whose evidence cannot be opened -- which is the
+#: same failure as a row with no reference at all, wearing a value that looks
+#: fine. `collectors/py314_verification.py` refuses the document instead.
+_LOG_REFERENCE_LENGTH: Final[int] = 768
+
+#: The names of the three constraints `python_verification_results` carries, and
+#: the read index its freshness query needs.
+#:
+#: Three constraints and **no unique constraint of any kind** (`CPM-AD-2`), on the
+#: terms `python_readiness_assessments` states: a package verified twice is two
+#: rows and the first one stands, which is `CPM-PY314-S02`'s matrix row saying the
+#: second trigger does not replace the first. The tuple that looks unique --
+#: `(package, python_series, platform, architecture)` -- is exactly the tuple a
+#: re-verification repeats.
+#:
+#: **The first is `CPM-PY314-S02`'s AC 1, made structural.** A verified row records
+#: the platform, the architecture and a log reference; a row that is not determinate
+#: records none of the three. Written as one biconditional over three columns rather
+#: than as three separate rules, because "records where it ran" is one fact: a row
+#: naming a platform and no architecture has not said where it ran either, and
+#: letting the database hold two of three would make the acceptance criterion
+#: partially satisfiable. A verification that cannot say where it ran is not
+#: verification, and this is the database saying so rather than a collector
+#: promising to.
+#:
+#: The second is `python_readiness_assessments`' reason rule, reached for the same
+#: reason and with a sharper edge: `not_applicable` here means this product need
+#: never *build* this package, and the only thing that can establish that is
+#: `identity`. A row carrying the state and no reason would be indistinguishable
+#: from one written out of an absence of identity.
+#:
+#: The third is the series rule, and it is what makes `CPM-PY314-S03` possible at
+#: all: that policy reduces this table and the static one together, so a row that
+#: could not say which Python it verified would make a 3.14 build indistinguishable
+#: from a build of whatever comes next.
+#:
+#: Django caps an index name at 30 characters, which is why it does not spell out
+#: `python_verification` twice.
+VERIFICATION_EVIDENCE_CONSTRAINT: Final[str] = "verification_says_where_it_ran"
+VERIFICATION_REASON_CONSTRAINT: Final[str] = "verification_not_applicable_states_its_reason"
+VERIFICATION_SERIES_CONSTRAINT: Final[str] = "verification_names_the_series_it_ran"
+VERIFICATION_READ_INDEX: Final[str] = "py_verify_pkg_observed"
 
 
 class InventoryReadError(ValueError):
@@ -2653,3 +2749,210 @@ class PythonReadinessAssessment(AppendOnlyModel):
         when = "never" if self.observed_at is None else self.observed_at.isoformat()
         series = self.python_series or "(no series)"
         return f"Python {series} for {scope}: {self.state} at {when}"
+
+
+class PythonVerificationResult(AppendOnlyModel):
+    """What a build and an import actually did under one Python series. Table `python_verification_results`.
+
+    `CPM-FR-14` splits Python readiness into a cheap static pass and an expensive
+    verification pass, and `CPM-PY314-S02` is the expensive one. This table holds
+    what an **execution** did, and nothing whatever about what a project claimed:
+    `python_readiness_assessments` holds that, written by a different collector, on
+    a different queue, into a different table with a different vocabulary.
+
+    **The determinate values name proof, and that is `CPM-FR-14`'s "distinct
+    recorded states" made structural from the other side.** `verified_compatible`
+    and `verification_failed`, never `ok` and never a bare `compatible` --
+    `CPM-AD-24` carries a state's value verbatim onto every read surface, so a
+    value called `compatible` here would sit on a queue beside
+    `inferred_compatible` and read as the same kind of answer.
+    `collectors/outcomes.py` composes the vocabulary and argues why the negative
+    verdict is `verification_failed` rather than `verified_incompatible`.
+
+    **Every determinate row says where it ran, and the database enforces it.**
+    `CPM-PY314-S02`'s AC 1 requires the platform, the architecture and a log
+    reference, and `VERIFICATION_EVIDENCE_CONSTRAINT` refuses a determinate row
+    missing any of the three. This is the one table in this module whose facts are
+    about the **observer** rather than about the package: a build succeeds on a
+    platform, and a row that said "it builds" without saying where would be a claim
+    about every platform made from an execution on one.
+
+    **A failed build is a result and not an error.** The two are separate states
+    with a column between them: `verification_failed` means the backend ran and the
+    build did not come out, and it carries its log reference like any other
+    determinate row; `error` means the backend itself raised, so nothing was
+    verified and there is nothing to open. Folding the first into the second would
+    lose the row an engineer most wants to read.
+
+    **`not_applicable` has exactly one path to it**, and it is
+    `python_readiness_assessments`' path: `identity` recorded this package's
+    release-ecosystem mapping as `not_applicable`. A mapping that is `unknown`,
+    `error` or `not_found` establishes **nothing** and never reaches this state.
+    `VERIFICATION_REASON_CONSTRAINT` is the database saying so.
+
+    **Most packages have no row here at all, permanently and on purpose.**
+    `CPM-PY314-S02`'s AC 3 makes verification a triggered capability that is never
+    swept across the inventory, so an absence here is the ordinary state rather than
+    a gap. `core/freshness.py` reports such a package `unknown` for want of an
+    observation, which is the honest answer: nobody has built it.
+
+    **Nothing here is a derived status.** Whether a package is *ready*, and which
+    kind of evidence produced that answer, is `CPM-FR-19`'s readiness policy
+    (`CPM-PY314-S03`), which reads this table and the static one beside it and
+    writes its own (`CPM-AD-8`, `CPM-AD-21`).
+
+    `observed_at` and `objects` come from `AppendOnlyModel`: the instant is
+    supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
+    is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
+    """
+
+    #: The package this verification was about, by the integer primary key
+    #: `CPM-AD-3` fixes. Non-nullable: an execution is always about a package.
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.PROTECT,
+        related_name="python_verification_results",
+        verbose_name=_("package"),
+    )
+
+    #: The locator handed to the execution backend, which names the package and
+    #: never a host: which backend runs a build is a declared adapter and the
+    #: locator's job is to name what was asked about (`CPM-AD-29`). Blank on the
+    #: rows no locator was built for, which is the `not_applicable` path.
+    source = models.CharField(_("source"), max_length=_LOCATOR_LENGTH, blank=True, default="")
+
+    #: What the execution concluded, over `PythonVerificationOutcome` and emitted
+    #: verbatim (`CPM-AD-24`). See the class docstring for what each value means,
+    #: and `collectors/outcomes.py` for why the determinate values name proof.
+    state = models.CharField(_("state"), max_length=_STATE_LENGTH, choices=PythonVerificationOutcome.choices)
+
+    #: The Python series this row verified, dotted -- `3.14`. Required of every row,
+    #: sentinel rows included, on the terms `python_readiness_assessments` requires
+    #: its own: `CPM-PY314-S03` reduces both tables, and a row that could not say
+    #: which Python it built against would make the two indistinguishable.
+    python_series = models.CharField(_("python series"), max_length=_PYTHON_SERIES_LENGTH)
+
+    #: The platform the execution ran on, exactly as the backend reported it.
+    #: Present on every determinate row and blank on every other, by
+    #: `VERIFICATION_EVIDENCE_CONSTRAINT`. Never inferred from the runner this
+    #: process happens to be on: what a row records is where the *build* ran, and
+    #: the only thing that knows that is the backend that ran it.
+    platform = models.CharField(
+        _("platform"),
+        max_length=_VERIFICATION_PLATFORM_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: The architecture the execution ran on, exactly as the backend reported it.
+    #: A second column rather than half of the platform string, because
+    #: `CPM-PY314-S02`'s AC 1 names them separately and a reader filtering "what
+    #: have we proved on aarch64" should not be parsing a compound.
+    architecture = models.CharField(
+        _("architecture"),
+        max_length=_ARCHITECTURE_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: Where the log of this execution can be read, exactly as the backend stated
+    #: it -- a URL, an object-store key, a run identifier. Present on every
+    #: determinate row and blank on every other.
+    #:
+    #: **Stored verbatim and never truncated.** A truncated reference resolves to
+    #: nothing, so a row carrying one would claim evidence a reader cannot open;
+    #: a reference too wide for this column is refused where it enters.
+    log_reference = models.CharField(
+        _("log reference"),
+        max_length=_LOG_REFERENCE_LENGTH,
+        blank=True,
+        default="",
+    )
+
+    #: What the backend or the base had to say -- why a build failed, what the
+    #: backend raised, or what `identity` established for a `not_applicable` row.
+    detail = models.TextField(_("detail"), blank=True, default="")
+
+    #: The `trace_id` of the task that ran this verification, formatted `032x`
+    #: (`CPM-AD-15`). Empty when no span was active, which never blocks a write.
+    trace_id = models.CharField(_("trace id"), max_length=_TRACE_ID_LENGTH, blank=True, default="")
+
+    class Meta:
+        """The table `CPM-PY314-S02` adds, not the `collectors_pythonverificationresult` Django derives.
+
+        **No unique constraint of any kind** (`CPM-AD-2`, `CPM-AD-7`). Verifying a
+        package a second time is a new row and the old one stands -- which is how a
+        reader sees that a package that failed in June builds in September, and is
+        the matrix row saying a second trigger does not replace the first.
+        """
+
+        db_table = "python_verification_results"
+        verbose_name = _("python verification result")
+        verbose_name_plural = _("python verification results")
+        indexes = [
+            # `core/freshness.py`'s `latest_observation` reads exactly this, on the
+            # terms `READINESS_READ_INDEX` states. One index and not two: this
+            # table grows only when somebody triggers a verification, and every
+            # read this story adds is about a package.
+            models.Index(fields=["package", "-observed_at"], name=VERIFICATION_READ_INDEX),
+        ]
+        constraints = [
+            # AC 1 as a database rule: a determinate row names where it ran, all
+            # three parts of it, and a row that is not determinate names none of
+            # them.
+            #
+            # One biconditional over three columns rather than three rules, for
+            # the reason VERIFICATION_EVIDENCE_CONSTRAINT's comment gives: "says
+            # where it ran" is one fact, and a row holding two of the three parts
+            # has not said it.
+            #
+            # `state` is NOT NULL and every column tested here is NOT NULL, so this
+            # expression is always true or false and never the third thing a SQL
+            # CHECK can be.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(state__in=(VERIFIED_COMPATIBLE, VERIFICATION_FAILED))
+                        & ~models.Q(platform="")
+                        & ~models.Q(architecture="")
+                        & ~models.Q(log_reference="")
+                    )
+                    | (
+                        ~models.Q(state__in=(VERIFIED_COMPATIBLE, VERIFICATION_FAILED))
+                        & models.Q(platform="")
+                        & models.Q(architecture="")
+                        & models.Q(log_reference="")
+                    )
+                ),
+                name=VERIFICATION_EVIDENCE_CONSTRAINT,
+            ),
+            # `python_readiness_assessments`' reason rule, reached for the same
+            # reason: the sole thing that can establish `not_applicable` is
+            # identity's own `not_applicable` mapping, so a row that carried the
+            # state and said nothing would be indistinguishable from one written
+            # out of an *absence* of identity.
+            models.CheckConstraint(
+                condition=~models.Q(state=VERIFICATION_NOT_APPLICABLE) | ~models.Q(detail=""),
+                name=VERIFICATION_REASON_CONSTRAINT,
+            ),
+            # Every row names the series it verified, sentinel rows included, on
+            # the terms `python_readiness_assessments` requires its own.
+            models.CheckConstraint(
+                condition=~models.Q(python_series=""),
+                name=VERIFICATION_SERIES_CONSTRAINT,
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this row records, for an admin list and a debugger.
+
+        Returns:
+            The series, the state, where it ran and the instant, with the package
+            it is about.
+
+        """
+        scope = "no package" if self.package_id is None else f"package {self.package_id}"
+        when = "never" if self.observed_at is None else self.observed_at.isoformat()
+        series = self.python_series or "(no series)"
+        where = f"{self.platform}/{self.architecture}" if self.platform and self.architecture else "(nowhere named)"
+        return f"Python {series} for {scope} on {where}: {self.state} at {when}"
