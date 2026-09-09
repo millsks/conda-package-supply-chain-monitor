@@ -87,6 +87,20 @@ PRECEDING_APPLICATION_NAME: Final[str] = "conda_sentinel.collectors"
 #: The stage-2 owner (AD-26). No adopted application may precede it.
 STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
 
+#: The applications declared *after* this one, and why that is allowed.
+#:
+#: This application used to be last, and the reason was `CPM-AD-21`: the pass
+#: registry is in declaration order because a later pass may read an earlier pass's
+#: derived rows, so where a *pass-registering* application sits is part of what has
+#: been declared. `CPM-APP-S02` added `conda_sentinel.surface`, which registers no
+#: pass at all -- it is a read surface with no models, no `ready()` and nothing in
+#: the registry -- so it can sit after this one without changing any pass's inputs.
+#:
+#: Listed rather than left as "anything may follow", because the rule that matters
+#: survives: nothing that registers a pass may be declared after this application,
+#: and `test_nothing_after_this_application_registers_a_pass` is what holds it.
+APPLICATIONS_AFTER: Final[tuple[str, ...]] = ("conda_sentinel.surface",)
+
 #: Every module this application declares today. `CPM-AD-19` gives a domain
 #: application `urls.py`, `tasks.py` and an `api/` subpackage when it has views or
 #: work to schedule; this one has neither. A pass runs inside a policy run, which
@@ -248,7 +262,22 @@ def test_the_application_is_declared_in_local_apps_last() -> None:
 
     assert local_apps.index(STAGE_TWO_OWNER_NAME) < local_apps.index(APPLICATION_NAME)
     assert local_apps.index(PRECEDING_APPLICATION_NAME) < local_apps.index(APPLICATION_NAME)
-    assert local_apps[-1] == APPLICATION_NAME
+    assert local_apps[local_apps.index(APPLICATION_NAME) + 1 :] == list(APPLICATIONS_AFTER)
+
+
+def test_nothing_after_this_application_registers_a_pass() -> None:
+    """The rule the "last" assertion above was really about, stated directly.
+
+    `CPM-AD-21` keeps the registry in declaration order so a later pass can read an
+    earlier pass's derived rows. What that forbids is an application registering a
+    pass *after* this one, not an application existing after it -- and
+    `conda_sentinel.surface` is the second kind: a read surface with no `ready()`,
+    which is asserted here rather than assumed.
+    """
+    for name in APPLICATIONS_AFTER:
+        config = type(apps.get_app_config(name.rsplit(".", 1)[-1]))
+
+        assert "ready" not in vars(config), f"{name} declares ready() and is installed after {APPLICATION_NAME}"
 
 
 def test_the_ready_hook_adopted_this_applications_passes() -> None:

@@ -51,11 +51,14 @@ carries the `CPM-` prefix.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import ClassVar
 from typing import Final
+from typing import cast
 
 import structlog
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 
 from conda_sentinel.core.roles import LEADERSHIP
@@ -64,14 +67,17 @@ from conda_sentinel.core.roles import SECURITY_REVIEWER
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
+    from django.http import HttpResponseBase
     from rest_framework.views import APIView
 
 __all__ = [
     "PRODUCT_ROLES",
     "REFUSAL_EVENT",
+    "REFUSAL_MESSAGE",
     "ROLE_CONTRACT_SETTING",
     "AnyProductRole",
     "RolePermission",
+    "RoleRequiredMixin",
     "granted_roles",
     "requires_roles",
 ]
@@ -86,6 +92,14 @@ logger = structlog.get_logger(__name__)
 #: than assert that a log call happened. An operator alerting on authorization
 #: failures queries this one string.
 REFUSAL_EVENT: Final[str] = "authorization.refused"
+
+#: What a refused person reads on an HTML surface. It names the surface's
+#: requirement rather than their own membership: the second is a list they cannot
+#: act on, and the first is what they ask an administrator for.
+REFUSAL_MESSAGE: Final[str] = (
+    "This surface is scoped to a role you do not hold. Ask whoever administers your "
+    "directory groups for the role that covers it."
+)
 
 #: The settings key holding the `RoleContract` the platform composed.
 #:
@@ -128,6 +142,34 @@ def granted_roles(user: object) -> frozenset[str]:
     return frozenset(role for role in PRODUCT_ROLES if (name := getattr(contract, role, "").strip()) and name in held)
 
 
+def record_refusal(request: HttpRequest, view: object, required: frozenset[str], held: frozenset[str]) -> None:
+    """Log one refusal, in the one shape an operator alerts on.
+
+    Shared by the DRF permission and the Django mixin below rather than written
+    twice, for the reason `CPM-AD-13` gives about the check itself: two spellings of
+    a refusal record is how one of them stops carrying the field somebody queries.
+
+    Args:
+        request: The refused request.
+        view: The view or viewset it was bound for.
+        required: The roles the surface accepts.
+        held: The roles the actor holds.
+
+    """
+    logger.warning(
+        REFUSAL_EVENT,
+        # `CPM-AD-13`: "logged with the acting user identity". The username rather
+        # than the primary key, because an operator reading this is about to go and
+        # ask somebody a question -- and `str()` so an anonymous request logs
+        # `AnonymousUser` rather than raising.
+        actor=str(getattr(request.user, "username", request.user)),
+        view=type(view).__name__,
+        path=request.path,
+        required=sorted(required),
+        held=sorted(held),
+    )
+
+
 class RolePermission(BasePermission):
     """The one implementation of `CPM-AD-13`'s check.
 
@@ -161,18 +203,7 @@ class RolePermission(BasePermission):
         held = granted_roles(request.user)
         if held & self.required_roles:
             return True
-        logger.warning(
-            REFUSAL_EVENT,
-            # `CPM-AD-13`: "logged with the acting user identity". The username
-            # rather than the primary key, because an operator reading this is
-            # about to go and ask somebody a question -- and `str()` so an
-            # anonymous request logs `AnonymousUser` rather than raising.
-            actor=str(getattr(request.user, "username", request.user)),
-            view=type(view).__name__,
-            path=request.path,
-            required=sorted(self.required_roles),
-            held=sorted(held),
-        )
+        record_refusal(request, view, self.required_roles, held)
         return False
 
 
@@ -227,3 +258,63 @@ def requires_roles(*roles: str) -> type[RolePermission]:
 #: none of the three groups is a real state (the zero-groups sign-in) and one the
 #: platform's `IsAuthenticated` floor lets straight through.
 AnyProductRole: Final[type[RolePermission]] = requires_roles(*PRODUCT_ROLES)
+
+
+class RoleRequiredMixin:
+    """`CPM-AD-13`'s check for an HTML view, over the same comparison.
+
+    `CPM-AD-19` gives every app "an app-level `urls.py` with `app_name` for any HTML
+    views" beside its `api/` subpackage, so the product has two kinds of surface and
+    the decision governs both. A DRF permission class cannot guard a Django view --
+    `has_permission` is never consulted outside `APIView.initial` -- so a template
+    view needs its own entry point.
+
+    **What it is not is a second implementation.** The comparison is `granted_roles`
+    and `required_roles`, exactly as above, and the refusal record is
+    `record_refusal`, exactly as above. What differs is only what happens next: DRF
+    turns `False` into a 403 response, and a Django view raises `PermissionDenied`
+    for the handler to render. `tests/unit/django_apps/test_permission_audit.py`
+    sweeps for anything that decides authorization outside this module, so a
+    template view that reached for `request.user.groups` instead would fail there.
+
+    **It refuses rather than redirecting to a sign-in page**, which is a decision
+    about a user who *is* signed in. `LoginRequiredMixin`'s redirect is right for an
+    anonymous visitor and wrong here: bouncing somebody who holds no role back to a
+    sign-in form they have already completed is the loop `EXPERIENCE.md`'s G-4
+    describes, and 403 is what lets the template say which role the surface wants.
+    The platform's `LoginRequiredMiddleware` still handles the anonymous case first,
+    so the two do not overlap.
+    """
+
+    #: The roles that may reach this view. Empty on the mixin, which no view uses
+    #: directly: a view that forgot to declare fails closed rather than open.
+    required_roles: ClassVar[frozenset[str]] = frozenset()
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        """Refuse the request unless the acting user holds a role this surface accepts.
+
+        In `dispatch` rather than in `get_context_data` or the queryset, so the
+        refusal happens before the view does any work at all -- a check further in
+        is one a later HTTP method can be added around.
+
+        Args:
+            request: The request being authorized.
+            *args: Django's positional URL arguments, passed through untouched.
+            **kwargs: Django's keyword URL arguments, passed through untouched.
+
+        Returns:
+            Whatever the view returns, when the user holds a required role.
+
+        Raises:
+            PermissionDenied: When they do not. Rendered by the handler as `403.html`.
+
+        """
+        held = granted_roles(request.user)
+        if not (held & self.required_roles):
+            record_refusal(request, self, self.required_roles, held)
+            raise PermissionDenied(REFUSAL_MESSAGE)
+        # `super()` is the view class this mixin is mixed into, which mypy cannot
+        # see from here: a mixin declares no base and the MRO is composed at the
+        # point of use. Cast rather than constrain the mixin to `View`, which would
+        # make it unusable with anything Django adds a `dispatch` to later.
+        return cast("HttpResponseBase", super().dispatch(request, *args, **kwargs))  # type: ignore[misc]

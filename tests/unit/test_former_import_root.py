@@ -163,6 +163,17 @@ NAMED_FILES_THE_SCAN_MUST_REACH: Final[tuple[str, ...]] = (
 #: they are derived from.
 APPLICATION_LABELS: Final[tuple[str, ...]] = ("collectors", "core", "identity", "policies")
 
+#: Labels added to the package *after* the rename, which the rename therefore says
+#: nothing about.
+#:
+#: Kept separate rather than folded into the tuple above, which is named for what it
+#: is: the four applications that existed when the import root moved and had to come
+#: through it unchanged. Adding `surface` there would quietly restate the claim as
+#: "these are the labels", and the next application added would restate it again
+#: until the case stopped being about the rename at all. The two are unioned at each
+#: assertion, so the roster stays exact and the claim stays true.
+LABELS_ADDED_SINCE: Final[tuple[str, ...]] = ("surface",)
+
 
 def _path_names_the_former_import_root(path: Path, root: Path) -> bool:
     """Report whether where `path` sits under `root` spells the former import root.
@@ -349,7 +360,7 @@ def test_the_import_root_that_replaced_it_is_the_one_in_use() -> None:
     names = {app_config.name for app_config in apps.get_app_configs()}
     moved = {name for name in names if name.startswith(f"{CURRENT_IMPORT_ROOT}.")}
 
-    assert moved == {f"{CURRENT_IMPORT_ROOT}.{label}" for label in APPLICATION_LABELS}
+    assert moved == {f"{CURRENT_IMPORT_ROOT}.{label}" for label in (*APPLICATION_LABELS, *LABELS_ADDED_SINCE)}
 
 
 def test_the_four_application_labels_survived_the_move() -> None:
@@ -371,7 +382,7 @@ def test_the_four_application_labels_survived_the_move() -> None:
         if app_config.name.startswith(f"{CURRENT_IMPORT_ROOT}.")
     }
 
-    assert labels == set(APPLICATION_LABELS)
+    assert labels == {*APPLICATION_LABELS, *LABELS_ADDED_SINCE}
 
 
 def test_no_model_carries_the_former_or_current_import_root_in_its_table_name() -> None:

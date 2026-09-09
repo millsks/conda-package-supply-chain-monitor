@@ -1,6 +1,6 @@
 # CPM-APP-S02: The current package-health view
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-APP` — The surface the three roles actually work in
 
@@ -36,9 +36,23 @@ so that I can see the whole estate and narrow to what matters.
 
 ## Tasks / Subtasks
 
-- [ ] Planned by `bmad-build` against the codebase at implementation time.
-      Not pre-filled here: a task breakdown written now, before the epics ahead of
-      this one have shipped, would be stale by the time the story is picked up.
+- [x] `conda_sentinel.surface` — a new application for the read layer, adopted in
+      `component.toml` and installed last in `LOCAL_APPS`.
+- [x] `surface/health.py` — the projection: the rollup row joined to the evidence
+      behind every status, in a bounded number of queries.
+- [x] `surface/filters.py` — nine facets over rollup columns and derived tables.
+- [x] `surface/tone.py` — how every status is drawn, and the audit that every one is.
+- [x] `surface/views.py`, `surface/urls.py`, `surface/templatetags/health.py`.
+- [x] `core/permissions.py` — `RoleRequiredMixin`, so an HTML view declares its role
+      through the same check a DRF view does.
+- [x] Templates `conda_sentinel/base.html` and `conda_sentinel/package_health.html`,
+      and `static/css/conda-sentinel.css` lifted from the mockups.
+- [x] `config/settings/base.py` — `CPM_HEALTH_VIEW_P95_BUDGET_MS`; `config/urls.py`.
+- [x] `tests/unit/django_apps/test_tone.py`, `test_health_filters.py`,
+      `test_app_layering_audit.py`.
+- [x] `tests/integration/django_apps/test_package_health_view.py`,
+      `test_health_projection.py`.
+- [x] `docs/development.md`.
 
 ## Dev Notes
 
@@ -99,3 +113,96 @@ so that I can see the whole estate and narrow to what matters.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**The story is a join, and the join is where the work is.** `CPM-AD-11` gives the
+rollup four contributed statuses plus confidence and the run's stamps; the other five
+the table shows -- vulnerability, KEV membership, licence, Python readiness, and the
+priority score -- live in the per-domain derived tables `CPM-AD-21` keys on
+`(package, policy_run)`. `surface/health.py` reads them at the health row's own run,
+one query per table for the whole page, and returns a `Cell` carrying the status
+verbatim, what observed it, and when.
+
+**Files added:** the `conda_sentinel.surface` application (`health.py`, `filters.py`,
+`tone.py`, `views.py`, `urls.py`, `apps.py`, `templatetags/health.py`), two templates,
+one stylesheet, and five test modules.
+
+**Files changed:** `core/permissions.py` (the mixin), `config/settings/base.py`,
+`config/urls.py`, `component.toml`, `docs/development.md`, and four existing tests
+whose rosters this story widened. **No migration and no model change** -- the read
+surface adds no table, which is `CPM-AD-10` rather than a coincidence.
+
+**Each acceptance criterion:**
+
+- **AC 1 (every derived status, with the observation timestamp behind each).** Six
+  status columns plus priority, work type, score and confidence. The dating is the
+  half that needed its own module: `test_health_projection.py` builds derived rows
+  whose evidence sits at *known, distinct* instants, because a cell dated by nothing
+  and a cell dated wrongly look identical to an assertion that a timestamp exists.
+  The readiness cell is the case that proves it -- `CPM-PY314-S03` made the kind of
+  evidence part of the verdict, the row cites both relations, and a projection that
+  always read `assessment` would date a proof by the metadata it superseded.
+- **AC 2 (paginated, never the unbounded inventory).** `paginate_by` imports
+  `DEFAULT_PAGE_SIZE` from `core/pagination.py` rather than repeating it -- Django's
+  paginator and DRF's are separate mechanisms reading separate settings, which is
+  exactly how a product ends up with a bounded API and an unbounded screen. Both
+  orderings terminate on `package_id`, and a case walks every page of each: a
+  non-deterministic ordering returns a row on two pages and another on none, which
+  is invisible on page one.
+- **AC 3 (filter by any derived status, confidence, bucket and work type).** Nine
+  facets. Four are rollup columns and filter directly; four are derived tables and
+  filter through an `Exists` correlated on both ids -- never a join, which would
+  match a row from a different run and would multiply rows so the paginator reported
+  a count that is not the number of packages. Each `Column` names the facet that
+  narrows it, so a column shown but not filterable is a failing test rather than a
+  checkbox nobody notices is missing.
+- **AC 4 (the four sentinels render as themselves).** The integration module drives
+  real policy runs with no collector evidence, so almost every status *is* a
+  sentinel -- that is the point rather than a limitation. `tone.py` assigns every
+  value of every rendered vocabulary a tone, each sentinel its own, and none of them
+  the tone that means fine; a value with no entry gets the undecorated one, never
+  the reassuring one.
+- **AC 5 (the p95 budget, and a query bound).** `CPM_HEALTH_VIEW_P95_BUDGET_MS` is
+  PROVISIONAL at 800ms with the reasoning beside it in `base.py` -- PRD Open
+  Question 5 defers the value and this story is required to enforce a budget rather
+  than choose the number. The query count is asserted **exactly** and at two very
+  different page sizes: a `<=` would pass on an N+1 that stayed under a generous
+  bound at fixture size and blew past it at `CPM-NFR-1`'s ten thousand packages. The
+  stopwatch is deliberately the weaker of the two.
+
+**Three things this story found.**
+
+*`core` may not import a domain application's models, and nothing enforced it.* The
+projection was written in `core` first, where it imported six derived models by name
+and every test passed -- the registry inversion `core/policy_run.py` is built on
+would have been gone, and the diff would have looked like six ordinary imports. Hence
+`conda_sentinel.surface` and `test_app_layering_audit.py`. The rule turned out to be
+narrower than first stated: `core/models.py` already imports `policies.outcomes`,
+because `PackageHealth`'s columns take their `choices` from it. Vocabulary yes,
+tables no.
+
+*A status read out of a derived table bypasses `CPM-AD-4`.* The rollup's columns are
+gated on the way in; a derived table holds what the pass wrote, ungated, because a
+pass computes its verdict without knowing anything about identity. Reading them
+straight onto the row put a confident `advisories_matched` for an unmapped package
+beside five columns correctly saying `unknown` -- with every other cell looking
+right. `test_an_unmapped_package_appears_rather_than_being_filtered_away` caught it.
+
+*Tones cannot be spelled like statuses.* The mockups name their chip variants `ok`,
+`warn`, `unknown`, `error` -- four of which are `OutcomeState` values -- so the first
+tone table read, to `test_confidence_gate_audit.py` and to a human, as a mapping from
+identity-confidence values to statuses. Every tone is now prefixed `tone-`.
+
+**And one Django trap worth recording:** a multi-line `{# ... #}` is not a comment.
+Django's lexer does not match across newlines, so the block renders as literal text
+and any `{% %}` inside it is parsed -- which surfaced as `TemplateSyntaxError:
+Unexpected end of expression in if tag` pointing at a tag that was inside a comment.
+
+**Coverage:** the new modules at 100%.
+
+**Gate:** `pixi run ci` cannot complete on this machine -- the `docker build` child in
+`tests/integration/test_image_payload.py` zombies and pytest blocks, which reproduces
+on unmodified `main`. Steps run individually instead; the GitHub gate runs that module.

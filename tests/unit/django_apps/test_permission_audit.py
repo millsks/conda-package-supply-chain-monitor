@@ -45,6 +45,7 @@ from django.urls import get_resolver
 from conda_sentinel.core.permissions import PRODUCT_ROLES
 from conda_sentinel.core.permissions import AnyProductRole
 from conda_sentinel.core.permissions import RolePermission
+from conda_sentinel.core.permissions import RoleRequiredMixin
 from conda_sentinel.core.roles import ROLE_ENVIRONMENT_VARIABLES
 from config.startup.allowlist import FORBIDDEN_CONTRIBUTABLE_KEYS
 from tests.source_scan import SRC_ROOT
@@ -270,32 +271,61 @@ def test_the_roles_a_surface_may_require_are_the_three_the_contract_declares() -
     assert len(set(PRODUCT_ROLES)) == len(PRODUCT_ROLES)
 
 
-def test_every_registered_view_declares_a_product_permission() -> None:
-    """AC 2: every view, viewset and report names a `core.permissions` class.
+def declares_a_role(view: type) -> bool:
+    """Report whether a registered surface declares the role it requires.
 
-    **The subject list is empty until `CPM-APP-S02`**, which is why the source
-    sweeps below rather than this case are what make AC 2 enforceable today; this is
-    the case that starts working the moment there is a view to work on. Written as
-    one loop rather than a parametrize for exactly that reason: a parametrize over an
-    empty list is a skipped case, and a skipped case reads as a gate that ran.
+    Two shapes, because `CPM-AD-19` gives every app both an `api/` subpackage and an
+    app-level `urls.py` "for any HTML views". A DRF view declares a `RolePermission`
+    subclass in `permission_classes`; a Django view mixes in `RoleRequiredMixin` and
+    names `required_roles`. `core/permissions.py` decides both, which is what the
+    acceptance criterion asks for -- "the check is implemented once" is about where
+    the comparison lives, not about how many kinds of view there are.
 
-    The declaration is checked against `RolePermission` rather than against a name,
-    so a surface cannot satisfy it with a class of its own that happens to be called
-    something similar.
+    Args:
+        view: The registered view class.
+
+    Returns:
+        True when it declares through either mechanism, and names somebody through
+        it -- a `RoleRequiredMixin` with an empty `required_roles` is checked
+        against the base's own empty default, which no surface may keep.
+
     """
-    undeclared = [
-        f"{view.__module__}.{view.__name__} declares {getattr(view, 'permission_classes', ())!r}"
-        for view in registered_views()
-        if not any(
-            isinstance(entry, type) and issubclass(entry, RolePermission)
-            for entry in getattr(view, "permission_classes", ())
-        )
-    ]
+    if any(
+        isinstance(entry, type) and issubclass(entry, RolePermission)
+        for entry in getattr(view, "permission_classes", ())
+    ):
+        return True
+    return issubclass(view, RoleRequiredMixin) and bool(view.required_roles)
+
+
+def test_every_registered_view_declares_a_product_permission() -> None:
+    """AC 2: every view, viewset and report names the role it requires.
+
+    Written as one loop rather than a parametrize because the subject list was
+    empty until `CPM-APP-S02` added the first product view, and a parametrize over
+    an empty list is a skipped case -- which reads in a report as a gate that ran.
+
+    The declaration is checked against the classes themselves rather than against a
+    name, so a surface cannot satisfy it with a class of its own that happens to be
+    called something similar.
+    """
+    undeclared = [f"{view.__module__}.{view.__name__}" for view in registered_views() if not declares_a_role(view)]
 
     assert undeclared == [], (
-        f"these surfaces name no core.permissions class: {undeclared}. CPM-AD-13: the platform's "
-        f"IsAuthenticated floor says somebody is signed in and nothing about what they may see."
+        f"these surfaces declare no role: {undeclared}. CPM-AD-13: the platform's IsAuthenticated floor says "
+        f"somebody is signed in and nothing about what they may see."
     )
+
+
+def test_the_sweep_has_a_registered_view_to_sweep() -> None:
+    """The anti-vacuity guard the case above needs, and did not have until now.
+
+    `CPM-APP-S01` shipped the permission machinery with no product view to apply it
+    to, and said so. The moment one exists the audit becomes load-bearing -- and a
+    later refactor that unmounted the URLconf would otherwise turn it silently back
+    into a test over nothing.
+    """
+    assert registered_views() != []
 
 
 # ---------------------------------------------------------------------------

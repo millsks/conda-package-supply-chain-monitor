@@ -1,0 +1,52 @@
+{% load static i18n %}<!DOCTYPE html>
+{% get_current_language as LANGUAGE_CODE %}
+{% comment %} The product's own shell, deliberately not extending the accelerator's base.
+   That template is Bootstrap and is branded for the accelerator; this one carries
+   the design spine's tokens and the mockups' application chrome. Sharing one base
+   would mean either the product looking like the accelerator or the accelerator's
+   own pages inheriting a stylesheet written for a different product. {% endcomment %}
+<html lang="{{ LANGUAGE_CODE }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>
+      {% block title %}{% translate "Conda Sentinel" %}{% endblock title %}
+    </title>
+    <link rel="icon" href="{% static 'images/favicons/favicon.ico' %}" />
+    <link href="{% static 'css/conda-sentinel.css' %}" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="app-top">
+        <div class="brand">
+          <span class="glyph">cs</span> {% translate "Conda Sentinel" %}
+        </div>
+        {% comment %} Flat, and every entry readable by all three roles. The UX contract:
+           role scoping happens below the nav -- at the deep queue URL, at the item
+           and at the transition -- never by hiding an entry, because a nav that
+           differs per role makes a shared link look broken to whoever it was sent
+           to. Entries with no story yet are marked and inert rather than absent, so
+           the shape of the product is visible from the first screen. {% endcomment %}
+        <nav class="app-nav">
+          <a href="{% url 'conda_sentinel:package-health' %}"
+             {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
+            {% translate "Packages" %}
+          </a>
+          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Home" %}</a>
+          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "My queue" %}</a>
+          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Reports" %}</a>
+          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Coverage" %}</a>
+        </nav>
+        <div class="who">
+          {% if request.user.is_authenticated %}
+            <span class="av">{{ request.user.username|slice:":2"|upper }}</span>
+            {{ request.user.username }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="app-body">
+        {% block content %}{% endblock content %}
+      </div>
+    </div>
+  </body>
+</html>

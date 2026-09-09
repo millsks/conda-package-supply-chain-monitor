@@ -44,8 +44,14 @@ urlpatterns = [
     # User management
     path("users/", include("django_service.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
-    # Your stuff: custom urls includes go here
-    # ...
+    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`.
+    #
+    # Mounted here rather than discovered: `AD-8` forbids entry-point discovery, and
+    # a domain app that mounted its own routes would be exactly that. Below the
+    # platform's probes and above nothing that depends on order -- the namespace is
+    # what keeps a product route called `home` from colliding with the unprefixed
+    # `home` above.
+    path("", include("conda_sentinel.surface.urls")),
     # Media files
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
