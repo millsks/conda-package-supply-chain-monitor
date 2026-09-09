@@ -124,3 +124,99 @@ vulnerability_risk_order = ["critical", "high", "moderate", "low"]
 #
 # Naming one expression twice is refused, whether or not the two rules agree.
 license_rules = []
+
+[versions."2026.09.3"]
+# Added, not edited: the three entries above stay exactly as they were so a run
+# recorded at any of them still replays (CPM-FR-22). This entry is 2026.09.2 plus
+# CPM-FR-20's priority rule set and score function, which the three earlier
+# versions predate. Their three other parameters are byte-identical, which is
+# deliberate for the reason 2026.09.2 gives: what this entry adds is a *statement*
+# that review looked at the priority policy and recorded nothing, where an older
+# version merely could not have carried it.
+feedstock_inactivity_days = 180
+vulnerability_risk_order = ["critical", "high", "moderate", "low"]
+license_rules = []
+
+# EMPTY ON PURPOSE, AND NOT PROVISIONAL. CPM-FR-20 assigns a priority bucket by
+# top-down first-match rules, and PRD Open Question 8 -- *what seeds the rule set
+# and the score function?* -- answers "both are undefined: they encode an
+# organizational risk posture that does not exist yet", and names the question as
+# blocking CPM-EP-PRIORITY. CPM-PRIORITY-S01's epic entry then constrains that
+# story to "the engine, the schema and the explainability fields -- not a seeded
+# rule set". So this list names no rule.
+#
+# This is the same posture license_rules takes above and for the same reason: the
+# PRD names the *decision itself* as open. A "sensible starting point" here would
+# be worse than one for licences, because it would not look like a compliance
+# claim -- it would look like a priority queue, which is the artifact people act on
+# first thing in the morning without asking where the order came from.
+#
+# What an empty list produces: every package reaches `unknown`, and no package
+# carries a bucket, a description, a matched rule or a reason. Nothing reaches
+# `p10` -- a default bucket is a claim about a package's importance that nobody
+# made, and `p10` is the one that would look harmless. The pass says so on every
+# row's `detail`.
+#
+# What review does once Open Question 8 is answered: add a NEW [versions."..."]
+# entry -- never edit this one -- carrying one table per rule, in the order they
+# are matched, like this:
+#
+#   priority_rules = [
+#     { bucket = "p1",
+#       description = "Known-exploited vulnerability with a published fix",
+#       reason = "A KEV-listed advisory matched and the fix is already packaged",
+#       when = { vulnerability_status = "advisories_matched", remediation_readiness = "ready" } },
+#     { bucket = "p3",
+#       description = "Vulnerable, fix not yet available",
+#       reason = "An advisory matched and no surface carries the fixed version",
+#       when = { vulnerability_status = "advisories_matched" } },
+#   ]
+#
+# `bucket` is one of p1..p10. `description` says what the bucket means and
+# `reason` says why this rule fires; both are stored on every row the rule
+# produces, which is CPM-PRIORITY-S01's AC 2 -- an assignment explains itself so
+# nobody has to open this file to read it. Both are required and both are refused
+# blank: a rule that assigns a bucket and says nothing is the row the story exists
+# to prevent, and it is the reviewer, not the code, who would have left the
+# explanation out.
+#
+# `when` is a table of derived verdicts that must ALL hold, matched against the six
+# policy passes that run before this one: currency_status,
+# feedstock_presence_status, vulnerability_status, license_outcome,
+# remediation_readiness, python_readiness. It is required and refused empty -- an
+# empty condition matches every package, which is a default bucket wearing a
+# condition. A domain this list does not name is refused, because a rule matching
+# on something no pass answers would match nothing, for ever, silently.
+#
+# Rules are matched TOP DOWN and the FIRST match wins. Order is the whole of the
+# policy: a broad rule placed above a narrow one makes the narrow one unreachable,
+# and nothing here will tell you -- write the most specific rules first.
+priority_rules = []
+
+# EMPTY ON PURPOSE, on exactly the terms above. CPM-FR-20 also asks for a 1-100
+# score computed from internal usage signals, to rank within a bucket, and PRD
+# Open Question 8 names the score function as undefined in the same breath as the
+# rules.
+#
+# What an empty table produces: no score at all. Not zero -- a score of zero is a
+# number about a package, and what this records is that nobody has decided how to
+# score one. A package with no score still gets a bucket if a rule matches it.
+#
+# What review does once the function is decided: name each signal and the weight
+# it carries, like this:
+#
+#   priority_score_weights = { internal_component_count = 3, internal_lob_count = 2 }
+#
+# The signals are the ones the inventory observes (CPM-AD-25, PRD Open Question
+# 3b): internal_component_count and internal_lob_count, which are required on
+# every observed inventory row and are the usage breadth CPM-FR-4 ranks by; and
+# apps, platforms, downloads and versions, which are nullable because no
+# hand-authored watchlist can state them credibly.
+#
+# A weight on a NULLABLE signal has a consequence worth knowing before you write
+# one: the score is refused for any package whose weighted signal is blank, and
+# the row names the signal. Blank means missing and is never invented (PRD
+# Appendix A.1), so a score computed as though a missing signal were zero would
+# rank a package this product knows nothing about below one it does. Weighting
+# only the two required signals is the shape that always produces a score.
+priority_score_weights = {}

@@ -191,6 +191,13 @@ __all__ = [
     "NO_ADVISORY_MATCHED_MEMBER",
     "PRESENT_AND_INACTIVE",
     "PRESENT_AND_MAINTAINED",
+    "PRIORITY_BUCKETS",
+    "PRIORITY_BUCKET_LENGTH",
+    "PRIORITY_BUCKET_MEMBERS",
+    "PRIORITY_STATUS_ERROR",
+    "PRIORITY_STATUS_NOT_APPLICABLE",
+    "PRIORITY_STATUS_NOT_FOUND",
+    "PRIORITY_STATUS_UNKNOWN",
     "PY314_DECIDED_VERDICTS",
     "PY314_INFERRED_VERDICTS",
     "PY314_READINESS_ERROR",
@@ -231,6 +238,7 @@ __all__ = [
     "PackageLicenseOutcome",
     "PackagePythonReadinessOutcome",
     "PackageVulnerabilityOutcome",
+    "PriorityBucket",
     "ReadinessEvidence",
     "RemediationReadiness",
     "worst_currency",
@@ -1628,3 +1636,80 @@ EVIDENCE_INFERRED: Final[str] = ReadinessEvidence.INFERRED.value
 #: Nothing produced this verdict. Never a statement about the package -- only
 #: about what this product has looked at.
 EVIDENCE_NONE: Final[str] = ReadinessEvidence.NONE.value
+
+
+#: `CPM-FR-20`'s ten priority buckets, worst first, as the `(member name, value)`
+#: pairs `outcome_type` takes.
+#:
+#: **Built by comprehension rather than written out ten times.** The names and the
+#: values are the same ten strings in two shapes, and writing them out would be
+#: twenty literals that can disagree by one character. `P1` through `P10`, in
+#: numeric order, which is also the order they rank in -- and a range is what makes
+#: "ten buckets" a fact a reader can check rather than a list they have to count.
+#:
+#: **A composed type rather than a bare `TextChoices`, and the reason is the
+#: rollup.** `core/confidence.py`'s gate writes `OutcomeState.UNKNOWN.value` into
+#: every contributed rollup column for a package whose identity was never
+#: established (`CPM-AD-4`), and `core/policy_run.py` refuses a value outside the
+#: column's own choices. A ten-value bucket vocabulary with no `unknown` would make
+#: the gate write a value its own column does not offer -- so the four sentinels
+#: are not decoration here, they are what lets this column be gated at all.
+_BUCKET_COUNT: Final[int] = 10
+PRIORITY_BUCKET_MEMBERS: Final[tuple[tuple[str, str], ...]] = tuple(
+    (f"P{number}", f"p{number}") for number in range(1, _BUCKET_COUNT + 1)
+)
+
+#: The priority vocabulary: `core`'s four sentinels plus the ten buckets.
+PriorityBucket: Final[type[models.TextChoices]] = outcome_type(
+    "PriorityBucket",
+    list(PRIORITY_BUCKET_MEMBERS),
+)
+
+#: `PriorityBucket`'s own members, by name, read off the composed type itself for
+#: the reason `_MEMBER_VALUES` above is read off its own.
+_PRIORITY_MEMBER_VALUES: Final[dict[str, str]] = {member.name: member.value for member in PriorityBucket}
+
+#: The ten buckets, worst first, as the values a rule may name and the order a
+#: derived rank reads them in.
+#:
+#: An order, and this module's second one -- `CURRENCY_PRECEDENCE` is the first.
+#: It is declared here rather than in the pass because it is the *vocabulary's*
+#: order: `P1` outranking `P2` is what the names mean, not a reduction this
+#: product chose, and a pass that declared it would be one place a later reader
+#: could reasonably declare it differently.
+#:
+#: Built from the member pairs rather than from the type's `values`, because the
+#: type carries the four sentinels first and they are not buckets. Nothing here
+#: ranks a sentinel: a package with no bucket is not ranked *below* `P10`, it is
+#: not in the ranking at all, which the pass's ordering states.
+PRIORITY_BUCKETS: Final[tuple[str, ...]] = tuple(value for _name, value in PRIORITY_BUCKET_MEMBERS)
+
+#: The run established no bucket for this package. Six things reach it and the row
+#: says which: the version records no rule set, the rule set is empty, no rule
+#: matched, the package's identity was never established (the rollup's gate), or
+#: an earlier pass left the package with no derived row for a domain a rule
+#: required.
+#:
+#: **Never `P10`.** A default bucket is a claim about a package's importance that
+#: nobody made, and `P10` is the one that would look harmless -- a package nobody
+#: has prioritised is not a package somebody decided is unimportant.
+PRIORITY_STATUS_UNKNOWN: Final[str] = _PRIORITY_MEMBER_VALUES["UNKNOWN"]
+
+#: Reserved by the composed vocabulary and produced by nothing: this pass reads
+#: rows another pass already wrote and an inventory snapshot, so there is no look
+#: to fail. Kept in the vocabulary by construction, which is what makes the column
+#: gateable.
+PRIORITY_STATUS_ERROR: Final[str] = _PRIORITY_MEMBER_VALUES["ERROR"]
+
+#: Reserved on the same terms.
+PRIORITY_STATUS_NOT_FOUND: Final[str] = _PRIORITY_MEMBER_VALUES["NOT_FOUND"]
+
+#: Reserved on the same terms. Priority applies to every package in the inventory
+#: -- that is what an inventory is -- so nothing here answers that the question was
+#: never ours to ask.
+PRIORITY_STATUS_NOT_APPLICABLE: Final[str] = _PRIORITY_MEMBER_VALUES["NOT_APPLICABLE"]
+
+#: How wide a column holding one of these values is. `not_applicable` is fourteen
+#: characters and `p10` is three; the rest is headroom, on the terms every width in
+#: this module is argued.
+PRIORITY_BUCKET_LENGTH: Final[int] = 32

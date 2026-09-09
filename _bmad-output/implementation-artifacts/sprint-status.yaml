@@ -114,8 +114,8 @@ development_status:
   epic-py314-retrospective: optional
 
   # CPM-EP-PRIORITY: A ranked, explainable queue of work
-  epic-priority: backlog
-  cpm-priority-s01-explainable-priority-bucket-score: ready-for-dev
+  epic-priority: in-progress
+  cpm-priority-s01-explainable-priority-bucket-score: done
   cpm-priority-s02-work-type-derived-independently-priority: ready-for-dev
   cpm-priority-s03-replay-policy-version-over-history: ready-for-dev
   epic-priority-retrospective: optional

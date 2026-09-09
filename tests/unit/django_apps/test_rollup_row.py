@@ -52,6 +52,7 @@ from conda_sentinel.identity.models import IdentityConfidence
 from conda_sentinel.identity.models import Package
 from conda_sentinel.policies.currency import ROLLUP_COLUMN
 from conda_sentinel.policies.feedstock import ROLLUP_COLUMN as FEEDSTOCK_ROLLUP_COLUMN
+from conda_sentinel.policies.priority import ROLLUP_COLUMN as PRIORITY_ROLLUP_COLUMN
 from tests.clocks import FIXED_INSTANT
 from tests.clocks import LATER_INSTANT
 from tests.passes import A_DOMAIN_STATUS
@@ -230,10 +231,11 @@ def test_the_composed_row_covers_every_column_the_rollup_declares() -> None:
 def test_the_real_rollups_columns_already_have_owners() -> None:
     """The honest statement of what this module stands in for, now that the columns are real.
 
-    `PackageHealth` declares two contributable columns: `currency_status`, added
-    by `CPM-CURRENCY-S06` and owned by `CurrencyPass`, and
-    `feedstock_presence_status`, added by `CPM-CURRENCY-S07` and owned by
-    `FeedstockPresencePass`. The cases above still use a synthetic rollup because
+    `PackageHealth` declares three contributable columns: `currency_status`, added
+    by `CPM-CURRENCY-S06` and owned by `CurrencyPass`; `feedstock_presence_status`,
+    added by `CPM-CURRENCY-S07` and owned by `FeedstockPresencePass`; and
+    `priority_status`, added by `CPM-PRIORITY-S01` and owned by `PriorityPass`.
+    The cases above still use a synthetic rollup because
     they need a column *nobody owns*: the gate, the defaulting and the full-row
     replace are properties of any contributable column, and measuring them on a
     real one would tangle them with a live pass's declaration.
@@ -244,7 +246,9 @@ def test_the_real_rollups_columns_already_have_owners() -> None:
     verdict through the orchestration and assert the `unmapped` package's rollup
     column reads `unknown` whatever the pass computed.
     """
-    assert contributable_columns() == frozenset({ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN})
+    assert contributable_columns() == frozenset(
+        {ROLLUP_COLUMN, FEEDSTOCK_ROLLUP_COLUMN, PRIORITY_ROLLUP_COLUMN},
+    )
     assert rollup_module.ROLLUP_MODEL is PackageHealth
 
 

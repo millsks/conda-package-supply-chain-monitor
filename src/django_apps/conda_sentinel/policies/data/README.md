@@ -121,6 +121,52 @@ the collapse the requirement forbids — and the pass reads this order only over
 finding's own stated severity, so such an entry would simply never match
 anything while looking to a reviewer as though it did.
 
+### `priority_rules` and `priority_score_weights` ship empty, and empty is the answer
+
+`CPM-FR-20` assigns a priority bucket by top-down, first-match rules and computes
+a 1–100 score from the internal usage signals the inventory observes. Both are
+recorded here, both ship empty, and `docs/deployment.md` is where an operator is
+told what filling either one in commits them to.
+
+The rule shape, in the order the rules are matched:
+
+```toml
+priority_rules = [
+  { bucket = "p1",
+    description = "what this bucket means",
+    reason = "why this rule fires",
+    when = { vulnerability_status = "advisories_matched" } },
+]
+```
+
+`bucket` is `p1` through `p10`. `description` and `reason` are **required and
+refused blank**: they are stored on every row the rule produces, which is how an
+assignment explains itself without anybody opening this file — and a rule that
+assigns a bucket and says nothing is the reviewer, not the code, leaving the
+explanation out.
+
+`when` is a conjunction over the six domains the earlier passes answer:
+`currency_status`, `feedstock_presence_status`, `vulnerability_status`,
+`license_outcome`, `remediation_readiness`, `python_readiness`. A domain outside
+that set is refused when this file is read, because a rule matching on something
+no pass answers would match nothing, silently and permanently. An empty `when` is
+refused: it matches every package, which is a default bucket wearing a condition.
+
+**Order is the policy.** A broad rule above a narrow one makes the narrow one
+unreachable, and nothing here will tell you.
+
+The score shape:
+
+```toml
+priority_score_weights = { internal_component_count = 3, internal_lob_count = 2 }
+```
+
+Only signals the inventory observes may be weighted. Weighting a **nullable** one
+— `apps`, `platforms`, `downloads`, `versions` — means any package whose
+observation left it blank gets no score at all, and the row names the signal:
+blank means missing and is never invented, so a score reading a missing signal as
+zero would rank a package this product knows nothing about below one it does.
+
 ### `license_rules` ships empty, and empty is the answer
 
 `CPM-FR-18` gives licence compliance to a versioned policy. **Which licences are
@@ -287,7 +333,7 @@ older version cannot express, so nothing obliged the suite to move.
 version accomplishes nothing. Check this file before enqueuing `cpm.policy.run`
 with a new version string.
 
-## Two shipped parameters are provisional, and one is empty
+## Two shipped parameters are provisional, and three are empty
 
 PRD Open Question 10 asks what the inactivity threshold should be, and this
 component has not answered it. `CPM-FR-17` names a risk level and the PRD seeds
@@ -302,6 +348,20 @@ PRD Open Question 2 names the licence decision itself as unanswered and blocking
 and a provisional allow list would be a compliance claim rather than a starting
 point. The section above says what empty produces and what review writes to
 change it.
+
+`priority_rules` and `priority_score_weights` are the fourth and fifth, and they
+are empty for the same reason and with the same force. PRD Open Question 8 asks
+what seeds them and answers that both encode an organizational risk posture that
+does not exist yet, naming the question as blocking `CPM-EP-PRIORITY`; the epic's
+own entry then constrains `CPM-PRIORITY-S01` to "the engine, the schema and the
+explainability fields — not a seeded rule set".
+
+An empty rule set puts **every** package in `unknown` and nothing in `p10`. That
+is the one to hold on to: a provisional bucketing would not read as a compliance
+claim the way a licence allow list does — it would read as a *priority queue*,
+which is the artifact people act on first thing in the morning without asking
+where the order came from. An empty score function computes no score at all,
+which is different from a score of zero.
 
 Nothing in the codebase depends on it: the pass reads whatever this file records,
 each derived row stores the threshold it applied, and both test tiers
