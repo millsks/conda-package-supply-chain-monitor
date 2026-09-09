@@ -107,6 +107,7 @@ carries the `CPM-` prefix.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import ClassVar
 from typing import Final
 
 from django.db import models
@@ -135,6 +136,7 @@ from conda_sentinel.collectors.outcomes import VulnerabilityOutcome
 from conda_sentinel.collectors.spdx import DetectionMethod
 from conda_sentinel.collectors.specifiers import DecidingSignal
 from conda_sentinel.core.clock import is_aware
+from conda_sentinel.core.finding_keys import FindingKeyed
 from conda_sentinel.core.models import AppendOnlyError
 from conda_sentinel.core.models import AppendOnlyModel
 from conda_sentinel.core.outcomes import OutcomeState
@@ -1786,7 +1788,7 @@ class CondaPackageSnapshot(AppendOnlyModel):
         return f"{version} on {where} for {scope}: {self.state} at {when}"
 
 
-class VulnerabilityFinding(AppendOnlyModel):
+class VulnerabilityFinding(AppendOnlyModel, FindingKeyed):
     """One advisory match, or one statement that nothing was matched. Table `vulnerability_findings`.
 
     PRD Appendix A.2 gives this table "Advisory ID, affected and fixed ranges,
@@ -1865,6 +1867,20 @@ class VulnerabilityFinding(AppendOnlyModel):
     supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
     is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
     """
+
+    #: `CPM-AD-22`'s worked example, and the one the decision spells out:
+    #: `package + advisory_id + affected_range`.
+    #:
+    #: **`matched_version` is deliberately not part of it.** A package upgraded from
+    #: 3.9.1 to 3.9.2 while an advisory is still open would otherwise produce a
+    #: *second* finding for the same advisory -- and the reviewer who accepted the
+    #: first would meet it again as new work, which is exactly the failure the key
+    #: exists to prevent. The affected range is the advisory's claim about which
+    #: versions are exposed and does not move when the installed one does.
+    #:
+    #: `severity` is not part of it either: a source that re-scores an advisory from
+    #: high to critical has changed how urgent one finding is, not created another.
+    FINDING_KEY_FIELDS: ClassVar[tuple[str, ...]] = ("advisory_id", "affected_range")
 
     #: The package this observation is about, by the integer primary key
     #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.
@@ -2334,7 +2350,7 @@ class KevFinding(AppendOnlyModel):
         return f"{derives} for {scope}: {self.state} at {when}"
 
 
-class LicenseFinding(AppendOnlyModel):
+class LicenseFinding(AppendOnlyModel, FindingKeyed):
     """One channel's statement of one package's licence, raw and normalized. Table `license_findings`.
 
     PRD Appendix A.2 names this table and `CPM-FR-13` is where its facts come
@@ -2397,6 +2413,19 @@ class LicenseFinding(AppendOnlyModel):
     supplied by the writer from an injected `Clock` (`CPM-AD-26`) and the manager
     is the one that offers no `update()` and no `delete()` (`CPM-AD-2`).
     """
+
+    #: What makes a licence question *this* licence question: the normalised licence
+    #: this package was found to carry, on the channel it was found on.
+    #:
+    #: **`raw_license` is not part of it.** Two spellings of one licence -- `Apache
+    #: 2.0` and `Apache-2.0` -- are the same compliance question, and keying on the
+    #: raw form would open a second review item the day a source tidied its metadata.
+    #: Normalising is what `detection_method` records having done, and the normal
+    #: form is what a reviewer decided about.
+    #:
+    #: The channel *is* part of it: the same package on two channels can carry two
+    #: licences, and that is two questions rather than one.
+    FINDING_KEY_FIELDS: ClassVar[tuple[str, ...]] = ("normalized_license", "channel")
 
     #: The package this observation is about, by the integer primary key
     #: `CPM-AD-3` fixes. Non-nullable: an observation is always about a package.

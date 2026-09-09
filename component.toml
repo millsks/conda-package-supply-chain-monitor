@@ -71,7 +71,7 @@
 # discovery is forbidden (AD-8). Epic 9 is the consumer; no discovery, scanning
 # or `INSTALLED_APPS` inference is implemented against it here -- which is why
 # `src/config/settings/base.py` also lists the application in `LOCAL_APPS`.
-adopted_apps = [ "conda_sentinel.core", "conda_sentinel.identity", "conda_sentinel.collectors", "conda_sentinel.policies", "conda_sentinel.surface" ]
+adopted_apps = [ "conda_sentinel.core", "conda_sentinel.identity", "conda_sentinel.collectors", "conda_sentinel.policies", "conda_sentinel.workflow", "conda_sentinel.surface" ]
 
 # The features this combination selected (AD-28).
 #

@@ -1058,6 +1058,44 @@ opens that parameter.
 If a caller genuinely needs more rows than a page holds, the answer is an export,
 which is a task rather than an unpaginated response.
 
+### Queue items and the finding key
+
+`CPM-AD-22` puts all three queues — identity review, remediation, compliance review —
+on one table in `conda_sentinel.workflow`, as filtered views rather than three
+models. One row cannot diverge from itself; two can, and routing is an update to a
+column rather than a create-and-delete that can half-happen.
+
+**An item is keyed on the finding, never on the evidence row.** Evidence is
+append-only, so tonight's collector run inserts a *new row* for the advisory it saw
+yesterday. An item keyed on a row id would find no item for the new row, open a
+second one, and put an accepted finding back at the top of a queue — with the
+original still sitting there resolved and nothing failing.
+
+So each table that can produce work inherits `FindingKeyed` and declares its own
+key: `advisory_id + affected_range` for a vulnerability, `normalized_license +
+channel` for a licence. Declared beside the evidence rather than in a central
+registry, because a registry lets a table be added without one and the omission is
+invisible until duplicates appear weeks later.
+
+What a key must never include is anything that moves when the same fact is observed
+again — `observed_at`, the primary key — and, less obviously, anything that moves
+when the *world* changes without the finding changing: `matched_version` (a package
+upgraded towards a fix), `severity` (a re-scored advisory), `raw_license` (a source
+that tidied its metadata). Each of those would open a second item for one question.
+
+**Every move goes through `apply_transition`**, and the four things it does are four
+separate protections: it locks the row, checks the state the caller *believed* the
+item was in, refuses on mismatch, and appends the audit row in the same transaction.
+The second is the one that is easy to leave out — the lock alone does not catch a
+stale move, because by the time the lock is held the item is simply in a different
+state.
+
+The machine itself is data in `workflow/states.py`. Nothing returns an item to
+`open`, which is how "created by the policy run, never by a human" is enforced for
+free; nothing leaves `resolved` or `accepted`; and one transition — accepting a risk
+— is restricted to the security reviewer and requires a recorded reason, both from
+the declaration rather than from each caller.
+
 ### The product's screens
 
 `CPM-AD-19` gives every app under `src/django_apps/` two kinds of surface: an

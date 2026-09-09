@@ -59,9 +59,15 @@ LOWER_APPLICATION: Final[str] = "core"
 
 #: The applications `core` orchestrates or is read by, and must not depend on the
 #: internals of. `collectors` and `policies` are domain applications reached through
-#: the registry; `surface` is the read layer and sits above all four, so a `core`
-#: module importing it is the most obviously wrong direction of the three.
-DOWNSTREAM: Final[frozenset[str]] = frozenset({"collectors", "policies", "surface"})
+#: the registry; `surface` is the read layer and sits above the rest.
+#:
+#: `workflow` joined the list with `CPM-APP-S04`, and it is the entry that bites
+#: soonest: the policy run is what opens queue items, so the obvious way to wire that
+#: up is `core/policy_run.py` importing `workflow.services` -- which would invert the
+#: orchestration exactly as the health projection nearly did. Whatever the hook turns
+#: out to be, it runs the way the pass registry does: `core` declares the seam and
+#: the domain application fills it.
+DOWNSTREAM: Final[frozenset[str]] = frozenset({"collectors", "policies", "surface", "workflow"})
 
 #: The module names that hold a closed vocabulary rather than a table or behaviour.
 #:

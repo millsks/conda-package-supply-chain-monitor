@@ -217,6 +217,11 @@ LOCAL_APPS = [
     # declaration order: a later pass may read an earlier pass's derived rows, so
     # the order applications are adopted in is part of what is declared.
     "conda_sentinel.policies",
+    # The one application that owns every queue item (`CPM-AD-22`, `CPM-APP-S04`).
+    # After `policies` because the policy run opens items, and before `surface`
+    # because the queues are read there. It declares no `ready()` and registers no
+    # pass, so `test_policies_app.py`'s ordering rule is untouched.
+    "conda_sentinel.workflow",
     # The read surfaces (`CPM-EP-APP`, `CPM-APP-S02`). Last, and after `policies`
     # rather than merely after the stage-2 owner: it reads every pass's derived
     # table by name, so it depends on those applications rather than the other way
