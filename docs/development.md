@@ -1054,10 +1054,11 @@ itself — the targets genuinely differ, two days for an advisory sweep and thir
 for a Python 3.14 build — and one that has never run says so rather than rendering
 blank.
 
-Both that screen and the home view were built without a story: no PRD requirement
-commissions them, and their acceptance criteria were written by the implementing
-agent. `_bmad-output/implementation-artifacts/stories/cpm-app-x01-coverage-and-home.md`
-carries the warning; treat the metric definitions as a proposal.
+Both that screen and the home view are `CPM-APP-S09` and `CPM-APP-S10`, added to
+the epic after it was written to close design gaps `G-8` and `G-9`. No PRD
+requirement commissions them and their acceptance criteria were drafted by the
+implementing agent; each story file leads with that caveat. Treat the metric
+definitions as a proposal.
 
 **Evidence is read off the derived row's own citation, never re-derived.** Every
 pass records what it used — `PackageVulnerability` names its `vulnerability_finding`,

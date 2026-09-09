@@ -1,9 +1,9 @@
-"""`CPM-APP-X01`: what the monitor cannot see, and a home that dates the picture.
+"""`CPM-APP-S09` and `CPM-APP-S10`: what the monitor cannot see, and a home that dates it.
 
-**The story these cases test is invented.** No PRD requirement and no epic entry
-commissions these two screens; the acceptance criteria were written for them. See the
-warning at the top of
-`_bmad-output/implementation-artifacts/stories/cpm-app-x01-coverage-and-home.md`.
+**Both stories were added to the epic after it was written**, to close design gaps
+`G-8` and `G-9`, and their acceptance criteria were drafted by the implementing agent
+rather than derived from the PRD. Each story file leads with that caveat; the cases
+below are as strict as any other, but what they enforce is a proposal.
 
 Every case here is about a *gap* rather than a total, because that is the screen's
 whole reason to exist. A coverage view that reported "9,842 packages monitored" would
@@ -50,7 +50,7 @@ pytestmark = pytest.mark.integration
 
 NOW: Final[datetime] = datetime(2026, 9, 4, 6, 12, tzinfo=UTC)
 CUTOFF: Final[datetime] = NOW - timedelta(minutes=32)
-A_POLICY_VERSION: Final[str] = "cpm-app-x01-fixture-policy"
+A_POLICY_VERSION: Final[str] = "cpm-app-s09-fixture-policy"
 
 #: A collector that exists, so a case can record runs against a real name rather than
 #: a made-up one the registry would not recognise.
