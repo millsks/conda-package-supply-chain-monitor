@@ -125,15 +125,16 @@ development_status:
   cpm-app-s01-pagination-role-checks-configured-once: done
   cpm-app-s02-current-package-health-view: done
   cpm-app-s03-package-detail-traced-evidence: done
-  # INVENTED: no epic entry and no PRD requirement. Built at the user's direction
-  # from the UX mockups' S2 and S8; its acceptance criteria were written by the
-  # implementing agent. See the warning at the top of its story file.
-  cpm-app-x01-coverage-and-home: done
   cpm-app-s04-workflow-table-keyed-stable-finding: ready-for-dev
   cpm-app-s05-three-role-scoped-queues-over: ready-for-dev
   cpm-app-s06-recurring-operational-reports: ready-for-dev
   cpm-app-s07-governed-documented-api: ready-for-dev
   cpm-app-s08-long-work-leaves-request: ready-for-dev
+  # Added to the epic after it was written; acceptance criteria drafted by the
+  # implementing agent rather than derived from the PRD. They close design gaps
+  # G-8 and G-9 and each story file leads with that caveat.
+  cpm-app-s09-coverage-what-the-monitor-cannot-see: done
+  cpm-app-s10-a-home-that-dates-the-picture: done
   epic-app-retrospective: optional
 
   # CPM-EP-NL: Governed natural-language investigation

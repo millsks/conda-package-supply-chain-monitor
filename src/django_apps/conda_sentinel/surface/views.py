@@ -290,9 +290,9 @@ class PackageDetailView(RoleRequiredMixin, DetailView):  # type: ignore[type-arg
 class CoverageView(RoleRequiredMixin, TemplateView):
     """What the monitor cannot see, which is the question a coverage screen is for.
 
-    **No story commissions this and no requirement names it.** It is built from the
-    UX mockups' `S8`, and `CPM-APP-X01`'s acceptance criteria were written for it
-    rather than derived from the PRD. See `surface/coverage.py`.
+    **`CPM-APP-S09`, whose acceptance criteria were drafted by the implementing
+    agent** rather than derived from the PRD -- the story was added to the epic after
+    it was written, to close design gap `G-8`. See `surface/coverage.py`.
 
     The screen it deliberately is not is the one that reports a percentage healthy.
     `CPM-FR-5` forbids presenting a package as clean without evidence, and this is
@@ -326,7 +326,7 @@ class CoverageView(RoleRequiredMixin, TemplateView):
 class HomeView(RoleRequiredMixin, TemplateView):
     """Where a reader starts: how fresh the picture is, and what is missing from it.
 
-    **No story commissions this either**, and what it can show is bounded by what
+    **`CPM-APP-S10`, on the same terms**, and what it can show is bounded by what
     exists: the mockups' `S2` leads with "top of my queue", and there is no queue --
     `CPM-AD-22`'s workflow application arrives with `CPM-APP-S04`. Building a
     placeholder queue would be inventing the product's central abstraction on a

@@ -1892,6 +1892,88 @@ So that the page returns instead of hanging on a rate-limited third party.
 **Governed by:** `CPM-AD-9`
 **Constrained:** the row cap value and the p95 latency budget (`CPM-NFR-5`) are PRD Open Question 5. This story enforces that a single constant exists and is honoured everywhere; it does not choose the number.
 
+### CPM-APP-S09: Coverage — what the monitor cannot see
+
+> **Added after the epic was written, and the acceptance criteria below were drafted
+> by the implementing agent rather than derived from the PRD.** No functional
+> requirement commissions this screen. It closes design gap `G-8`, and it is the
+> aggregate of what `CPM-FR-5` requires per package: that nothing is presented as
+> clean without evidence. Whether that deserves an FR of its own is an open question
+> for the next PRD pass — see "Open questions this epic raises" below.
+>
+> Appended as `S09` rather than inserted in reading order: renumbering `S04`–`S08`
+> would break their references in the architecture spine, the test-design handoff and
+> four merged pull requests.
+
+As any of the three roles,
+I want to see how much of the estate the product has formed no opinion about,
+So that I do not read a partial picture as a complete one.
+
+**Acceptance Criteria:**
+
+**Given** the inventory
+**When** the coverage view is opened
+**Then** it states how many packages have no established identity
+**And** how many carry no verdict in each rollup status column, with a denominator
+
+**Given** a status of `not_found` or `not_applicable`
+**When** coverage is counted
+**Then** it is reported as an answer and never as a gap — a gap is `unknown` or `error`
+
+**Given** the adopted collectors
+**When** collector health is displayed
+**Then** every **registered** collector appears, including one that has never run
+**And** each is judged against the freshness target it declares for itself
+
+**Given** a collector that has never completed a run
+**When** it is displayed
+**Then** it says so, and never renders as blank or as healthy
+
+**Serves:** `CPM-FR-5` (its aggregate). **Satisfies no FR directly.**
+**Governed by:** `CPM-AD-10`, `CPM-AD-11`, `CPM-AD-13`, `CPM-AD-24`, `CPM-AD-26`
+**Constrained:** the definition of a "gap" is the implementing agent's, narrowed once
+in review. It excludes adverse verdicts and negative answers, on the reasoning that a
+gap number which rises as the product learns more is measuring the wrong thing.
+
+### CPM-APP-S10: A home that dates the picture
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09` above. It
+> closes design gap `G-9`. Navigational rather than functional: no FR is expected to
+> commission it.
+
+As any of the three roles,
+I want the first screen to tell me how current the product's picture is,
+So that I do not act on a conclusion that stopped being true last week.
+
+**Acceptance Criteria:**
+
+**Given** no policy run has completed
+**When** the home view is opened
+**Then** it says so, rather than showing counts that read as conclusions
+
+**Given** a completed policy run
+**When** the home view is opened
+**Then** it shows when the rollup was computed and the evidence cut-off it used
+
+**Given** a counter on the home view
+**When** it is displayed
+**Then** it links to the surface that shows the packages it counted
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-10`, `CPM-AD-11`, `CPM-AD-13`
+**Constrained:** the mockup's "top of my queue" panel is deliberately **not** built.
+`CPM-AD-22`'s workflow application arrives with `CPM-APP-S04`, and a placeholder would
+mean inventing the product's central abstraction on a screen no requirement asks for.
+It is the natural content of this screen once `CPM-APP-S05` exists.
+
+### Open questions this epic raises
+
+- **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
+  built without one. Its subject — what the product cannot see, across the whole
+  inventory — is the aggregate of `CPM-FR-5`, and `CPM-FR-5` is written per package.
+  Either the FR is widened or a new one is added; this is recorded rather than
+  decided.
+
 ## CPM-EP-NL: Governed natural-language investigation
 
 **BLOCKED.** Only the spike is written. The remaining stories are deliberately not authored

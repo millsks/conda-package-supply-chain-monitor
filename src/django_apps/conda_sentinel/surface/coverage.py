@@ -1,13 +1,13 @@
 """What the monitor cannot see, counted rather than implied.
 
-**This module has no story and no requirement behind it.** It was built because the
-UX mockups carry a coverage screen (`S8`) and a reviewer home (`S2`) that the epic's
-eight stories never commission, and because those two screens answer the question
-`CPM-FR-5` makes load-bearing: *what is this product not in a position to tell you?*
-Every acceptance criterion it satisfies was written for it rather than derived from
-the PRD, and
-`_bmad-output/implementation-artifacts/stories/cpm-app-x01-coverage-and-home.md`
-records which. Treat the numbers here as a proposal.
+**No functional requirement commissions the screens this serves.** `CPM-APP-S09`
+and `CPM-APP-S10` were added to the epic after it was written, to close design gaps
+`G-8` and `G-9`, and their acceptance criteria were drafted by the implementing agent
+rather than derived from the PRD -- each story file leads with that caveat. What they
+answer is the question `CPM-FR-5` makes load-bearing at inventory scale: *what is this
+product not in a position to tell you?* Whether that deserves an FR of its own is
+recorded as an open question under the epic. Treat the metric definitions here as a
+proposal.
 
 **The counts are of absence, and that is the whole design.** A coverage screen
 built the obvious way -- percentage healthy, percentage current -- reports a product
