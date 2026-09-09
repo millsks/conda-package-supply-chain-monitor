@@ -896,6 +896,36 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # CPM-AD-12: pagination is structural. Neither of these keys existed before
+    # CPM-APP-S01 -- the decision says so in as many words -- so until they did,
+    # the first collection endpoint anybody wrote returned CPM-NFR-1's ten
+    # thousand packages in one response.
+    #
+    # Set *globally* rather than per view, which is the whole of the rule: a view
+    # that declares nothing is paginated, and a view that declares something is
+    # what tests/unit/django_apps/test_pagination_audit.py is looking for. No view
+    # or serializer may opt out.
+    #
+    # The class is this product's own rather than DRF's, and
+    # conda_sentinel/core/pagination.py argues why at length -- briefly: a class
+    # this product owns is one its audits can name, and `page_size_query_param`
+    # stays None there beside the paragraph saying why, rather than being DRF's
+    # invisible default that a later contributor could open with no diff anybody
+    # reads as opening a door.
+    "DEFAULT_PAGINATION_CLASS": "conda_sentinel.core.pagination.BoundedPageNumberPagination",
+    #
+    # The size is a literal here and `DEFAULT_PAGE_SIZE` in that module, reconciled
+    # by tests/unit/django_apps/test_pagination_audit.py -- the same shape the beat
+    # schedule's `countdown` values take against their collectors' declared offsets.
+    # It is deliberately **not** imported: `rest_framework.pagination` evaluates
+    # `api_settings.PAGE_SIZE` at class-definition time, so importing that module
+    # from here reads DRF's settings *during* this module's own import, before
+    # `REST_FRAMEWORK` below is assigned -- and DRF then caches its defaults for the
+    # life of the process. The symptom is every REST_FRAMEWORK key silently
+    # reverting, which cost a green suite one puzzled hour. core/queues.py records
+    # the same constraint from the other direction: a module this file reads at
+    # settings-import time imports nothing from Django.
+    "PAGE_SIZE": 50,
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup

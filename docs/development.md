@@ -986,6 +986,75 @@ only thing that differs locally is the process manager. If you ever need
 multi-worker parity on Windows, `hypercorn` and `granian` are both on
 conda-forge and cross-platform.
 
+## Writing an API surface
+
+Two things are decided globally and neither is a per-view choice. Both are swept
+by audits, so getting them wrong is a failing test rather than a review comment.
+
+### Every collection response is paginated
+
+`REST_FRAMEWORK` installs `conda_sentinel.core.pagination.BoundedPageNumberPagination`
+as `DEFAULT_PAGINATION_CLASS`, with `PAGE_SIZE` beside it. A view that declares
+nothing about pagination is paginated; a view that declares *anything* about it —
+`pagination_class = None`, a class of its own, a per-view `page_size` — fails
+`tests/unit/django_apps/test_pagination_audit.py`, which sweeps this product's
+source rather than the views that happen to be registered.
+
+A client cannot ask for a bigger page. `page_size_query_param` is `None`, so
+`?page_size=` is inert rather than refused: there is no request that asks for the
+whole inventory and is turned down, because there is no request that asks.
+`MAX_PAGE_SIZE` is declared anyway, as the ceiling that applies the day a story
+opens that parameter.
+
+If a caller genuinely needs more rows than a page holds, the answer is an export,
+which is a task rather than an unpaginated response.
+
+### Every surface declares the role it needs
+
+Authorization is declared per view and decided in one place —
+`conda_sentinel/core/permissions.py`. A view names a permission class and asks
+nothing else:
+
+```python
+from conda_sentinel.core.permissions import AnyProductRole
+from conda_sentinel.core.permissions import requires_roles
+from conda_sentinel.core.roles import SECURITY_REVIEWER
+
+
+class PackageHealthView(ListAPIView):
+    permission_classes = (AnyProductRole,)
+
+
+class IdentityQueueView(ListAPIView):
+    permission_classes = (requires_roles(SECURITY_REVIEWER),)
+```
+
+`AnyProductRole` is what a read surface declares: all three roles may read
+evidence. It is still a real check — it refuses an authenticated user who holds
+none of the three roles, which the platform's global `IsAuthenticated` floor lets
+straight through. `requires_roles(...)` mints a class for a scoped surface and
+refuses at import if it is handed no role or a role the contract does not define,
+because a surface nobody can reach looks exactly like a surface nobody uses.
+
+Three rules follow, and each has a test:
+
+- **Nothing else decides.** No module outside `core/permissions.py` may read
+  `groups`, `has_perm`, `is_staff` or `is_superuser`. A view that declares a
+  permission class and then filters its own queryset by group has reintroduced
+  exactly the defect the declaration prevents.
+- **Superusers are not exempt.** An operator who needs a queue joins the group
+  that confers it, which is a change somebody can audit.
+- **Domain code touches none of `DEFAULT_PERMISSION_CLASSES`,
+  `AUTHENTICATION_BACKENDS`, `DEFAULT_AUTHENTICATION_CLASSES` or `MIDDLEWARE`.**
+  The startup allowlist already refuses these four from an app's contributed
+  settings; `tests/unit/django_apps/test_permission_audit.py` covers the rest of
+  the ways in.
+
+A refused request is logged at warning under `authorization.refused`, carrying
+the acting user, the view, the path, the roles required and the roles held. That
+last field is what distinguishes a user whose groups were never mapped (`held` is
+empty) from somebody reaching for another role's queue.
+
 ## Protocols below the URL resolver
 
 `config/asgi.py` exposes Django's ASGI application directly. There is no

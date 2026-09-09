@@ -176,11 +176,27 @@ engineering leadership" and the staff group are often the same group. The role
 pass therefore *adds* permissions and never replaces them, and rolling the role
 migration back deletes no group the claims contract names.
 
-The three role groups carry **no permissions yet**, so a person who holds only a
-role group has no access beyond what any authenticated caller has: the role is
-recorded and nothing yet reads it. Role membership is what this establishes; the
-permission classes that consume it arrive with the role-scoped surfaces they
-guard.
+Role membership is what the contract establishes. What reads it is
+`conda_sentinel/core/permissions.py`: a view declares the role it needs and that
+module decides, once. `AnyProductRole` admits any of the three — every read
+surface is readable by all three roles — and `requires_roles(...)` scopes a
+surface to one. Role scoping happens *below* the navigation: at the deep queue
+URL, at the item, and at the transition, never by hiding a nav entry.
+
+A refused request is logged at warning under `authorization.refused`, carrying
+the acting user, the view, the path, the roles required and the roles held. A
+signed-in user who holds none of the three roles is refused by every scoped
+surface with `held` empty, which is the log line to look for when somebody
+reports that a successful sign-in reaches a wall — the usual cause is a group
+this deployment's contract does not name. **A superuser is refused on the same
+terms**: `CPM-AD-13` is about which role may see which surface, and an operator
+who needs a queue joins the group that confers it, which is a change somebody can
+audit. Django's own admin and the audited identity override are unaffected — both
+run on Django's permission system, which is a separate question.
+
+Group *permissions* remain sparse: the one grant is the audited identity
+override, held by leadership. `docs/development.md` has the developer-facing half
+of this, under "Writing an API surface".
 
 **Renaming one of these variables after a deployment has migrated does nothing
 on its own.** `ROLE_CONTRACT` is read at start-up, but the only thing that acts
