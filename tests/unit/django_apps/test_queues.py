@@ -42,12 +42,23 @@ from conda_sentinel.core.queues import queue_for
 from conda_sentinel.core.queues import route_pattern
 from config.startup.allowlist import CONTRIBUTABLE_KEYS
 
-#: The three names `CPM-AD-20` fixes, written out here and nowhere else in the
+#: The queue names `CPM-AD-20` fixes, written out here and nowhere else in the
 #: suite. This is the one place a literal spelling is the point: an enum compared
 #: against itself would pass just as happily after somebody renamed a member and
 #: the queue with it, while the worker's `-Q`, the deployment's queue declarations
 #: and any message already in flight kept the old name.
-THE_THREE_QUEUE_NAMES = frozenset({"collect", "policy", "verify"})
+#:
+#: **`export` joined them in `CPM-APP-S08`**, and it arrived here first -- which is
+#: this gate doing exactly what its case below says it is for. A fourth queue is a
+#: workload class somebody decided exists, and it needs a worker consuming it before
+#: a single task is routed there; `pixi.toml`'s `-Q` gained it in the same commit,
+#: which `tests/unit/test_process_model.py` is what actually checks.
+#:
+#: What made it a separate class rather than a share of `policy`: an export is
+#: database-heavy, makes no outbound call, and tolerates minutes of latency. A report
+#: of ten thousand rows sitting in `policy` would delay the nightly sweep behind
+#: somebody's download.
+THE_QUEUE_NAMES = frozenset({"collect", "policy", "verify", "export"})
 
 #: The catch-all a route table must not carry. `tests/integration/test_celery_log_correlation.py`
 #: turns eager execution off and really publishes a probe task that declares no
@@ -82,20 +93,22 @@ FORBIDDEN_IMPORT_ROOTS = ("django.apps", "django.contrib", "django.db")
 QUEUES_MODULE = Path(queues.__file__ or "")
 
 
-def test_there_are_exactly_three_queues_and_they_are_the_declared_ones() -> None:
+def test_the_queues_are_exactly_the_declared_ones() -> None:
     """`CPM-AD-20`'s vocabulary, asserted against the names rather than the enum.
 
-    A fourth queue is not a refactor: it is a workload class somebody decided
+    A new queue is not a refactor: it is a workload class somebody decided
     exists, and it needs a worker consuming it before a single task is routed
-    there. Failing here is the cheapest place for that decision to surface.
+    there. Failing here is the cheapest place for that decision to surface -- which
+    it did, when `CPM-APP-S08` added `export` and this case caught it before the
+    `-Q` list had been touched.
 
     Compared as sets, with the count asserted separately: declaration order
     carries no meaning here -- nothing reads the members positionally -- and an
     ordered comparison would fail on a reordering with a message that said
     nothing about why.
     """
-    assert {queue.value for queue in Queue} == set(THE_THREE_QUEUE_NAMES)
-    assert len(list(Queue)) == len(THE_THREE_QUEUE_NAMES)
+    assert {queue.value for queue in Queue} == set(THE_QUEUE_NAMES)
+    assert len(list(Queue)) == len(THE_QUEUE_NAMES)
 
 
 def test_the_module_imports_nothing_that_needs_django_to_be_ready() -> None:
@@ -130,8 +143,8 @@ def test_no_two_queues_share_a_name() -> None:
     what sees it: iteration yields canonical members only, and the alias is not
     one.
     """
-    assert len(Queue.__members__) == len(THE_THREE_QUEUE_NAMES)
-    assert len({queue.value for queue in Queue.__members__.values()}) == len(THE_THREE_QUEUE_NAMES)
+    assert len(Queue.__members__) == len(THE_QUEUE_NAMES)
+    assert len({queue.value for queue in Queue.__members__.values()}) == len(THE_QUEUE_NAMES)
 
 
 def test_the_namespace_mapping_covers_every_queue_and_nothing_else() -> None:

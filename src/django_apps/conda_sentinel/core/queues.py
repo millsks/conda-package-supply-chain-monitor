@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 __all__ = [
     "CELERY_TASK_ROUTES",
     "CONTRIBUTED_SETTING_KEY",
+    "EXPORT_JOB_TASK_NAME",
     "QUEUE_BY_NAMESPACE",
     "TASK_NAMESPACE_PREFIX",
     "Queue",
@@ -105,6 +106,15 @@ class Queue(StrEnum):
     POLICY = "policy"
     VERIFY = "verify"
 
+    #: Work a *request* handed off rather than work a schedule started, added by
+    #: `CPM-APP-S08`. Its own class rather than a share of `policy`, on the terms
+    #: this enum exists for: an export is database-heavy, makes no outbound call and
+    #: tolerates minutes of latency, and a report of ten thousand rows sitting in the
+    #: `policy` queue would delay the nightly sweep behind somebody's download. The
+    #: two are told apart by what a worker can be sized and scaled for, which is what
+    #: a workload class *is*.
+    EXPORT = "export"
+
 
 #: The namespace every task this product registers declares its name under.
 #:
@@ -126,6 +136,48 @@ NAME_SEPARATOR: Final[str] = "."
 #: reproduces that exactly rather than the tidier rule a reader might expect --
 #: see its docstring for why the difference is not a detail.
 ROUTE_PATTERN_SUFFIX: Final[str] = ".*"
+
+
+def task_name(queue: Queue, verb: str) -> str:
+    """Return a task's declared name under one queue's namespace.
+
+    Composed rather than written out at each call, because a literal would be a
+    second spelling of a namespace whose whole purpose is that there is one: a rename
+    of a queue would leave a task declaring a namespace the route table no longer
+    has, and the failure is silent -- the message lands on the default queue and
+    nothing drains it.
+
+    Declared *here* rather than in `core/tasks.py`, which is `CPM-APP-S08`'s doing.
+    A request that publishes work must not import the module that defines the task:
+    `core/tasks.py` imports the policy-run orchestrator and the collectors, so
+    importing it to reach a name would drag every one of them into the web process's
+    import graph -- which is precisely what
+    `tests/unit/django_apps/test_request_boundary_audit.py` refuses. A name is a
+    string; publishing by name is what `celery.Celery.send_task` is for.
+
+    Args:
+        queue: The workload class, whose value is also its namespace segment.
+        verb: What the task does.
+
+    Returns:
+        The declared name, e.g. `cpm.export.run`.
+
+    """
+    return f"{TASK_NAMESPACE_PREFIX}{NAME_SEPARATOR}{queue.value}{NAME_SEPARATOR}{verb}"
+
+
+#: The declared name of the generic job runner (`CPM-APP-S08`).
+#:
+#: Under the `export` namespace, which routes it to the `export` queue. The mechanism
+#: it names is generic -- it runs whatever kind of job it is handed -- and the name is
+#: not, because a name is a *route*: an export is database-heavy, makes no outbound
+#: call and tolerates minutes of latency, and a report of ten thousand rows queued
+#: behind the nightly policy sweep would delay it for somebody's download.
+#:
+#: Here rather than beside the task, so a request can publish without importing the
+#: worker's code. See `task_name` above.
+EXPORT_JOB_TASK_NAME: Final[str] = task_name(Queue.EXPORT, "run")
+
 
 #: Namespace segment to the queue it routes to.
 #:

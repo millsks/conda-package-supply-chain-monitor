@@ -14,6 +14,11 @@
     </title>
     <link rel="icon" href="{% static 'images/favicons/favicon.ico' %}" />
     <link href="{% static 'css/conda-sentinel.css' %}" rel="stylesheet" />
+    {% comment %} Empty here, and used by one page: `CPM-APP-S08`'s export status
+       screen refreshes itself while a job is running, and a meta refresh has to be
+       in the head. A block rather than the tag itself, because a refresh on every
+       screen in the product is not what any of the others want. {% endcomment %}
+    {% block extra_head %}{% endblock extra_head %}
   </head>
   <body>
     <div class="app">

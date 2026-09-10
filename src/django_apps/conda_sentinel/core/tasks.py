@@ -40,15 +40,22 @@ from __future__ import annotations
 
 from typing import Final
 
+import structlog
 from celery import shared_task
 
 from conda_sentinel.core.clock import SystemClock
 from conda_sentinel.core.policy_run import execute_policy_run
+from conda_sentinel.core.queues import EXPORT_JOB_TASK_NAME
 from conda_sentinel.core.queues import NAME_SEPARATOR
 from conda_sentinel.core.queues import TASK_NAMESPACE_PREFIX
 from conda_sentinel.core.queues import Queue
 
-__all__ = ["POLICY_RUN_TASK_NAME", "run_policy"]
+logger = structlog.get_logger(__name__)
+
+#: What a task records when the job row a request wrote is no longer there.
+JOB_MISSING_EVENT: Final[str] = "job.missing"
+
+__all__ = ["EXPORT_JOB_TASK_NAME", "POLICY_RUN_TASK_NAME", "run_job", "run_policy"]
 
 #: The declared name of the policy run, built from `core/queues.py`'s own parts.
 #:
@@ -83,3 +90,60 @@ def run_policy(policy_version: str) -> int:
 
     """
     return execute_policy_run(policy_version=policy_version, clock=SystemClock()).rollup_rows
+
+
+@shared_task(name=EXPORT_JOB_TASK_NAME)  # type: ignore[untyped-decorator]
+def run_job(job_id: int) -> int:
+    """Run one handed-off job, and record how it ended either way.
+
+    `CPM-AD-9`'s other half: the request enqueued this and returned an in-progress
+    state, so the one thing this must not do is leave the job in that state. Every
+    exit below moves it to a terminal one -- including the failure paths, because a
+    job stuck at `running` is indistinguishable to a reader from work that hung, and
+    a status page that says "in progress" for ever is worse than one that says the
+    export broke.
+
+    **It does not know what an export is.** The runner comes from
+    `core/jobs.py`'s registry, which `surface/apps.py` fills at `ready()` -- `core`
+    may not import `surface`, and the seam is the same one the pass registry and the
+    after-run registry use.
+
+    Args:
+        job_id: Which job, by primary key. An id rather than the row, because the
+            row this acts on should be the one it reads now rather than one a request
+            serialized into a message minutes ago.
+
+    Returns:
+        How many rows the artifact covers, so the celery result carries what the job
+        did -- and `0` for a job that failed, which the state and `detail` explain.
+
+    """
+    from conda_sentinel.core.jobs import JobRunnerError  # noqa: PLC0415 - after django.setup()
+    from conda_sentinel.core.jobs import finish_job  # noqa: PLC0415 - as above
+    from conda_sentinel.core.jobs import registered_job_runner  # noqa: PLC0415 - as above
+    from conda_sentinel.core.jobs import start_job  # noqa: PLC0415 - as above
+    from conda_sentinel.core.models import BackgroundJob  # noqa: PLC0415 - as above
+
+    clock = SystemClock()
+    job = BackgroundJob.objects.filter(pk=job_id).first()
+    if job is None:
+        # Nothing to fail: the row a request wrote is gone, which is a real state
+        # after a rollback and is not this task's to repair. Reported rather than
+        # raised, because a retry would find the same absence.
+        logger.warning(JOB_MISSING_EVENT, job=job_id)
+        return 0
+
+    start_job(job, clock=clock)
+    try:
+        runner = registered_job_runner(job.kind)
+        artifact, rows = runner(job=job, clock=clock)
+    except (JobRunnerError, ValueError, LookupError) as failure:
+        # Narrow, and each is a way this can genuinely fail: no runner or a bad
+        # parameter (`JobRunnerError`), a report that will not project (`ValueError`),
+        # a name that resolves to nothing (`LookupError`). A bare `except` here would
+        # swallow the programming errors that should reach the worker's log intact.
+        finish_job(job, clock=clock, detail=str(failure))
+        return 0
+
+    finish_job(job, clock=clock, artifact=artifact, rows=rows)
+    return rows

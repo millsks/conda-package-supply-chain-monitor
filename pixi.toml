@@ -560,7 +560,7 @@ web = { cmd = "gunicorn config.asgi:application -k config.workers.DrainingUvicor
 # from here: `component.toml`'s `[[processes]]` list is asserted to be exactly
 # `web`, `worker`, `beat`. R-11 is shared with CPM-PY314-S02, where the first
 # real `verify` work arrives and the split has something to measure.
-worker = { cmd = "celery -A config.celery_app worker -l INFO -Q celery,collect,policy,verify", default-environment = "default", env = { COMPONENT_PROCESS = "worker" }, description = "Serving process: Celery worker (deployed)" }
+worker = { cmd = "celery -A config.celery_app worker -l INFO -Q celery,collect,policy,verify,export", default-environment = "default", env = { COMPONENT_PROCESS = "worker" }, description = "Serving process: Celery worker (deployed)" }
 beat = { cmd = "celery -A config.celery_app beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler", default-environment = "default", env = { COMPONENT_PROCESS = "beat" }, description = "Serving process: Celery beat, exactly one replica (deployed)" }
 # /feature:celery
 # The local personas (FR-19). It belongs here rather than in [feature.dev.tasks]

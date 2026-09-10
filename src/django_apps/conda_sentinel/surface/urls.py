@@ -19,6 +19,8 @@ from __future__ import annotations
 from django.urls import path
 
 from conda_sentinel.surface.views import CoverageView
+from conda_sentinel.surface.views import ExportJobDownloadView
+from conda_sentinel.surface.views import ExportJobView
 from conda_sentinel.surface.views import HomeView
 from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
@@ -50,5 +52,14 @@ urlpatterns = [
     # they are six questions over one rollup, and six routes would invite six views
     # and six chances to forget the provenance every report has to state.
     path("reports/<str:slug>/", ReportView.as_view(), name="report"),
+    # One route, two methods, and the split is `CPM-AD-9`. `GET` streams the file
+    # when the report fits inside a request and refuses when it does not; `POST`
+    # hands the work off. A `GET` that enqueued would make a bookmark, a prefetch or
+    # a link checker create jobs.
     path("reports/<str:slug>/export/", ReportExportView.as_view(), name="report-export"),
+    # Where a handed-off export is looked at, and where its file comes from. Keyed on
+    # the surrogate id rather than on the report, because two people can be preparing
+    # the same report and each is asking about their own request.
+    path("exports/<int:pk>/", ExportJobView.as_view(), name="export-job"),
+    path("exports/<int:pk>/download/", ExportJobDownloadView.as_view(), name="export-job-download"),
 ]
