@@ -531,6 +531,65 @@ and SQLite serialises writes behind one lock while the full-inventory sweep enqu
 one task per package against `CPM-NFR-1`'s ten thousand.
 
 
+### CPM-PLATFORM-S04: One local persona reaches every screen
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> asked for by the product owner — who found, correctly, that no persona on the local
+> sign-in page could open the whole navigation bar.
+
+The three product roles are scoped, deliberately and by `CPM-AD-13`: a security
+reviewer opens `compliance_review`, a packaging engineer opens `remediation`, a
+leader opens `identity_review`, and none of them opens the other two. `CPM-APP-S09`
+gave each its own persona for exactly that reason — seeing a queue refuse you is one
+sign-in away, and that is the only way to see it.
+
+What the three do not cover is somebody **operating** the platform, who is not testing
+the scoping and needs one way in to every screen. Before this story, checking that a
+change left all four queues rendering meant signing in three times.
+
+As a maintainer,
+I want one local persona that reaches every screen the product has,
+So that I can check the whole navigation bar without signing in three times.
+
+**Acceptance Criteria:**
+
+**Given** the local sign-in page
+**When** a persona holding all three product roles and administrative access is offered
+**Then** signing in as it opens Home, Packages, Reports, Coverage, all three queues and
+the Django admin
+
+**Given** the three single-role personas
+**When** the new one is added
+**Then** each of them still holds exactly one product role and no administrative
+access, so a scoped surface can still be seen refusing somebody
+
+**Given** the role contract
+**When** the persona is declared
+**Then** it holds the three roles that already exist and adds no fourth — no new
+environment variable, and nothing for a deployment to provision
+
+**Given** the sign-in page's list
+**When** it is rendered
+**Then** the persona that reaches everything is not the first one offered
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-13` — the authorization this persona satisfies rather than
+bypasses. It holds group claims like any other persona and every surface gates it the
+same way; what changes is which groups it claims.
+**Constrained:** a **local persona, not a fourth product role.** `core/roles.py`
+declares three slots, each backed by an entry in `ROLE_ENVIRONMENT_VARIABLES` and
+provisioned by the deployment from an identity-provider claim. A real platform
+operations role would be a change to that contract and to whoever provisions the
+groups; this is a row in the local sign-in fixture and reaches nothing deployed.
+`test_permission_audit.py` still pins the contract at three.
+
+The cost is stated rather than hidden: a developer who checks a role-scoped surface
+while signed in as this persona proves nothing about that surface's scoping. Keeping
+the other three single-roled is what keeps that mistake recoverable, and the audit
+that used to read "no persona holds more than one role" now reads "exactly one does,
+and it is this one" — narrowed rather than dropped, so the day somebody adds a second
+multi-role persona the gate still says so.
+
 ## CPM-EP-EVIDENCE: An evidence log that cannot lie
 
 Delivers the shared kernel every later epic builds on. Nothing here is user-facing, and
