@@ -2283,6 +2283,59 @@ that gives queues labels asserts the statuses have none.
 leadership"; a derived label is one nobody can correct without first replacing the
 mechanism.
 
+### CPM-APP-S16: Wide content scrolls itself, not the page
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner with a screenshot: the health table is too wide and would
+> benefit from scrollbars.
+
+The screenshot showed more than a wide table. The *page* had scrolled: the navigation
+and the heading were off-screen to the left, and the visible left edge read "alth".
+
+**That is the defect, and the width is not.** Eleven columns of status chips do not
+fit a laptop beside the facet rail, and never will. What went wrong is how that
+failed: `.main-pane` could shrink and declared no `overflow-x`, so the table did not
+overflow its container -- it made its container wider, and the page grew with it.
+
+A table that scrolls is a table somebody reads. A page that scrolls is a layout
+somebody believes is broken: they cannot see the product's name or which screen they
+are on, and the first thing they do is scroll left to find out, which puts the table's
+own left edge off-screen instead.
+
+`.panel` -- the container the queue, coverage and report tables sit in -- has carried
+the pair since the mockups. `.main-pane` had half of it, which is why the health view
+was the one that broke.
+
+As any of the three roles,
+I want a table wider than my screen to scroll inside itself,
+So that I can still see where I am while I read it.
+
+**Acceptance Criteria:**
+
+**Given** a table wider than the viewport
+**When** the page is rendered
+**Then** the table scrolls within its own container
+
+**Given** the same page
+**When** it is rendered
+**Then** the page body does not scroll horizontally, and the navigation and heading
+stay where they are
+
+**Given** a container that holds content wider than a laptop
+**When** the stylesheet is read
+**Then** it declares both halves — the container may shrink, and it scrolls what does
+not fit
+
+**Given** the health table at a narrow width
+**When** it is rendered
+**Then** its columns scroll rather than being crushed to unreadability
+
+**Satisfies:** nothing directly.
+**Constrained:** asserted against the stylesheet rather than a rendered page, because
+this suite has no browser. That is a real limit and is written down rather than
+implied: the audit proves the rules are declared, not that the result looks right. The
+rendered check was done by hand.
+
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
