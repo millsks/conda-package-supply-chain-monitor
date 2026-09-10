@@ -35,11 +35,13 @@ decision; a decision from this product's own architecture spine always carries t
 
 from __future__ import annotations
 
+import csv
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Final
 
+from django.conf import settings
 from django.core.exceptions import BadRequest
 from django.db.models import Case
 from django.db.models import IntegerField
@@ -48,6 +50,8 @@ from django.db.models import Subquery
 from django.db.models import Value
 from django.db.models import When
 from django.http import Http404
+from django.http import HttpResponse
+from django.views import View
 from django.views.generic import DetailView
 from django.views.generic import ListView
 from django.views.generic import TemplateView
@@ -73,6 +77,9 @@ from conda_sentinel.surface.health import COLUMNS
 from conda_sentinel.surface.health import health_rows
 from conda_sentinel.surface.queues import queue_items
 from conda_sentinel.surface.queues import queue_rows
+from conda_sentinel.surface.reports import REPORTS
+from conda_sentinel.surface.reports import REPORTS_BY_SLUG
+from conda_sentinel.surface.reports import report_page
 from conda_sentinel.workflow.states import QUEUE_OWNERS
 
 if TYPE_CHECKING:
@@ -90,6 +97,28 @@ SORT_PARAM: Final[str] = "sort"
 #: A 404 rather than a refusal: a queue that does not exist is not one somebody lacks
 #: a role for, and answering 403 would tell a reader a queue exists that does not.
 UNKNOWN_QUEUE: Final[str] = "no queue is called {queue!r}. The queues are {known}."
+
+#: What a URL naming no declared report is told, on the same terms.
+UNKNOWN_REPORT: Final[str] = "no report is called {slug!r}. The reports are {known}."
+
+#: How many rows a report *page* shows. The export is bounded separately, by
+#: `CPM_SYNC_EXPORT_MAX_ROWS` -- a page is what somebody reads on a screen and an
+#: export is what they take away, and one number for both would make one of them
+#: wrong.
+REPORT_PAGE_ROWS: Final[int] = 200
+
+#: Where an export carries its own provenance.
+#:
+#: A header rather than a row in the file, because a row would be data a spreadsheet
+#: sorts into the middle of the report. `CPM-APP-S06`'s AC 2 asks that a report state
+#: its cut-off and version; for the artifact that *leaves*, that has to travel with
+#: the file rather than live on the page it came from.
+PROVENANCE_HEADER: Final[str] = "X-Conda-Sentinel-Provenance"
+TRUNCATION_HEADER: Final[str] = "X-Conda-Sentinel-Truncated"
+TRUNCATED: Final[str] = (
+    "this export reached the {cap}-row cap and is incomplete; CPM-APP-S08 moves an export beyond the cap out "
+    "of the request"
+)
 
 #: How the table may be ordered, and the first entry is the default.
 #:
@@ -466,3 +495,99 @@ class QueueView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
             rows=queue_rows(queue, context["page_obj"].object_list),
         )
         return context
+
+
+class ReportView(RoleRequiredMixin, TemplateView):
+    """One of `CPM-FR-26`'s recurring reports.
+
+    One view for six reports, because they are six *questions* over one rollup and
+    six views would be six places to forget `CPM-APP-S06`'s AC 2. The provenance
+    comes from `surface/reports.py`'s projection rather than from the report, so a
+    seventh report states its cut-off and policy version because it cannot do
+    otherwise.
+
+    Readable by all three roles: a report is evidence, and `CPM-AD-13` grants read
+    access to evidence to each of them.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+    template_name = "conda_sentinel/report.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the report, its rows and its provenance.
+
+        Args:
+            **kwargs: Django's context, carrying the slug.
+
+        Returns:
+            The context.
+
+        Raises:
+            Http404: When the URL names no declared report. Checked here rather than
+                in the URL pattern so the message can name the reports that exist.
+
+        """
+        context = super().get_context_data(**kwargs)
+        report = REPORTS_BY_SLUG.get(str(kwargs.get("slug", "")))
+        if report is None:
+            raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
+        context.update(page=report_page(report, limit=REPORT_PAGE_ROWS), reports=REPORTS)
+        return context
+
+
+class ReportExportView(RoleRequiredMixin, View):
+    """The same report, as the artifact that leaves the system.
+
+    **The same rows as the page**, from the same projection with a different bound --
+    not a second query with its own filters, which is how an export comes to disagree
+    with the screen somebody exported it from. That disagreement is the one nobody
+    notices until it is in a board pack.
+
+    **A status is written verbatim and blank is reserved.** `CPM-AD-24` names this
+    exact artifact when it says what the rule prevents: "the export rendering
+    `unknown` as a blank cell -- destroying the five states in the one artifact that
+    leaves the system".
+
+    **The row cap is `CPM-APP-S08`'s**, and this view honours the constant rather
+    than choosing one. Beyond it the work leaves the request (`CPM-AD-9`); until that
+    story lands, an export at the cap is truncated and the response says so in a
+    header rather than silently handing somebody a partial file.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Return the report as CSV.
+
+        Args:
+            request: The request.
+            *args: Django's positional URL arguments.
+            **kwargs: Django's keyword URL arguments, carrying the slug.
+
+        Returns:
+            The CSV.
+
+        Raises:
+            Http404: When the URL names no declared report.
+
+        """
+        report = REPORTS_BY_SLUG.get(str(kwargs.get("slug", "")))
+        if report is None:
+            raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
+
+        page = report_page(report, limit=settings.CPM_SYNC_EXPORT_MAX_ROWS)
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{report.slug}.csv"'
+        # The provenance travels with the file, not only on the page it came from:
+        # a CSV in somebody's downloads folder next week has to be datable, and a
+        # spreadsheet is where a number outlives the context it was true in.
+        response[PROVENANCE_HEADER] = (
+            f"evidence_cutoff={page.evidence_cutoff or 'none'}; policy_versions={' '.join(page.policy_versions)}"
+        )
+        if len(page.rows) == settings.CPM_SYNC_EXPORT_MAX_ROWS:
+            response[TRUNCATION_HEADER] = TRUNCATED.format(cap=settings.CPM_SYNC_EXPORT_MAX_ROWS)
+
+        writer = csv.writer(response)
+        writer.writerow([column.heading for column in page.columns])
+        writer.writerows(page.rows)
+        return response

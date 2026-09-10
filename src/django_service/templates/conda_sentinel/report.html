@@ -1,0 +1,73 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n health %}
+
+{% block title %}{{ page.report.title }}{% endblock title %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{{ page.report.title }}</h2>
+      <div class="sub">{{ page.report.asks }} &middot; {% translate "read" %} {{ page.report.cadence }}</div>
+    </div>
+    <div class="btnrow">
+      <a class="btn" href="{% url 'conda_sentinel:report-export' page.report.slug %}">{% translate "Export CSV" %}</a>
+    </div>
+  </div>
+
+  {% comment %}
+    CPM-APP-S06 AC 2: a report states the evidence cut-off and the policy version it
+    was produced from. Read off the rows by the projection rather than passed in, so
+    a report cannot be produced without them -- and absent where there are no rows,
+    which is honest: a report of nothing was produced from nothing.
+  {% endcomment %}
+  <div class="freshbar">
+    {% if page.evidence_cutoff %}
+      <div><span class="lbl">{% translate "evidence cut-off" %}</span><b>{{ page.evidence_cutoff|date:"Y-m-d H:i" }}Z</b></div>
+      <div>
+        <span class="lbl">{% translate "policy versions" %}</span>
+        <b>{% for version in page.policy_versions %}{{ version }} {% endfor %}</b>
+      </div>
+    {% else %}
+      <div>
+        <span class="lbl">{% translate "provenance" %}</span>
+        <b>{% translate "this report matched no rows, so it was produced from nothing" %}</b>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="split">
+    <aside class="side">
+      <div class="grp">
+        <h5>{% translate "Reports" %}</h5>
+        {% for entry in reports %}
+          <label class="facet{% if entry.slug == page.report.slug %} on{% endif %}">
+            <a href="{% url 'conda_sentinel:report' entry.slug %}">{{ entry.title }}</a>
+          </label>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <div class="main-pane">
+      <table class="tbl">
+        <thead>
+          <tr>{% for column in page.columns %}<th>{{ column.heading }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in page.rows %}
+            <tr>
+              {% comment %}
+                A status is printed with no `{% if %}` around it: CPM-AD-24 emits it
+                verbatim and reserves blank for a field with no value. This is the
+                surface whose export leaves the system, so it is where that rule
+                matters most.
+              {% endcomment %}
+              {% for cell in row %}<td class="mono">{{ cell }}</td>{% endfor %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="{{ page.columns|length }}">{% translate "Nothing matches this report." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock content %}

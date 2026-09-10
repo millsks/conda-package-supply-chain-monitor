@@ -23,6 +23,8 @@ from conda_sentinel.surface.views import HomeView
 from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
 from conda_sentinel.surface.views import QueueView
+from conda_sentinel.surface.views import ReportExportView
+from conda_sentinel.surface.views import ReportView
 
 app_name = "conda_sentinel"
 
@@ -44,4 +46,9 @@ urlpatterns = [
     # segment outside it is a 404 the view raises with a message naming the queues
     # that do exist.
     path("queues/<str:queue>/", QueueView.as_view(), name="queue"),
+    # One route for six reports, on the same terms the queues take one for three:
+    # they are six questions over one rollup, and six routes would invite six views
+    # and six chances to forget the provenance every report has to state.
+    path("reports/<str:slug>/", ReportView.as_view(), name="report"),
+    path("reports/<str:slug>/export/", ReportExportView.as_view(), name="report-export"),
 ]
