@@ -504,3 +504,124 @@ def test_an_unmapped_package_reports_unknown_rather_than_absent() -> None:
     )
 
     assert feedstock.status == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# CPM-APP-S18: narrowing a queue to one package.
+# ---------------------------------------------------------------------------
+
+
+def searched(queue: str, fragment: str, client: APIClient) -> list[str]:
+    """Return the package names a queue shows for a name fragment.
+
+    Args:
+        queue: Which queue.
+        fragment: The `?q=` value.
+        client: Who is asking.
+
+    Returns:
+        The names, in the order the page ranks them.
+
+    """
+    response = client.get(f"{queue_url(queue)}?q={fragment}")
+    return [row.canonical_name for row in response.context["rows"]]
+
+
+@pytest.mark.django_db
+def test_a_queue_narrows_to_the_packages_a_fragment_names() -> None:
+    """`CPM-APP-S18` AC 1, and the reason the story exists.
+
+    A reviewer told "the aiohttp finding is wrong" could only get to it by reading
+    the queue until they saw it. A queue is a ranked list and offers no other way in.
+    """
+    run = a_run()
+    a_ranked_item(run, "aiohttp", bucket="p1", score=A_HIGH_SCORE)
+    a_ranked_item(run, "aiohttp-retry", bucket="p2", score=A_LOW_SCORE)
+    a_ranked_item(run, "requests", bucket="p1", score=A_HIGH_SCORE)
+
+    assert searched(Queue.REMEDIATION.value, "aiohttp", a_client(PACKAGING_ENGINEER)) == [
+        "aiohttp",
+        "aiohttp-retry",
+    ]
+
+
+@pytest.mark.django_db
+def test_a_narrowed_queue_keeps_its_rank_order() -> None:
+    """AC 1's second half. The search decides *which* items, never their order.
+
+    A search that re-sorted -- by relevance, say -- would put the item a reviewer
+    should do next somewhere other than the top, on the one screen whose entire
+    contract is that the top is what to do next.
+    """
+    run = a_run()
+    a_ranked_item(run, "shared-low", bucket="p10", score=A_LOW_SCORE)
+    a_ranked_item(run, "shared-high", bucket="p1", score=A_HIGH_SCORE)
+
+    assert searched(Queue.REMEDIATION.value, "shared", a_client(PACKAGING_ENGINEER)) == [
+        "shared-high",
+        "shared-low",
+    ]
+
+
+@pytest.mark.django_db
+def test_a_search_cannot_reach_another_queues_items() -> None:
+    """`CPM-AD-13`: the fragment narrows what the role may already see, never widens it.
+
+    The queue is selected first and the search applied to what that returned. A
+    search that built its own queryset -- or that ORed rather than ANDed -- would be
+    a role boundary crossed by a query string, which is the one failure mode a
+    per-surface authorization model has.
+    """
+    run = a_run()
+    a_ranked_item(run, "secret-package", bucket="p1", score=A_HIGH_SCORE, queue=Queue.COMPLIANCE_REVIEW.value)
+
+    assert searched(Queue.REMEDIATION.value, "secret", a_client(PACKAGING_ENGINEER)) == []
+
+
+@pytest.mark.django_db
+def test_the_count_beside_a_queue_is_the_number_of_matches() -> None:
+    """`CPM-AD-12`: the search narrows the queryset the paginator counts.
+
+    Applied after pagination it would page the whole queue and hide rows from each
+    page, so the heading would say "40 open items" above two rows.
+    """
+    run = a_run()
+    a_ranked_item(run, "aiohttp", bucket="p1", score=A_HIGH_SCORE)
+    a_ranked_item(run, "requests", bucket="p1", score=A_HIGH_SCORE)
+
+    response = a_client(PACKAGING_ENGINEER).get(f"{queue_url(Queue.REMEDIATION.value)}?q=aiohttp")
+
+    assert response.context["paginator"].count == 1
+
+
+@pytest.mark.django_db
+def test_a_fragment_no_open_item_matches_is_an_empty_queue_and_not_a_refusal() -> None:
+    """The same rule `CPM-APP-S17` established, on the surfaces it now reaches.
+
+    An empty queue is a real and welcome state -- it is what "nothing left to do"
+    looks like -- so a search that found none has to render as one.
+    """
+    run = a_run()
+    a_ranked_item(run, "aiohttp", bucket="p1", score=A_HIGH_SCORE)
+
+    response = a_client(PACKAGING_ENGINEER).get(f"{queue_url(Queue.REMEDIATION.value)}?q=nothing-like-this")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [row.canonical_name for row in response.context["rows"]] == []
+
+
+@pytest.mark.django_db
+def test_the_queue_renders_the_search_control_carrying_the_fragment() -> None:
+    """A form of its own, because a queue page has no facet rail to put the box in.
+
+    A GET, so the fragment lands in the URL: a reviewer who has narrowed a queue to
+    one package wants to be able to send that link to whoever asked them about it.
+    """
+    run = a_run()
+    a_ranked_item(run, "aiohttp", bucket="p1", score=A_HIGH_SCORE)
+
+    body = a_client(PACKAGING_ENGINEER).get(f"{queue_url(Queue.REMEDIATION.value)}?q=aiohttp").content.decode()
+
+    assert 'class="findbar" method="get"' in body
+    assert 'name="q"' in body
+    assert 'value="aiohttp"' in body

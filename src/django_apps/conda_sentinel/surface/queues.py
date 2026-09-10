@@ -45,6 +45,7 @@ from django.db.models import When
 from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.policies.models import PackagePriority
 from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
+from conda_sentinel.surface.search import name_condition
 from conda_sentinel.workflow.models import WorkflowItem
 from conda_sentinel.workflow.states import TERMINAL_STATES
 from conda_sentinel.workflow.states import Queue
@@ -86,7 +87,7 @@ class QueueRow:
     score: int | None
 
 
-def queue_items(queue: str, *, include_finished: bool = False) -> QuerySet[WorkflowItem]:
+def queue_items(queue: str, *, include_finished: bool = False, search: str = "") -> QuerySet[WorkflowItem]:
     """Return one queue as a filtered, ranked queryset.
 
     Args:
@@ -94,6 +95,14 @@ def queue_items(queue: str, *, include_finished: bool = False) -> QuerySet[Workf
         include_finished: Whether to include resolved and accepted items. `False` by
             default: a queue is what is left to do, and a queue whose length grows
             monotonically stops being read.
+        search: A package-name fragment, already normalised by `search_term`. An
+            empty one narrows nothing.
+
+            `CPM-APP-S18`. It narrows what the role may already see and never widens
+            it (`CPM-AD-13`): the queue is selected first and the fragment applied to
+            what that returned, so no spelling of `?q=` can reach another queue's
+            items. Applied *before* the ranking annotations rather than after, so the
+            paginator counts matches and the rank order of what is left is unchanged.
 
     Returns:
         The items, ranked bucket-then-score-then-key, with the package and the
@@ -103,6 +112,7 @@ def queue_items(queue: str, *, include_finished: bool = False) -> QuerySet[Workf
     items = WorkflowItem.objects.filter(queue=queue).select_related("package", "claimed_by")
     if not include_finished:
         items = items.exclude(state__in=TERMINAL_STATES)
+    items = items.filter(name_condition(search, field="package__canonical_name"))
     return items.annotate(
         # A correlated subquery rather than a join, for both. The rollup is a
         # one-to-one on `package` and Django will not resolve it as a lookup inside a

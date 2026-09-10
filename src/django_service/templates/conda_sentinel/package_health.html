@@ -47,14 +47,7 @@
            facets -- neither has to be re-entered to change the other. {% endcomment %}
         <div class="grp">
           <h5>{% translate "Package name" %}</h5>
-          <input class="searchbox"
-                 type="search"
-                 name="{{ search_param }}"
-                 value="{{ search }}"
-                 maxlength="{{ search_max_length }}"
-                 autocomplete="off"
-                 placeholder="{% translate 'contains…' %}"
-                 aria-label="{% translate 'Filter by package name' %}" />
+          {% include "conda_sentinel/_searchbox.html" %}
         </div>
         {% for entry in facets %}
           <div class="grp">

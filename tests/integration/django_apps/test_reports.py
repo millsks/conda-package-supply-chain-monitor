@@ -466,3 +466,143 @@ def test_every_role_may_read_a_report() -> None:
         client.force_login(user)
 
         assert client.get(report_url("kev")).status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# CPM-APP-S18: narrowing a report to one package.
+# ---------------------------------------------------------------------------
+
+
+def an_unmapped_trio(run: PolicyRun) -> None:
+    """Seed three unmapped packages, two of which share a name fragment.
+
+    The unmapped-identities report is the one whose condition is a single column, so
+    a case about the *search* is not also a case about the report's own filter.
+
+    Args:
+        run: The run the rows belong to.
+
+    """
+    for name in ("aiohttp", "aiohttp-retry", "requests"):
+        a_rollup_row(run, name, confidence=IdentityConfidence.UNMAPPED)
+
+
+@pytest.mark.django_db
+def test_a_report_narrows_to_the_packages_a_fragment_names() -> None:
+    """`CPM-APP-S18` AC 2. A report is read top-to-bottom or not at all, until now."""
+    an_unmapped_trio(a_run())
+
+    page = a_reader().get(f"{report_url('unmapped-identities')}?q=aiohttp").context["page"]
+
+    assert [row[0] for row in page.rows] == ["aiohttp", "aiohttp-retry"]
+
+
+@pytest.mark.django_db
+def test_a_search_narrows_a_report_rather_than_replacing_its_own_filter() -> None:
+    """The report's condition and the fragment are ANDed, not chosen between.
+
+    A search that replaced the condition would turn every report into the same
+    report -- the whole inventory, narrowed by name -- which is a failure that
+    renders perfectly and reads as a report with surprisingly many rows.
+    """
+    run = a_run()
+    a_rollup_row(run, "aiohttp", confidence=IdentityConfidence.UNMAPPED)
+    a_rollup_row(run, "aiohttp-retry", confidence=IdentityConfidence.VERIFIED)
+
+    page = a_reader().get(f"{report_url('unmapped-identities')}?q=aiohttp").context["page"]
+
+    assert [row[0] for row in page.rows] == ["aiohttp"]
+
+
+@pytest.mark.django_db
+def test_a_fragment_no_row_matches_leaves_a_report_that_says_it_produced_nothing() -> None:
+    """The same rule as everywhere else: an empty result, not a refusal.
+
+    And the provenance stays honest -- `test_an_empty_report_says_it_was_produced_
+    from_nothing` is what this must not break: a report of nothing was produced from
+    nothing, so it states no cut-off rather than the cut-off of rows it excluded.
+    """
+    an_unmapped_trio(a_run())
+
+    response = a_reader().get(f"{report_url('unmapped-identities')}?q=nothing-like-this")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.context["page"].rows == ()
+    assert response.context["page"].evidence_cutoff is None
+
+
+@pytest.mark.django_db
+def test_the_export_carries_the_rows_the_page_was_showing() -> None:
+    """`ReportExportView`'s own principle, applied to the search.
+
+    "The same rows as the page, from the same projection with a different bound --
+    not a second query with its own filters, which is how an export comes to
+    disagree with the screen somebody exported it from." A search the page honoured
+    and the file did not would be exactly that, in the one artifact that leaves the
+    system and outlives every header that qualified it.
+    """
+    an_unmapped_trio(a_run())
+
+    rows = exported(a_reader().get(f"{export_url('unmapped-identities')}?q=aiohttp"))
+
+    assert [row[0] for row in rows[1:]] == ["aiohttp", "aiohttp-retry"]
+
+
+@pytest.mark.django_db
+def test_the_export_link_on_a_searched_page_carries_the_search() -> None:
+    """Or the principle above holds in the code and fails at the one place it is used.
+
+    The link is built by the template, so the module being right is not enough: a
+    reader clicking Export on a narrowed page has to send the fragment with it.
+    """
+    an_unmapped_trio(a_run())
+
+    body = a_reader().get(f"{report_url('unmapped-identities')}?q=aiohttp").content.decode()
+
+    assert f'href="{export_url("unmapped-identities")}?q=aiohttp"' in body
+
+
+@pytest.mark.django_db
+def test_the_background_export_form_carries_the_search_in_a_hidden_field(settings: object) -> None:
+    """A form does not inherit the query string, and the POST path is a form.
+
+    Over the cap the control is a `<form method="post">` -- a GET that enqueued work
+    would let a bookmark or a link checker create jobs -- so the fragment has to be
+    put in it explicitly or the background file silently holds the whole report.
+
+    Args:
+        settings: pytest-django's settings fixture, which restores the cap.
+
+    """
+    settings.CPM_SYNC_EXPORT_MAX_ROWS = 1  # type: ignore[attr-defined]
+    an_unmapped_trio(a_run())
+
+    body = a_reader().get(f"{report_url('unmapped-identities')}?q=aiohttp").content.decode()
+
+    assert 'method="post"' in body
+    assert '<input type="hidden" name="q" value="aiohttp" />' in body
+
+
+@pytest.mark.django_db
+def test_the_cap_is_measured_against_the_searched_rows(settings: object) -> None:
+    """A narrowed report is genuinely smaller, and the two controls must agree.
+
+    With the cap at two, three unmapped packages are over it and `?q=aiohttp` leaves
+    two, which is not. Measured against the whole report the page would offer the
+    background form for a file a request could have produced -- and, worse, the
+    direct link would refuse a reader the page had just offered it to.
+
+    Args:
+        settings: pytest-django's settings fixture, which restores the cap.
+
+    """
+    settings.CPM_SYNC_EXPORT_MAX_ROWS = 2  # type: ignore[attr-defined]
+    an_unmapped_trio(a_run())
+    client = a_reader()
+
+    whole = client.get(report_url("unmapped-identities"))
+    narrowed = client.get(f"{report_url('unmapped-identities')}?q=aiohttp")
+
+    assert whole.context["too_large_to_export_here"] is True
+    assert narrowed.context["too_large_to_export_here"] is False
+    assert client.get(f"{export_url('unmapped-identities')}?q=aiohttp").status_code == status.HTTP_200_OK

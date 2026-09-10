@@ -278,6 +278,12 @@ body{margin:0}
   appearance:none;-webkit-appearance:none;box-sizing:border-box}
 .searchbox:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
 .searchbox::placeholder{color:var(--muted)}
+/* The standalone find bar the queues and the reports carry. The health table has no
+ * need of it -- its box lives in the facet rail's form -- so this is the wrapper for
+ * a page whose only form is this one. `max-width` because a search input stretched
+ * across a full-width report reads as a text area rather than a control. */
+.findbar{display:flex;gap:8px;align-items:center;margin:0 0 12px}
+.findbar .searchbox{max-width:320px}
 /* The health table's container. It had `min-width:0` and no `overflow-x` -- so the
  * pane could shrink, and the table inside it simply spilled over the page instead of
  * scrolling. `.panel` below has carried the pair since the mockups; this had half. */

@@ -38,6 +38,8 @@ from django.conf import settings
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
 from conda_sentinel.surface.reports import report_rows
 from conda_sentinel.surface.reports import report_values
+from conda_sentinel.surface.search import SEARCH_PARAM
+from conda_sentinel.surface.search import search_term
 
 if TYPE_CHECKING:
     from conda_sentinel.core.clock import Clock
@@ -70,7 +72,7 @@ REPORT_SLUG_PARAMETER: Final[str] = "slug"
 UNKNOWN_REPORT_SLUG: Final[str] = "no report is called {slug!r}; it may have been removed since this job was queued."
 
 
-def over_the_cap(report: Report) -> bool:
+def over_the_cap(report: Report, *, search: str = "") -> bool:
     """Report whether this report is too large to export inside a request.
 
     **The only place the cap is compared against anything.** AC 2 asks for one
@@ -78,8 +80,15 @@ def over_the_cap(report: Report) -> bool:
     rather than hoped for: three paths each reading the setting are three chances to
     read it slightly differently.
 
+    **Measured against the searched rows, not the whole report.** `CPM-APP-S18`: a
+    narrowed report is genuinely smaller, so a search that brings a four-thousand-row
+    report under the cap should get the direct download -- and the page and the
+    export must agree about which control they are offering, or a reader is shown a
+    link that then refuses them.
+
     Args:
         report: Which report.
+        search: The package-name fragment in force, already normalised.
 
     Returns:
         Whether it has more rows than `CPM_SYNC_EXPORT_MAX_ROWS`.
@@ -88,10 +97,10 @@ def over_the_cap(report: Report) -> bool:
     # `count()` rather than fetching and measuring: the whole point is not to pull
     # the rows into a request in order to discover that they should not be.
     cap: int = settings.CPM_SYNC_EXPORT_MAX_ROWS
-    return report_values(report).count() > cap
+    return report_values(report, search=search).count() > cap
 
 
-def export_csv(report: Report, *, limit: int | None = None) -> tuple[str, int, str]:
+def export_csv(report: Report, *, limit: int | None = None, search: str = "") -> tuple[str, int, str]:
     """Return one report as CSV, with the provenance that has to travel with it.
 
     Args:
@@ -99,12 +108,14 @@ def export_csv(report: Report, *, limit: int | None = None) -> tuple[str, int, s
         limit: How many rows, or `None` for all of them -- which is what a job wants,
             because a job's export is bounded by nothing: the cap is the boundary of
             a *request*, not a limit on what this product will produce.
+        search: The package-name fragment in force, already normalised. The file has
+            to hold the rows the screen was showing; see `report_values`.
 
     Returns:
         The CSV, how many rows it holds, and the provenance line.
 
     """
-    values = report_values(report)
+    values = report_values(report, search=search)
     produced = report_rows(report, list(values[:limit] if limit is not None else values))
 
     buffer = io.StringIO()
@@ -148,5 +159,13 @@ def run_export_job(*, job: BackgroundJob, clock: Clock) -> tuple[str, int]:
     if report is None:
         raise JobRunnerError(UNKNOWN_REPORT_SLUG.format(slug=slug))
 
-    content, rows, _provenance = export_csv(report)
+    # Read directly rather than through `job_parameters`, and the difference is the
+    # point: that helper *refuses* a parameter that is missing or empty, because a
+    # runner reading `None` for the slug would produce an artifact for the wrong
+    # thing. A search is genuinely optional -- most exports have none -- so absent
+    # means "the whole report", which is also what every job enqueued before
+    # `CPM-APP-S18` carries.
+    search = search_term(str(job.parameters.get(SEARCH_PARAM, "")))
+
+    content, rows, _provenance = export_csv(report, search=search)
     return content, rows

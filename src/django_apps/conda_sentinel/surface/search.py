@@ -30,7 +30,7 @@ from typing import Final
 
 from django.db.models import Q
 
-__all__ = ["SEARCH_PARAM", "name_condition", "search_term"]
+__all__ = ["MAX_TERM_LENGTH", "SEARCH_PARAM", "name_condition", "search_context", "search_term"]
 
 #: The query-string parameter carrying the name fragment.
 #:
@@ -103,3 +103,31 @@ def name_condition(term: str, *, field: str) -> Q:
     if not term:
         return Q()
     return Q(**{f"{field}__icontains": term})
+
+
+def search_context(raw: str) -> dict[str, object]:
+    """Return everything a template needs to render the search control.
+
+    Three keys rather than one, and they travel together because a template that had
+    the fragment but not the parameter name would hard-code `q`, and one that had
+    neither bound would hard-code the length -- which is the duplication `CPM-APP-S17`
+    caught in the health template before it shipped. A box that accepts more than
+    `search_term` will keep turns a long paste into "no search at all", under an input
+    still showing the reader's text.
+
+    Takes the raw parameter rather than the request, for the reason `applied_filters`
+    takes a mapping: nothing here needs Django's request layer, and a helper that
+    asked for a request could not be called from a test that has none.
+
+    Args:
+        raw: The parameter as it arrived, which may be empty.
+
+    Returns:
+        The normalised fragment, the parameter's spelling, and the length bound.
+
+    """
+    return {
+        "search": search_term(raw),
+        "search_param": SEARCH_PARAM,
+        "search_max_length": MAX_TERM_LENGTH,
+    }

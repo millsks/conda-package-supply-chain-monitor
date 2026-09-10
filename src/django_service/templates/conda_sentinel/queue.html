@@ -14,9 +14,24 @@
           {{ total }} open items
         {% endblocktranslate %}
         &middot; {% translate "owned by" %} {{ owner_label }}
+        {% if search %}&middot; {% blocktranslate trimmed %}name contains &ldquo;{{ search }}&rdquo;{% endblocktranslate %}{% endif %}
       </div>
     </div>
   </div>
+
+  {% comment %}
+    CPM-APP-S18. A form of its own, because this page has no facet rail to put the
+    box in -- and a GET, so the fragment lands in the URL and the page stays
+    bookmarkable and shareable, which is the whole reason a reviewer wants it.
+  {% endcomment %}
+  <form class="findbar" method="get">
+    {% include "conda_sentinel/_searchbox.html" %}
+    <button class="btn sm" type="submit">{% translate "Find" %}</button>
+    {% if search %}
+      <a class="btn ghost sm" href="{{ request.path }}">{% translate "Clear" %}</a>
+    {% endif %}
+  </form>
+
 
   {% comment %}
     Ranked bucket then score, which is the priority pass's own order rather than a

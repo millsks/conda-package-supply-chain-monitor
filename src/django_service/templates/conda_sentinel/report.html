@@ -7,7 +7,10 @@
   <div class="app-h">
     <div>
       <h2>{{ page.report.title }}</h2>
-      <div class="sub">{{ page.report.asks }} &middot; {% translate "read" %} {{ page.report.cadence }}</div>
+      <div class="sub">
+        {{ page.report.asks }} &middot; {% translate "read" %} {{ page.report.cadence }}
+        {% if search %}&middot; {% blocktranslate trimmed %}name contains &ldquo;{{ search }}&rdquo;{% endblocktranslate %}{% endif %}
+      </div>
     </div>
     {% comment %}
       CPM-APP-S08 AC 1. Which control this is depends on the whole report rather than
@@ -20,13 +23,20 @@
       jobs.
     {% endcomment %}
     <div class="btnrow">
+      {% comment %} Both controls carry the search. `ReportExportView` states the principle the
+         whole module is written around -- the same rows as the page, from the same
+         projection with a different bound -- so a file that held rows the reader had
+         filtered out would be exactly the disagreement it exists to prevent, in the
+         one artifact that leaves the system. The POST carries it in a hidden field
+         because a form does not inherit the query string. {% endcomment %}
       {% if too_large_to_export_here %}
         <form method="post" action="{% url 'conda_sentinel:report-export' page.report.slug %}">
           {% csrf_token %}
+          <input type="hidden" name="{{ search_param }}" value="{{ search }}" />
           <button class="btn" type="submit">{% translate "Prepare CSV export" %}</button>
         </form>
       {% else %}
-        <a class="btn" href="{% url 'conda_sentinel:report-export' page.report.slug %}">{% translate "Export CSV" %}</a>
+        <a class="btn" href="{% url 'conda_sentinel:report-export' page.report.slug %}{% if search %}?{{ search_param }}={{ search|urlencode }}{% endif %}">{% translate "Export CSV" %}</a>
       {% endif %}
     </div>
   </div>
@@ -37,6 +47,19 @@
     a report cannot be produced without them -- and absent where there are no rows,
     which is honest: a report of nothing was produced from nothing.
   {% endcomment %}
+  {% comment %}
+    CPM-APP-S18. A form of its own, because this page has no facet rail to put the
+    box in -- and a GET, so the fragment lands in the URL and the page stays
+    bookmarkable and shareable, which is the whole reason a reviewer wants it.
+  {% endcomment %}
+  <form class="findbar" method="get">
+    {% include "conda_sentinel/_searchbox.html" %}
+    <button class="btn sm" type="submit">{% translate "Find" %}</button>
+    {% if search %}
+      <a class="btn ghost sm" href="{{ request.path }}">{% translate "Clear" %}</a>
+    {% endif %}
+  </form>
+
   {% if too_large_to_export_here %}
     <div class="toast">
       <div>

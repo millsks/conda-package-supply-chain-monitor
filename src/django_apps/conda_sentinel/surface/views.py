@@ -87,8 +87,8 @@ from conda_sentinel.surface.queues import queue_rows
 from conda_sentinel.surface.reports import REPORTS
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
 from conda_sentinel.surface.reports import report_page
-from conda_sentinel.surface.search import MAX_TERM_LENGTH
 from conda_sentinel.surface.search import SEARCH_PARAM
+from conda_sentinel.surface.search import search_context
 from conda_sentinel.surface.search import search_term
 from conda_sentinel.surface.theming import THEME_COOKIE
 from conda_sentinel.surface.theming import THEME_COOKIE_MAX_AGE
@@ -223,17 +223,11 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
         context.update(
             columns=COLUMNS,
             rows=rows,
-            # The *normalised* fragment, not the raw parameter: what goes back into
-            # the box has to be what was actually matched, or a reader who typed
-            # `scikit_learn` and got `scikit-learn` sees a box that disagrees with the
-            # result and cannot tell which one the URL means.
-            search=search_term(self.request.GET.get(SEARCH_PARAM, "")),
-            search_param=SEARCH_PARAM,
-            # The bound the browser enforces is the one the server applies. Written
-            # twice, they drift -- and the drift is silent in the worse direction: a
-            # box that accepts more than `search_term` will keep turns a long paste
-            # into "no search at all" while the input still shows the text.
-            search_max_length=MAX_TERM_LENGTH,
+            # The *normalised* fragment among them, not the raw parameter: what goes
+            # back into the box has to be what was actually matched, or a reader who
+            # typed `scikit_learn` and got `scikit-learn` sees a box that disagrees
+            # with the result and cannot tell which one the URL means.
+            **search_context(self.request.GET.get(SEARCH_PARAM, "")),
             facets=[
                 {
                     "facet": facet,
@@ -467,7 +461,12 @@ class QueueView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
             The ranked, open items. `dispatch` has already refused an unknown queue.
 
         """
-        return queue_items(str(self.kwargs["queue"]))
+        # `CPM-AD-13`: the queue is selected first and the fragment narrows what that
+        # returned, so no spelling of `?q=` can reach another queue's items.
+        return queue_items(
+            str(self.kwargs["queue"]),
+            search=search_term(self.request.GET.get(SEARCH_PARAM, "")),
+        )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         """Return the rows and what the heading says.
@@ -491,6 +490,7 @@ class QueueView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
             queue_label=queue_label(queue),
             owner_label=role_label(QUEUE_OWNERS[queue]),
             rows=queue_rows(queue, context["page_obj"].object_list),
+            **search_context(self.request.GET.get(SEARCH_PARAM, "")),
         )
         return context
 
@@ -529,15 +529,20 @@ class ReportView(RoleRequiredMixin, TemplateView):
         report = REPORTS_BY_SLUG.get(str(kwargs.get("slug", "")))
         if report is None:
             raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
+        search = search_term(self.request.GET.get(SEARCH_PARAM, ""))
         context.update(
-            page=report_page(report, limit=REPORT_PAGE_ROWS),
+            page=report_page(report, limit=REPORT_PAGE_ROWS, search=search),
             reports=REPORTS,
             # Which export control the page offers. Asked here rather than left to
             # the template to infer from a row count, because the page shows at most
             # `REPORT_PAGE_ROWS` and a template counting what it can see would offer
             # the synchronous download for a report of four thousand rows.
-            too_large_to_export_here=over_the_cap(report),
+            # Against the *searched* rows: a narrowed report is genuinely smaller,
+            # and the page and the export have to agree about which control is on
+            # offer or a reader is shown a link that then refuses them.
+            too_large_to_export_here=over_the_cap(report, search=search),
             export_cap=settings.CPM_SYNC_EXPORT_MAX_ROWS,
+            **search_context(self.request.GET.get(SEARCH_PARAM, "")),
         )
         return context
 
@@ -590,7 +595,8 @@ class ReportExportView(RoleRequiredMixin, View):
         if report is None:
             raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
 
-        if over_the_cap(report):
+        search = search_term(request.GET.get(SEARCH_PARAM, ""))
+        if over_the_cap(report, search=search):
             # Refused rather than truncated, and 409 rather than 400: the request is
             # well-formed and the report is simply larger than a request will
             # produce. The message names the path that will.
@@ -600,7 +606,7 @@ class ReportExportView(RoleRequiredMixin, View):
                 status=HTTPStatus.CONFLICT,
             )
 
-        content, _rows, provenance = export_csv(report, limit=settings.CPM_SYNC_EXPORT_MAX_ROWS)
+        content, _rows, provenance = export_csv(report, limit=settings.CPM_SYNC_EXPORT_MAX_ROWS, search=search)
         response = HttpResponse(content, content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{report.slug}.csv"'
         # The provenance travels with the file, not only on the page it came from:
@@ -634,9 +640,17 @@ class ReportExportView(RoleRequiredMixin, View):
         if report is None:
             raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
 
+        # The search comes off the *form*, not the query string: this is a POST, and
+        # the template carries the fragment in a hidden field precisely so the file a
+        # worker produces holds the rows the reader was looking at. A job enqueued
+        # without one exports the whole report, which is what every job enqueued
+        # before `CPM-APP-S18` does.
         job = request_job(
             kind=EXPORT_JOB_KIND,
-            parameters={REPORT_SLUG_PARAMETER: report.slug},
+            parameters={
+                REPORT_SLUG_PARAMETER: report.slug,
+                SEARCH_PARAM: search_term(request.POST.get(SEARCH_PARAM, "")),
+            },
             requested_by=cast("User", request.user),
             clock=SystemClock(),
         )

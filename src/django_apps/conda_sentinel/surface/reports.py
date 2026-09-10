@@ -43,6 +43,7 @@ from django.db.models import Q
 from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.core.outcomes import OutcomeState
 from conda_sentinel.identity.confidence import IdentityConfidence
+from conda_sentinel.surface.search import name_condition
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -261,7 +262,7 @@ class ReportPage:
     policy_versions: tuple[str, ...]
 
 
-def report_values(report: Report) -> QuerySet[PackageHealth, tuple[object, ...]]:
+def report_values(report: Report, *, search: str = "") -> QuerySet[PackageHealth, tuple[object, ...]]:
     """Return one report's raw rows, ordered and unbounded, as a values queryset.
 
     Split out from `report_page` by `CPM-APP-S07`, which paginates a report over
@@ -269,8 +270,17 @@ def report_values(report: Report) -> QuerySet[PackageHealth, tuple[object, ...]]
     *same* thing the page and the export read. A second queryset built for the API
     is `CPM-AD-24`'s named failure with an extra step.
 
+    `CPM-APP-S18` adds the name search **here** for that same reason. The export view
+    states the principle plainly -- "the same rows as the page, from the same
+    projection with a different bound, not a second query with its own filters" -- so
+    a search the page honoured and the export did not would be exactly the
+    disagreement that module was written to prevent, in the one artifact that leaves
+    the system.
+
     Args:
         report: Which report.
+        search: A package-name fragment, already normalised by `search_term`. An
+            empty one narrows nothing.
 
     Returns:
         One tuple per row -- the report's columns in order, then the row's version
@@ -279,7 +289,7 @@ def report_values(report: Report) -> QuerySet[PackageHealth, tuple[object, ...]]
     """
     columns = report.all_columns()
     return (
-        PackageHealth.objects.filter(report.condition)
+        PackageHealth.objects.filter(report.condition & name_condition(search, field="package__canonical_name"))
         .order_by("package__canonical_name", "pk")
         .values_list(*(column.source for column in columns), "policy_versions")
         .distinct()
@@ -314,19 +324,21 @@ def report_rows(report: Report, values: Sequence[tuple[object, ...]]) -> ReportP
     )
 
 
-def report_page(report: Report, *, limit: int | None = None) -> ReportPage:
+def report_page(report: Report, *, limit: int | None = None, search: str = "") -> ReportPage:
     """Produce one report.
 
     Args:
         report: Which report.
         limit: How many rows to take, for a page. `None` for all of them, which is
             what an export wants -- and what `CPM-APP-S08` bounds with a row cap.
+        search: A package-name fragment, already normalised. An empty one narrows
+            nothing.
 
     Returns:
         The rows and the provenance.
 
     """
-    values = report_values(report)
+    values = report_values(report, search=search)
     return report_rows(report, list(values[:limit] if limit is not None else values))
 
 
