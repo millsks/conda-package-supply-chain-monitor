@@ -2092,17 +2092,80 @@ leaving `/`, `/about/`, `/accounts/` and every error page where they are, so the
 product would live in two places and the accelerator would still own the front door.
 This story answers that directly instead.
 
-The second framing is stronger and is the one left open: a prefix says which
-application a page belongs to, if this platform ever hosts more than one. It does not
+The second framing is stronger, and it was **decided in favour** shortly after this
+story shipped -- `CPM-APP-S13` below delivers it. A prefix says which application a
+page belongs to, if this platform ever hosts more than one. It does not
 today — the six apps under `django_apps/` are this product's own domains, which is
 what `CPM-AD-19` means by "one app per domain" — and the deferral rests on one
 measured fact: every product page is mounted by a **single line** in `config/urls.py`,
 and nothing anywhere reverses by path, because `CPM-AD-19` routes centrally and every
 template goes through the `conda_sentinel:` namespace. Adding the prefix the day a
-second product arrives is that one line.
+second product arrives is that one line -- which is exactly why the product owner's
+decision to add it now costs no more than deferring it would have saved.
 
 `FORCE_SCRIPT_NAME` remains the mechanism for a deployment that needs a prefix on
 *everything*, including `/api/` and the accounts flows, with no code change at all.
+
+### CPM-APP-S13: The application is mounted under its own name
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and
+> decided by the product owner against the implementing agent's recommendation. That
+> is recorded plainly because the reasoning on both sides is worth keeping: the
+> recommendation was to defer, and the deferral rested on the change being cheap to
+> make later. It is the same change either way, so the cost of making it now is the
+> cost of making it at all.
+
+`CPM-APP-S12` made the root this product's. This puts every one of its pages under a
+path that says which application they belong to.
+
+**The argument for it is legibility across a platform that may host more than one
+product.** `django_apps/` is a second import root and `component.toml` adopts
+applications into a component explicitly. Today the six adopted applications are this
+product's own domains — that is what `CPM-AD-19` means by "one app per domain" — but
+nothing in the architecture says a second product's application could not be adopted
+beside them, and the paths this product holds are the generic ones: `packages`,
+`reports`, `coverage`, `queues`. A namespace prevents a *name* collision. It does not
+prevent a *path* collision, and the first one would be discovered by a route
+silently shadowing another.
+
+The prefix also answers a smaller question every day: which system produced this line
+in a log, this URL in a ticket, this entry in somebody's browser history.
+
+**What it does not do**, and this was the first framing's mistake: it does not make
+the root this product's, and it leaves `/api/`, `/accounts/` and `/users/` where they
+are. `CPM-APP-S12` answered the first. The second is deliberate — the API is versioned
+and routed centrally on its own terms, and the accounts flows are the platform's.
+
+As any of the three roles,
+I want this product's pages to live under a path that names it,
+So that I can tell which application a URL belongs to, and so a second application on
+this platform cannot silently take a path this one holds.
+
+**Acceptance Criteria:**
+
+**Given** any of this product's HTML surfaces
+**When** its URL is resolved
+**Then** it is under `/conda-sentinel/`
+
+**Given** the root
+**When** it is opened
+**Then** it sends the reader to this product's home under the prefix
+
+**Given** anything that names one of this product's pages — a template, a redirect, a
+test
+**When** it is resolved
+**Then** it resolves through the URL namespace and not through a written path
+
+**Given** the platform's own routes — the API, the accounts flows, the health probes
+**When** the prefix is applied
+**Then** they are unmoved
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-19` — routing is central, which is what makes this one line.
+**Constrained:** `FORCE_SCRIPT_NAME` remains the mechanism for a deployment that needs
+a prefix on *everything*, including the API and the accounts flows. This story is not
+that and does not replace it: it names the application within a service, where
+`FORCE_SCRIPT_NAME` names the service within a host. A deployment can use both.
 
 ### Open questions this epic raises
 

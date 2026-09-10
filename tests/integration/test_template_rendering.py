@@ -27,25 +27,26 @@ pytestmark = pytest.mark.django_db
 
 
 class TestPublicPages:
-    def test_the_root_is_this_products_home_and_asks_who_you_are(self, client: Client):
-        """`CPM-APP-S12` AC 1. The root was the accelerator's landing page.
+    def test_the_root_leads_to_this_product_and_asks_who_you_are(self, client: Client):
+        """`CPM-APP-S12` AC 1, still true after `CPM-APP-S13` moved the pages.
 
-        It is now `conda_sentinel:home`, which is gated like every other screen -- so
-        the assertion changed from "renders for anybody" to "sends an anonymous
-        visitor to sign in". That is the product working, not a regression: this
-        service has nothing to show somebody who holds no role, and the page it used
-        to show them described a different product.
+        The root was the accelerator's landing page. It now leads to
+        `conda_sentinel:home`, which is gated like every other screen -- so the
+        assertion changed from "renders for anybody" to "sends an anonymous visitor to
+        sign in". That is the product working, not a regression: this service has
+        nothing to show somebody who holds no role, and the page it used to show them
+        described a different product.
         """
-        response = client.get("/")
+        response = client.get("/", follow=True)
 
-        assert response.status_code == HTTPStatus.FOUND
         # The configured sign-in flow rather than `account_login` by name: this
         # deployment signs people in through the identity provider (`CPM-FR-17`), and
         # asserting the allauth URL would be asserting a flow this product does not
         # use. What matters is that the reader is sent somewhere to identify
         # themselves and brought back to the page they asked for.
-        assert "login" in response["Location"]
-        assert response["Location"].endswith("next=/")
+        final, _status = response.redirect_chain[-1]
+        assert "login" in final
+        assert final.endswith(f"next={reverse('conda_sentinel:home')}")
 
     def test_about(self, client: Client):
         response = client.get(reverse("about"))
