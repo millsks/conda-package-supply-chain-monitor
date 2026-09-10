@@ -59,6 +59,8 @@ from conda_sentinel.policies.models import PackagePriority
 from conda_sentinel.policies.models import PackagePythonReadiness
 from conda_sentinel.policies.models import PackageVulnerability
 from conda_sentinel.policies.models import PackageWorkType
+from conda_sentinel.workflow.models import WorkflowItem
+from conda_sentinel.workflow.models import WorkflowTransition
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -79,6 +81,7 @@ __all__ = [
     "Observation",
     "StatusTrace",
     "Trace",
+    "WorkItem",
     "identity_of",
     "recent_runs",
     "traces_for",
@@ -522,3 +525,49 @@ def recent_runs(package: Package) -> tuple[CollectionRun, ...]:
 
     """
     return tuple(package.collection_runs.order_by("-started_at", "-id")[:HISTORY_LIMIT])
+
+
+@dataclass(frozen=True, slots=True)
+class WorkItem:
+    """One queue item on this package, with who moved it and when.
+
+    `CPM-APP-S05`'s AC 4 -- "who acted, when, and the resulting state are recorded" --
+    is satisfied by `workflow_transitions` and made *visible* here. A record nobody
+    can read from the screen the work is discussed on is a record somebody has to be
+    told exists.
+    """
+
+    item: WorkflowItem
+
+    #: Every move, newest first, capped on the same terms the evidence history is.
+    history: tuple[WorkflowTransition, ...]
+
+
+def work_on(package: Package) -> tuple[WorkItem, ...]:
+    """Return the queue items open or finished on a package, with their history.
+
+    Args:
+        package: The package.
+
+    Returns:
+        One entry per item, open ones first -- a reader looking at a package wants
+        what is outstanding before what was settled.
+
+    """
+    items = list(
+        WorkflowItem.objects.filter(package=package).order_by("state", "-changed_at").select_related("claimed_by"),
+    )
+    if not items:
+        return ()
+
+    # One read for every item's history rather than one per item: a package with four
+    # queue items would otherwise cost four queries on a screen that already reads
+    # eight derived tables.
+    moves: dict[int, list[WorkflowTransition]] = {}
+    for move in (
+        WorkflowTransition.objects.filter(item__in=items)
+        .order_by("-occurred_at", "-id")
+        .select_related("actor")[: HISTORY_LIMIT * len(items)]
+    ):
+        moves.setdefault(move.item_id, []).append(move)
+    return tuple(WorkItem(item=item, history=tuple(moves.get(item.pk, ()))) for item in items)

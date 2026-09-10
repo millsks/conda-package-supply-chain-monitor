@@ -36,7 +36,18 @@
              {% if request.resolver_match.url_name == 'home' %}class="on" aria-current="page"{% endif %}>
             {% translate "Home" %}
           </a>
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "My queue" %}</a>
+{% comment %}
+            Every entry is shown to every role, and a queue that is not yours refuses
+            when you open it. The UX contract is explicit that role scoping happens
+            *below* the nav -- hiding an entry per role makes a shared link look
+            broken to whoever it was sent to, and tells them nothing about why.
+          {% endcomment %}
+          {% for queue in nav_queues %}
+            <a href="{% url 'conda_sentinel:queue' queue %}"
+               {% if request.resolver_match.kwargs.queue == queue %}class="on" aria-current="page"{% endif %}>
+              {{ queue }}
+            </a>
+          {% endfor %}
           <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Reports" %}</a>
           <a href="{% url 'conda_sentinel:coverage' %}"
              {% if request.resolver_match.url_name == 'coverage' %}class="on" aria-current="page"{% endif %}>

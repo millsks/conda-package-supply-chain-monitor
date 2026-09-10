@@ -1058,6 +1058,48 @@ opens that parameter.
 If a caller genuinely needs more rows than a page holds, the answer is an export,
 which is a task rather than an unpaginated response.
 
+### The three queues, and what fills them
+
+`pixi run -e dev seed-demo` fills them, because the policy run does: `core/after_run.py`
+declares a seam, `conda_sentinel.workflow` registers a step into it at `ready()`, and
+the run calls whatever is registered. `core/policy_run.py` has never heard of a
+queue, which is the same inversion the pass registry uses and the reason the layering
+audit covers `workflow`.
+
+**A failing step fails the run.** A run that reported success with the queues it was
+meant to fill still empty is nobody looking at work nobody knows exists.
+
+Which role owns which queue is `QUEUE_OWNERS` in `workflow/states.py`:
+
+| Queue | Owner |
+|---|---|
+| identity review | platform and engineering leadership |
+| remediation | packaging engineer |
+| compliance review | security and compliance reviewer |
+
+**Identity review belonging to leadership is the surprising one**, and it follows
+from `CPM-IDENTITY-S05`: the audited identity override is the product's one governed
+human write, and `ROLE_GROUP_PERMISSIONS` grants its permission to leadership alone.
+The queue is where that permission is exercised. A reviewer still *reads* every
+package's identity and provenance — read access to evidence is granted to all three
+roles — and acting on identity review is a different grant.
+
+**A queue that is not yours is refused, never rendered empty.** An empty queue says
+there is no work, and somebody who reads that goes away satisfied. The nav lists all
+three to every role for the same reason the health view does not hide columns:
+scoping happens below the nav, and a nav that differed per role would make a shared
+link look broken to whoever received it.
+
+`QueueView` is the one surface whose required roles depend on the request — which
+queue decides which role. `RoleRequiredMixin.roles_required()` is the seam for that;
+overriding a method rather than assigning to the class attribute, which two requests
+could race on.
+
+Queues rank by priority bucket then score, which is the priority pass's own order
+rather than a second one. The bucket is ranked by its **index** in
+`PRIORITY_BUCKETS`, not by its value — `p10` sorts before `p2` lexicographically —
+and the ordering terminates on the finding key so a queue pages deterministically.
+
 ### Queue items and the finding key
 
 `CPM-AD-22` puts all three queues — identity review, remediation, compliance review —

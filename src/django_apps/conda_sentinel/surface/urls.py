@@ -22,6 +22,7 @@ from conda_sentinel.surface.views import CoverageView
 from conda_sentinel.surface.views import HomeView
 from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
+from conda_sentinel.surface.views import QueueView
 
 app_name = "conda_sentinel"
 
@@ -37,4 +38,10 @@ urlpatterns = [
     # or an underscore -- `ruamel.yaml`, `backports.zoneinfo` -- and `slug` matches
     # neither, which would make exactly the packages with awkward names unreachable.
     path("packages/<str:canonical_name>/", PackageDetailView.as_view(), name="package-detail"),
+    # One route for three queues, because they are three filtered views over one
+    # table (`CPM-AD-22`) and three routes would invite three views. `<str:>` rather
+    # than an enumeration in the pattern: the closed set is `QUEUE_OWNERS`, and a
+    # segment outside it is a 404 the view raises with a message naming the queues
+    # that do exist.
+    path("queues/<str:queue>/", QueueView.as_view(), name="queue"),
 ]

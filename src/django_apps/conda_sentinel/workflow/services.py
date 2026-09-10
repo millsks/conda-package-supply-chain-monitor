@@ -69,6 +69,7 @@ __all__ = [
     "WorkflowError",
     "apply_transition",
     "open_item",
+    "open_keyed_item",
 ]
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -128,11 +129,45 @@ def open_item(
 
     """
     key, facts = evidence.finding_key()
+    return open_keyed_item(finding_key=key, finding_facts=facts, package=package, queue=queue, clock=clock)
+
+
+def open_keyed_item(
+    *,
+    finding_key: str,
+    finding_facts: str,
+    package: Package,
+    queue: str,
+    clock: Clock,
+) -> OpenedItem:
+    """Open a queue item under a key built by the caller, or return the existing one.
+
+    The half of `open_item` that takes a key rather than deriving one, for the queue
+    whose finding is **not** evidence-backed: an unidentified package's work exists
+    because nothing was observed, so there is no row to ask for a key and the caller
+    builds one from `packages`.
+
+    Kept as a separate entry point rather than as an optional argument to
+    `open_item`, so the ordinary path cannot be called with a hand-made key by
+    accident -- an evidence-backed item keyed by anything but its table's declaration
+    is the duplicate-in-a-queue failure `CPM-AD-22` is about.
+
+    Args:
+        finding_key: What the work is filed under.
+        finding_facts: The readable form, for a reviewer.
+        package: The package the work is about.
+        queue: The queue to open it in.
+        clock: The clock both stamps are read from (`CPM-AD-26`).
+
+    Returns:
+        The item, and whether this call created it.
+
+    """
     now = clock.now()
     item, created = WorkflowItem.objects.get_or_create(
-        finding_key=key,
+        finding_key=finding_key,
         defaults={
-            "finding_facts": facts,
+            "finding_facts": finding_facts,
             "package": package,
             "queue": queue,
             "state": ItemState.OPEN.value,
@@ -141,7 +176,7 @@ def open_item(
         },
     )
     if created:
-        logger.info(ITEM_OPENED_EVENT, finding_key=key, queue=queue, package=package.canonical_name)
+        logger.info(ITEM_OPENED_EVENT, finding_key=finding_key, queue=queue, package=package.canonical_name)
     return OpenedItem(item=item, created=created)
 
 

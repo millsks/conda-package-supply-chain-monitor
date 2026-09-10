@@ -188,6 +188,43 @@
         </div>
       {% endif %}
 
+      {% if work %}
+        {% comment %}
+          CPM-APP-S05 AC 4: who acted, when, and the resulting state. Recorded by
+          workflow_transitions and shown here, on the screen the work is actually
+          discussed on -- a record nobody can read from the page is one somebody has
+          to be told exists.
+        {% endcomment %}
+        <div class="panel">
+          <header>
+            <h4>{% translate "Work on this package" %}</h4>
+            <span class="hx">{% translate "who acted, and when" %}</span>
+          </header>
+          <table class="tbl">
+            <tbody>
+              {% for entry in work %}
+                <tr>
+                  <td class="pkg">{{ entry.item.queue }}</td>
+                  <td><span class="chip {{ entry.item.state|tone }}">{{ entry.item.state }}</span></td>
+                  <td class="mono">
+                    {{ entry.item.finding_facts }}
+                    {% for move in entry.history %}
+                      <div class="ev">
+                        {{ move.from_state }} &rarr; {{ move.to_state }} &middot;
+                        {{ move.actor.username }} &middot; {{ move.occurred_at|date:"Y-m-d H:i" }}Z
+                        {% if move.justification %}<br />{{ move.justification }}{% endif %}
+                      </div>
+                    {% empty %}
+                      <div class="ev">{% translate "opened by the policy run; nobody has acted yet" %}</div>
+                    {% endfor %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
       <div class="panel">
         <header>
           <h4>{% translate "Collection runs, this package" %}</h4>

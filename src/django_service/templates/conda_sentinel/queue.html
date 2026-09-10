@@ -1,0 +1,84 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n health %}
+
+{% block title %}{{ queue }}{% endblock title %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{{ queue }}</h2>
+      <div class="sub">
+        {% blocktranslate count total=paginator.count trimmed %}
+          {{ total }} open item
+        {% plural %}
+          {{ total }} open items
+        {% endblocktranslate %}
+        &middot; {% translate "owned by" %} {{ owner }}
+      </div>
+    </div>
+  </div>
+
+  {% comment %}
+    Ranked bucket then score, which is the priority pass's own order rather than a
+    second one invented here. Identity items carry no bucket -- CPM-AD-4's gate
+    blanked the verdicts a bucket is derived from -- so they rank on usage breadth
+    alone, which is what the score already is.
+  {% endcomment %}
+  <div class="panel">
+    <header>
+      <h4>{% translate "Ranked by priority bucket, then score" %}</h4>
+      <span class="hx">{% translate "open work only" %}</span>
+    </header>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>{% translate "Package" %}</th>
+          <th>{% translate "P" %}</th>
+          <th>{% translate "Score" %}</th>
+          <th>{% translate "State" %}</th>
+          <th>{% translate "Finding" %}</th>
+          <th>{% translate "Claimed by" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="pkg">
+              <a href="{% url 'conda_sentinel:package-detail' row.canonical_name %}">{{ row.canonical_name }}</a>
+            </td>
+            <td>
+              {% if row.bucket %}<span class="pbucket {{ row.bucket|tone }}">{{ row.bucket }}</span>{% endif %}
+            </td>
+            {% comment %}
+              `default_if_none` rather than an `{% if %}`: a score of zero is a real
+              score and is falsy, so a truthiness test would blank the package
+              nothing has raised the priority of.
+            {% endcomment %}
+            <td class="num">{{ row.score|default_if_none:"" }}</td>
+            <td><span class="chip {{ row.item.state|tone }}">{{ row.item.state }}</span></td>
+            <td class="mono">{{ row.item.finding_facts }}</td>
+            <td class="mono">{{ row.item.claimed_by.username|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">{% translate "Nothing is open in this queue." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page_obj.has_other_pages %}
+    <div class="applied">
+      {% if page_obj.has_previous %}
+        <a class="btn sm" href="?{% querystring request.GET page=page_obj.previous_page_number %}">{% translate "Previous" %}</a>
+      {% endif %}
+      <span>
+        {% blocktranslate with current=page_obj.number total=paginator.num_pages trimmed %}
+          Page {{ current }} of {{ total }}
+        {% endblocktranslate %}
+      </span>
+      {% if page_obj.has_next %}
+        <a class="btn sm" href="?{% querystring request.GET page=page_obj.next_page_number %}">{% translate "Next" %}</a>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock content %}
