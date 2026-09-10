@@ -340,6 +340,33 @@ ROLE_CONTRACT = load_role_contract(env)
 # without a code change -- which is also what makes the number replaceable when
 # Open Question 5 is answered.
 CPM_HEALTH_VIEW_P95_BUDGET_MS = env.int("CPM_HEALTH_VIEW_P95_BUDGET_MS", default=800)
+
+# The largest export this product will build inside a request, in rows.
+#
+# **PROVISIONAL**, and the second of PRD Open Question 5's two numbers -- the first
+# is the latency budget above. `CPM-AD-12` and `CPM-AD-9` name this constant and say
+# what it is for: "an export beyond the row cap is a task, never an unpaginated
+# response". `CPM-APP-S06` needs a bound now because it ships the export;
+# `CPM-APP-S08` is the story that moves the work beyond it out of the request, and
+# until then an export at the cap is truncated and says so in a response header
+# rather than silently handing somebody a partial file.
+#
+# 5,000, and the reasoning is that the cap should *bite* rather than be decorative:
+#
+#   * `CPM-NFR-1` sizes the inventory at ten thousand packages, so a cap of five
+#     thousand means the largest reports genuinely take the asynchronous path. A cap
+#     set above the inventory would be a number nothing ever reaches, and the export
+#     path `CPM-AD-9` requires would ship untested until the day it mattered.
+#   * Most reports are filtered subsets well under it -- known-exploited
+#     vulnerabilities is tens of rows, unmapped identities hundreds -- so the common
+#     case stays synchronous and immediate.
+#   * Five thousand rows of eight columns is roughly a megabyte of CSV, which is a
+#     second or two of work. That is a request somebody waits through, not one they
+#     abandon.
+#
+# Read from the environment so a deployment can state its own without a code change,
+# which is also what makes it replaceable when Open Question 5 is answered.
+CPM_SYNC_EXPORT_MAX_ROWS = env.int("CPM_SYNC_EXPORT_MAX_ROWS", default=5_000)
 # The inventory source's file (CPM-AD-29, CPM-FR-42): the versioned watchlist the
 # declared adapter reads, selected by locality.
 #

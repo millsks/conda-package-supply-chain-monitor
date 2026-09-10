@@ -48,7 +48,10 @@
               {{ queue }}
             </a>
           {% endfor %}
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Reports" %}</a>
+          <a href="{% url 'conda_sentinel:report' nav_first_report %}"
+             {% if request.resolver_match.url_name == 'report' %}class="on" aria-current="page"{% endif %}>
+            {% translate "Reports" %}
+          </a>
           <a href="{% url 'conda_sentinel:coverage' %}"
              {% if request.resolver_match.url_name == 'coverage' %}class="on" aria-current="page"{% endif %}>
             {% translate "Coverage" %}

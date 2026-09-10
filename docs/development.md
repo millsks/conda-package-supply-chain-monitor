@@ -1269,6 +1269,82 @@ the acting user, the view, the path, the roles required and the roles held. That
 last field is what distinguishes a user whose groups were never mapped (`held` is
 empty) from somebody reaching for another role's queue.
 
+## Reports and exports
+
+Six recurring reports live in `surface/reports.py`. They are not six views. A report
+is a `Q` and a list of columns, and `report_page()` is the only thing that runs one:
+
+```python
+Report(
+    slug="kev",
+    title="Known-exploited vulnerabilities",
+    asks="Which packages carry an advisory the CISA catalogue lists as exploited?",
+    cadence=DAILY,
+    condition=Q(package__vulnerability_policy_findings__kev_membership="listed"),
+    columns=(ReportColumn(heading="Risk", source="...risk_level"),),
+)
+```
+
+### Adding a report
+
+Add an entry to `REPORTS`. Do not add a view, a URL or a template — the slug routes
+itself through `ReportView`, and the export comes with it. Two rules make that safe,
+and both are structural rather than remembered:
+
+**Provenance is composed on, not written in.** `COMMON_COLUMNS` — package,
+confidence, evidence cut-off, computed at — is prepended to every report's own
+columns by `Report.all_columns()`. A report cannot omit them. This is `CPM-APP-S06`
+AC 2 and `CPM-AD-11`: a report that did not say what it was produced from would be
+read as current a month after its cut-off.
+
+The page names **every** policy version its rows carry, not one. `CPM-AD-11` stamps a
+version map per row and a replay leaves rows from two runs behind; a report claiming
+a single version over rows produced at two would be stating something false about
+itself, to the reader most likely to check.
+
+An empty report has `evidence_cutoff = None` and shows no cut-off. That is honest
+rather than a gap — a report of nothing was produced from nothing.
+
+**A column is an ORM path, never a callable.** `CPM-AD-10` gives verdicts to the
+policy engine. A report that computed one would be a second opinion about a package
+that nobody could reconcile with the health view. If a report seems to need a
+computed column, the value belongs on the rollup and the policy pass should write it.
+
+Check the reverse accessors when you add one. `packagelicense` and
+`packagepythonreadiness` look right and are wrong — the declared names are
+`license_policy_findings` and `python_readiness_policy_findings`, and the difference
+surfaces as `FieldError` at request time rather than at import. The parameterized
+case in `tests/integration/django_apps/test_reports.py` renders every report against
+real rows for exactly this reason.
+
+### Exports
+
+`reports/<slug>/export/` streams the same rows as the page, from the same projection
+with a different bound. Not a second query — that is how an export comes to disagree
+with the screen it was exported from, and the disagreement is only noticed once it is
+in a board pack.
+
+**Statuses go out verbatim.** `CPM-AD-24` reserves blank for a field with no value
+and forbids it for a status. `unknown` is one of `CPM-FR-5`'s five outcomes, and an
+export rendering it as an empty cell destroys the distinction in the one artifact
+that leaves the system. `EMPTY` in `reports.py` exists to be asserted against.
+
+Provenance travels in `X-Conda-Sentinel-Provenance`, not in a row. A row is data a
+spreadsheet sorts into the middle of the file; a CSV in somebody's downloads folder
+next week still has to be datable.
+
+### The row cap
+
+`CPM_SYNC_EXPORT_MAX_ROWS` (default 5,000) bounds what an export will do inside a
+request. It is **PROVISIONAL** — one of PRD Open Question 5's two numbers — and is
+deliberately below `CPM-NFR-1`'s ten thousand packages, so the cap genuinely bites
+and the asynchronous path `CPM-AD-9` requires is one this product takes rather than
+one that ships untested until the day it matters.
+
+An export at the cap is truncated and says so in `X-Conda-Sentinel-Truncated`.
+Handing somebody a silently partial file is the worst of the three available
+behaviours. `CPM-APP-S08` moves the work past the cap out of the request.
+
 ## Protocols below the URL resolver
 
 `config/asgi.py` exposes Django's ASGI application directly. There is no

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from conda_sentinel.surface.queues import ALL_QUEUES
+from conda_sentinel.surface.reports import REPORTS
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -31,7 +32,14 @@ def navigation(request: HttpRequest) -> dict[str, object]:
             engine calls this with.
 
     Returns:
-        The queue names, in the order `CPM-AD-22` declares them.
+        The queue names in the order `CPM-AD-22` declares them, and the report the
+        nav's single entry points at.
 
     """
-    return {"nav_queues": ALL_QUEUES}
+    return {
+        "nav_queues": ALL_QUEUES,
+        # The nav points at *a* report rather than a list of six, because six entries
+        # would crowd out the four surfaces a reader uses daily. The report page
+        # carries its own sidebar of the rest.
+        "nav_first_report": REPORTS[0].slug,
+    }

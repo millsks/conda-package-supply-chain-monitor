@@ -1,6 +1,6 @@
 # CPM-APP-S06: The recurring operational reports
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-APP` — The surface the three roles actually work in
 
@@ -27,9 +27,12 @@ so that a report and the application never disagree.
 
 ## Tasks / Subtasks
 
-- [ ] Planned by `bmad-build` against the codebase at implementation time.
-      Not pre-filled here: a task breakdown written now, before the epics ahead of
-      this one have shipped, would be stale by the time the story is picked up.
+- [x] `surface/reports.py` — the roster, the common columns, the projection.
+- [x] `surface/views.py` — `ReportView` and `ReportExportView`; two routes.
+- [x] Template `conda_sentinel/report.html`; the Reports nav entry.
+- [x] `config/settings/base.py` — `CPM_SYNC_EXPORT_MAX_ROWS`, PROVISIONAL.
+- [x] `tests/integration/django_apps/test_reports.py`.
+- [x] `docs/development.md`.
 
 ## Dev Notes
 
@@ -84,3 +87,62 @@ so that a report and the application never disagree.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**Six reports, one mechanism, and the mechanism is the deliverable.** The three
+criteria are really two rules applied six times: every report states the cut-off and
+policy version it came from, and every status is emitted verbatim. A rule six views
+each have to remember is a rule five of them keep — so a report here is a filter and
+a column list, the provenance comes from the projection, and the freshness and
+confidence columns are *composed onto* every report rather than written into each.
+
+**Files added:** `surface/reports.py`, `templates/conda_sentinel/report.html`, and
+one test module.
+
+**Files changed:** `surface/views.py`, `surface/urls.py`,
+`surface/context_processors.py`, the base template's nav,
+`config/settings/base.py`. **No migration and no model change.**
+
+**Each acceptance criterion:**
+
+- **AC 1 (the six reports).** Checked against the requirement rather than against the
+  roster's length: the six slugs are written out in the test, so a report dropped in
+  a refactor fails a case naming what was asked for rather than one that counts
+  entries and still passes at five.
+- **AC 2 (states its cut-off and policy version).** Read off the rows by the
+  projection rather than passed in by the view — a report that took its provenance
+  from its caller could be handed the wrong one. It names **every** version the rows
+  carry, because `CPM-AD-11` stamps a map per row and a replay leaves rows from two
+  runs; claiming one version over rows produced at two would be false about its own
+  provenance, and the reader most likely to check is the compliance reviewer.
+- **AC 3 (the export carries the same columns, statuses verbatim).** The same rows as
+  the page, from the same projection with a different bound — not a second query,
+  which is how an export comes to disagree with the screen it came from. `CPM-AD-24`
+  names this artifact when it says what the rule prevents, so a case walks every
+  status column of every report and asserts none is ever blank.
+
+**Two decisions worth recording.**
+
+*The export's provenance travels in a header, not a row.* A row is data a spreadsheet
+sorts into the middle of the report. A CSV in somebody's downloads folder next week
+still has to be datable.
+
+*`CPM_SYNC_EXPORT_MAX_ROWS` is PROVISIONAL at 5,000*, and is Open Question 5's second
+number. It is deliberately **below** `CPM-NFR-1`'s ten thousand packages, so the cap
+genuinely bites and the asynchronous path `CPM-AD-9` requires is a path this product
+actually takes rather than one that ships untested until the day it matters.
+`CPM-APP-S08` moves the work beyond it out of the request; until then an export at
+the cap is truncated and *says so* in a response header, because silently handing
+somebody a partial file is the worst of the three available behaviours.
+
+**One thing found by running it.** Two of the six reports were written with guessed
+reverse-accessor names — `packagelicense` and `packagepythonreadiness` rather than
+the declared `license_policy_findings` and `python_readiness_policy_findings` — and
+raised `FieldError` at request time, not at import. A roster is only as good as the
+paths in it, so every report is now rendered against real rows by a parameterized
+case.
+
+**Coverage:** the new module at 100%.
