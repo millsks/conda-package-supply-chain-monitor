@@ -161,7 +161,7 @@ COMMAND_RUNNER: Final[str] = "call_command"
 # recorded under its own subheading rather than mitigated, and a price nobody can
 # find is not recorded. Renaming a heading is fine -- doing it without noticing
 # that two module docstrings promise a reader they will find it is not.
-DEPLOYMENT_DOC: Final[Path] = REPO_ROOT / "docs" / "deployment.md"
+DEPLOYMENT_DOC: Final[Path] = REPO_ROOT / "docs" / "accelerator" / "deployment.md"
 RELEASE_STAGE_HEADING: Final[str] = "## Migrations are a release-stage step"
 ACCEPTED_RISK_HEADING: Final[str] = "### Accepted risk R-3: the refusal only fires for a declared process"
 
@@ -575,7 +575,7 @@ def test_the_only_tasks_that_migrate_are_the_two_the_manifest_is_supposed_to_hav
     *Nothing was removed.* The release stage runs the steps `component.toml`
     declares, each one through `pixi run manage <step>` -- which is the form
     those steps are shaped for (arguments to `manage.py`, never a shell command)
-    and the form `docs/deployment.md` documents. The `migrate` task is not that
+    and the form `docs/accelerator/deployment.md` documents. The `migrate` task is not that
     invocation and is not made redundant by it: it is how a developer applies
     migrations locally, and it is the task AD-13's deadlock argument is written
     about, since `pixi run migrate` is the management command that would refuse
@@ -752,7 +752,7 @@ def test_every_declared_migration_step_is_a_management_invocation_naming_its_own
     It has to carry `--noinput`. The release stage has no TTY, so a step that
     stops to ask a question hangs the rollout before a single new pod has
     started -- the old generation still serving, the deploy neither applied nor
-    rolled back. `docs/deployment.md`'s own example carries the flag for exactly
+    rolled back. `docs/accelerator/deployment.md`'s own example carries the flag for exactly
     this reason.
 
     And it has to name its own alias explicitly, exactly once. AD-9 turns
@@ -803,7 +803,7 @@ def test_every_declared_migration_step_is_a_management_invocation_naming_its_own
 def test_the_deployment_page_still_carries_the_release_stage_contract_and_the_accepted_risk() -> None:
     """AC #3 and #4: the contract and its price are where two docstrings say they are.
 
-    `docs/deployment.md` is the only place the ordering the deployment repository
+    `docs/accelerator/deployment.md` is the only place the ordering the deployment repository
     must implement is written down, and R-3 is accepted rather than mitigated --
     which makes the paragraph recording it the whole of the mitigation. This
     module's docstring and `tests/integration/test_release_stage.py`'s both send a

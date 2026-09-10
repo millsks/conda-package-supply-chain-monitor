@@ -19,17 +19,33 @@ from __future__ import annotations
 from django.urls import path
 
 from conda_sentinel.surface.views import CoverageView
+from conda_sentinel.surface.views import ExportJobDownloadView
+from conda_sentinel.surface.views import ExportJobView
 from conda_sentinel.surface.views import HomeView
 from conda_sentinel.surface.views import PackageDetailView
 from conda_sentinel.surface.views import PackageHealthView
+from conda_sentinel.surface.views import QueueView
+from conda_sentinel.surface.views import ReportExportView
+from conda_sentinel.surface.views import ReportView
+from conda_sentinel.surface.views import ThemeView
 
 app_name = "conda_sentinel"
 
 urlpatterns = [
-    # Not mounted at `/`: the root belongs to the platform's own template, and taking
-    # it would mean this product decided what an accelerator-built component's front
-    # page is. `home` is the product's front page and the nav points at it.
-    path("home/", HomeView.as_view(), name="home"),
+    # The application's own front page, at the root *of the application* -- which is
+    # `/conda-sentinel/` since `CPM-APP-S13` mounted this URLconf under the prefix.
+    #
+    # `CPM-APP-S12` had briefly put it at the root of the *service*, replacing the
+    # accelerator's landing page. The reasoning there is unchanged and is still what
+    # this satisfies: nobody visiting this service is looking for the template it was
+    # generated from. What changed is that the service's root now leads here rather
+    # than being here, so a second application adopted beside this one has a root of
+    # its own to be given.
+    #
+    # Still one canonical URL for the page: the redirect in `config/urls.py` is a
+    # redirect and not a second mount, so a link somebody pastes into a ticket and
+    # the one in the nav are the same address.
+    path("", HomeView.as_view(), name="home"),
     path("coverage/", CoverageView.as_view(), name="coverage"),
     path("packages/", PackageHealthView.as_view(), name="package-health"),
     # Keyed on the canonical name so a link pasted into a ticket says which package
@@ -37,4 +53,27 @@ urlpatterns = [
     # or an underscore -- `ruamel.yaml`, `backports.zoneinfo` -- and `slug` matches
     # neither, which would make exactly the packages with awkward names unreachable.
     path("packages/<str:canonical_name>/", PackageDetailView.as_view(), name="package-detail"),
+    # One route for three queues, because they are three filtered views over one
+    # table (`CPM-AD-22`) and three routes would invite three views. `<str:>` rather
+    # than an enumeration in the pattern: the closed set is `QUEUE_OWNERS`, and a
+    # segment outside it is a 404 the view raises with a message naming the queues
+    # that do exist.
+    path("queues/<str:queue>/", QueueView.as_view(), name="queue"),
+    # One route for six reports, on the same terms the queues take one for three:
+    # they are six questions over one rollup, and six routes would invite six views
+    # and six chances to forget the provenance every report has to state.
+    path("reports/<str:slug>/", ReportView.as_view(), name="report"),
+    # One route, two methods, and the split is `CPM-AD-9`. `GET` streams the file
+    # when the report fits inside a request and refuses when it does not; `POST`
+    # hands the work off. A `GET` that enqueued would make a bookmark, a prefetch or
+    # a link checker create jobs.
+    path("reports/<str:slug>/export/", ReportExportView.as_view(), name="report-export"),
+    # Where a handed-off export is looked at, and where its file comes from. Keyed on
+    # the surrogate id rather than on the report, because two people can be preparing
+    # the same report and each is asking about their own request.
+    path("exports/<int:pk>/", ExportJobView.as_view(), name="export-job"),
+    path("exports/<int:pk>/download/", ExportJobDownloadView.as_view(), name="export-job-download"),
+    # `CPM-APP-S11`. Not under any of the surfaces above, because the control is on
+    # every one of them -- including the sign-in page, which belongs to the platform.
+    path("theme/", ThemeView.as_view(), name="theme"),
 ]

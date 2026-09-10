@@ -176,7 +176,7 @@ WRITE_METHODS: Final[frozenset[str]] = frozenset(
 #: no source ships (PRD Open Question 1). A named, licensable set rather than a
 #: bare "nowhere", on the terms the advisory sweep states: a deployment that *does*
 #: declare one has to put the call somewhere under `src/`, and a rule that could
-#: not be satisfied would be deleted rather than amended. `docs/deployment.md`
+#: not be satisfied would be deleted rather than amended. `docs/conda-sentinel/operations.md`
 #: tells an operator to add the declaring module here in the same change.
 MODULES_PERMITTED_TO_DECLARE_A_KEV_SOURCE: Final[frozenset[str]] = frozenset()
 
@@ -1681,7 +1681,7 @@ def test_an_undeclared_component_says_so_in_the_log_rather_than_only_in_an_empty
 
     So the only way to learn that this component has stopped cross-referencing --
     or that somebody withdrew its source from a running process -- is a line it
-    emits itself. `docs/deployment.md` tells an operator to alert on this event by
+    emits itself. `docs/conda-sentinel/operations.md` tells an operator to alert on this event by
     name.
     """
     with capture_logs() as captured:

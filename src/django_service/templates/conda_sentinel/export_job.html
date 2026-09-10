@@ -1,0 +1,92 @@
+{% extends "conda_sentinel/base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Export" %}{% endblock title %}
+
+{% comment %}
+  CPM-APP-S08 AC 1: the request returned an in-progress state, and this is it.
+
+  The page refreshes itself only while the job is running. `refresh_seconds` is None
+  once the job is terminal, so a page left open on a second monitor stops asking --
+  a poll with no stopping condition is a request every few seconds for a week.
+
+  A meta refresh rather than script, on the terms the rest of these screens are
+  built: there is no JavaScript in this application, and a status page is the one
+  place a full reload costs nothing because the whole page is the status.
+{% endcomment %}
+{% block extra_head %}
+  {% if refresh_seconds %}<meta http-equiv="refresh" content="{{ refresh_seconds }}">{% endif %}
+{% endblock extra_head %}
+
+{% block content %}
+  <div class="app-h">
+    <div>
+      <h2>{% translate "Export" %}</h2>
+      {% comment %}
+        The report rather than the job kind. `surface.report_export` is a registry
+        key and reads like one; the person waiting for the file asked for a report,
+        and that is what the page should say it is preparing.
+      {% endcomment %}
+      <div class="sub">
+        {{ job.parameters.slug }} &middot; {% translate "requested" %} {{ job.requested_at|date:"Y-m-d H:i" }}Z
+      </div>
+    </div>
+    <div class="btnrow">
+      <a class="btn ghost" href="{% url 'conda_sentinel:report' job.parameters.slug %}">{% translate "Back to the report" %}</a>
+    </div>
+  </div>
+
+  {% comment %}
+    Four states and no fifth, and `failed` is one of them. A job that broke has to be
+    distinguishable from one still running, or this page says "in progress" for ever
+    -- which is the same failure CPM-FR-5 makes load-bearing everywhere else in this
+    product, arriving in a different place.
+  {% endcomment %}
+  {% if job.state == "queued" or job.state == "running" %}
+    <div class="toast">
+      <div class="spin"></div>
+      <div>
+        <b>{% if job.state == "queued" %}{% translate "Queued" %}{% else %}{% translate "Running" %}{% endif %}</b>
+        <p>
+          {% translate "The work left the request and a worker is on it. This page checks again every few seconds." %}
+        </p>
+      </div>
+    </div>
+  {% elif job.state == "succeeded" %}
+    <div class="toast">
+      <div>
+        <b>{% translate "Ready" %}</b>
+        <p>
+          {% blocktranslate count rows=job.row_count %}{{ rows }} row{% plural %}{{ rows }} rows{% endblocktranslate %},
+          {% translate "finished" %} {{ job.finished_at|date:"Y-m-d H:i" }}Z.
+        </p>
+      </div>
+    </div>
+    <div class="btnrow" style="margin-top:14px">
+      <a class="btn primary" href="{% url 'conda_sentinel:export-job-download' job.pk %}">{% translate "Download CSV" %}</a>
+    </div>
+  {% else %}
+    {% comment %}
+      A failure says why. The model refuses a failed job with no detail by check
+      constraint, so there is always something here to render -- "it failed" with
+      nothing to read is the report an operator can do nothing with.
+    {% endcomment %}
+    <div class="toast">
+      <div>
+        <b>{% translate "This export did not finish" %}</b>
+        <p>{{ job.detail }}</p>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="freshbar">
+    <div><span class="lbl">{% translate "state" %}</span><b>{{ job.state }}</b></div>
+    <div><span class="lbl">{% translate "requested" %}</span><b>{{ job.requested_at|date:"Y-m-d H:i" }}Z</b></div>
+    {% if job.started_at %}
+      <div><span class="lbl">{% translate "started" %}</span><b>{{ job.started_at|date:"Y-m-d H:i" }}Z</b></div>
+    {% endif %}
+    {% if job.finished_at %}
+      <div><span class="lbl">{% translate "finished" %}</span><b>{{ job.finished_at|date:"Y-m-d H:i" }}Z</b></div>
+    {% endif %}
+  </div>
+{% endblock content %}

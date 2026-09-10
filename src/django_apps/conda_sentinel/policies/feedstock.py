@@ -459,7 +459,7 @@ def presence_verdict(
     begins strictly after it. An observation exactly the threshold old is on the
     same side, for the same reason and by the same comparison. The choice is
     arbitrary in the way every closed boundary is; what matters is that it is
-    written down here, in `policies/data/README.md`, in `docs/deployment.md` and
+    written down here, in `policies/data/README.md`, in `docs/conda-sentinel/operations.md` and
     in a case, so a reviewer choosing a value knows which side of it their number
     sits on.
 

@@ -49,7 +49,13 @@ from config.component.loader import COMPONENT_DECLARATION_PATH
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DECLARATION = REPO_ROOT / "component.toml"
 MKDOCS = REPO_ROOT / "mkdocs.yml"
-DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
+#: The platform's deployment page, as `mkdocs.yml` names it -- relative to `docs/`.
+#:
+#: Two spellings of one page, and both are needed: the navigation records a relative
+#: path and the filesystem needs an absolute one. Derived from the first so they
+#: cannot drift.
+DEPLOYMENT_PAGE = "accelerator/deployment.md"
+DEPLOYMENT_DOC = REPO_ROOT / "docs" / DEPLOYMENT_PAGE
 COMPONENT_PACKAGE = REPO_ROOT / "src" / "config" / "component"
 
 # The two closed sets, written out here as literals rather than imported.
@@ -287,6 +293,7 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
     `conda_sentinel.identity` and
     `conda_sentinel.collectors` and
     `conda_sentinel.policies` and
+    `conda_sentinel.workflow` and
     `conda_sentinel.surface` are adopted, which is the
     declaration half of the adoption whose installing half is `LOCAL_APPS` in
     `src/config/settings/base.py`.
@@ -302,6 +309,7 @@ def test_adopted_apps_is_present_and_names_the_adopted_application(document: dic
         "conda_sentinel.identity",
         "conda_sentinel.collectors",
         "conda_sentinel.policies",
+        "conda_sentinel.workflow",
         "conda_sentinel.surface",
     ]
 
@@ -460,10 +468,18 @@ def test_the_deployment_page_records_the_split() -> None:
 
 
 def test_the_deployment_page_is_registered_in_the_navigation() -> None:
-    """`pixi run docs` is `mkdocs build --strict`, which fails on an unregistered page."""
+    """`pixi run docs` is `mkdocs build --strict`, which fails on an unregistered page.
+
+    Asserted against the page's path rather than its bare name since `CPM-DOCS-S01`
+    put it under `accelerator/`. The bare name matched before the split and would
+    match a page of the same name in *either* tree afterwards -- which is the
+    substring problem this repository keeps meeting, and here it would let the
+    product's operations page satisfy a case about the platform's.
+    """
     with MKDOCS.open(encoding="utf-8") as handle:
         config: dict[str, Any] = yaml.safe_load(handle)
-    assert "deployment.md" in _nav_targets(config["nav"])
+
+    assert DEPLOYMENT_PAGE in _nav_targets(config["nav"])
 
 
 def test_navigation_targets_are_read_out_of_nested_sections_and_bare_entries() -> None:
@@ -528,6 +544,7 @@ def test_the_loader_reads_the_repositorys_own_declaration(declaration: Component
         "conda_sentinel.identity",
         "conda_sentinel.collectors",
         "conda_sentinel.policies",
+        "conda_sentinel.workflow",
         "conda_sentinel.surface",
     )
     assert declaration.selected_features == REFERENCE_FEATURES

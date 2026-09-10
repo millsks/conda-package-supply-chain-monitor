@@ -22,7 +22,7 @@ after the grace period and in-flight requests do not survive.
 **Why the grace period is not here.** AD-22 gives its *value* to the deployment
 repository: the platform's termination grace period and gunicorn's
 `GUNICORN_CMD_ARGS` are the two knobs, and neither is a component-side flag. See
-`docs/deployment.md`, "Shutdown". The component owns the ordering; that is the
+`docs/accelerator/deployment.md`, "Shutdown". The component owns the ordering; that is the
 whole of its half.
 
 **Why the state lives in `config.health.state` and not here.** Readiness and the

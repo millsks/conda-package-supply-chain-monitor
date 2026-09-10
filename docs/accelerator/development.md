@@ -1,5 +1,10 @@
-# Development
+# Developing on the platform
 
+The service platform this component was built from: how to run it, how to change
+it, and what the harness checks before a change is allowed to land.
+
+For Conda-Sentinel's own surfaces — the theme, the request boundary, the API and
+the reports — see [developing the product](../conda-sentinel/development.md).
 ## Environment
 
 Dependencies are declared in `pixi.toml` and resolved from **conda-forge**.
@@ -96,7 +101,7 @@ variable, because nothing in `default` overrides it.
 `pixi run migrate` is the *deployed* invocation, and that is deliberate: it is
 the one the release stage uses. `seed-personas` and `mint-token` are the two that
 *refuse* rather than merely behaving differently — see
-[Local personas](#local-personas).
+[Local personas](../conda-sentinel/development.md#local-personas).
 
 **Absent or unrecognized means deployed.** Locality fails closed on purpose:
 local development is the exception that must declare itself, so a declaration
@@ -519,243 +524,6 @@ The guard covers Python's socket layer, which is where its blind spots are:
 connectionless UDP and any I/O performed inside a C extension — libpq above all —
 are outside what it can see.
 
-## Local personas
-
-The fourth substitution is the identity provider. There is none locally, so
-identities are **declared as configuration** in `src/config/local_dev/personas.py`
-and materialized by a task. Two are declared, with deliberately different
-authorization:
-
-| Persona | Identity key (`idp_subject`) | Groups | Reaches |
-| --- | --- | --- | --- |
-| `staff` | `local-dev:persona:staff` | the designated **staff** group | the Django admin |
-| `reader` | `local-dev:persona:reader` | none | nothing — the zero-groups case |
-| `reviewer` | `local-dev:persona:reviewer` | the **security reviewer** role group | the product's read surfaces |
-| `engineer` | `local-dev:persona:engineer` | the **packaging engineer** role group | the product's read surfaces |
-| `leader` | `local-dev:persona:leader` | the **leadership** role group | the product's read surfaces |
-
-### Seeding something to look at
-
-```console
-pixi run -e dev seed-demo
-```
-
-Ten packages with evidence behind them, and one real policy run over both. Without
-it the screens render `unknown` everywhere — correct, and useless for judging a
-design, because every cell then has the value it would also have if the projection
-were broken.
-
-**It writes evidence, never a verdict.** Every status the seeded screens show was
-concluded by the pass that owns it, from the parameter file that ships. Identity
-goes through `resolve_package_shell` and `record_resolution` (`CPM-AD-14`,
-`CPM-AD-25`), never `Package.objects.create` — so the unmapped package in the demo
-is genuinely unmapped and the confidence gate blanking its row is the gate working,
-not a fixture imitating it.
-
-Two consequences worth expecting:
-
-- **Priority is `unknown` and licence is `manual_review` for every package.** The
-  shipped parameter file records `priority_rules = []` and `license_rules = []`
-  deliberately — both are open PRD questions — so those columns are inert until
-  someone records a rule set at a new version. The seeder says so in its output
-  rather than letting you conclude the columns are broken.
-- **Running it twice appends.** Evidence is append-only (`CPM-AD-2`), so a second
-  run adds a second observation of each fact rather than replacing the first. That
-  is realistic, and it is what gives the package detail view's superseded-evidence
-  list something to show.
-
-It refuses outside a local run, more firmly than the persona seeder: a fictional
-observation written by a deployed component cannot be deleted, and every replayed
-policy run would read it afterwards.
-
-**Sign in as `reviewer`, `engineer` or `leader` to reach the product's own
-screens.** Every surface declares the role it requires (`CPM-AD-13`), and neither
-`staff` nor `reader` holds one — `staff` reaches the Django admin and `reader`
-reaches nothing. Before the three role personas existed, running the server and
-signing in got you refused by every screen the product has, with no way forward:
-`sync_authorization` reconciles group membership to the claims, so a group granted
-by hand in the admin or the shell is erased at the next sign-in.
-
-One role each, deliberately. `CPM-FR-31` scopes queues per role and `CPM-APP-S05`
-builds three of them; a persona holding all three would reach every queue and prove
-nothing about the scoping. None of them is also staff, for the same reason.
-
-No persona names a group. A declaration lists the sentinel `DESIGNATED_STAFF` or
-`DESIGNATED_SUPERUSER`, and the *configured* name — `COMPONENT_STAFF_GROUP`,
-`COMPONENT_SUPERUSER_GROUP` — is substituted when the claims are built, so the
-personas are correct in a component pointed at any IdP's taxonomy. Neither
-persona carries `DESIGNATED_SUPERUSER`: a superuser bypasses every permission
-check, so a superuser persona would make every local authorization check pass
-and prove nothing.
-
-Seed them with:
-
-```console
-pixi run -e dev seed-personas
-```
-
-**The `-e dev` is required.** Locality is declared once, in
-`[feature.dev.activation.env]`, so the `dev` environment is what carries
-`COMPONENT_RUNTIME=local`. A bare `pixi run seed-personas` resolves in `default`,
-which declares nothing and therefore reads *deployed*, and the task refuses with
-`ImproperlyConfigured` before it touches the database. That refusal is the
-feature, not a bug: **persona seeding never creates a local account in a deployed
-environment**, and locality fails closed, so a declaration lost anywhere between
-here and production leaves the refusal armed. The same form applies to the other
-`[tasks]` entries — see [Locality is declared by the environment](#locality-is-declared-by-the-environment).
-
-Two properties of the seeding are worth knowing:
-
-- **It calls the component's own group provisioning** —
-  `django_service.users.provisioning.provision_designated_groups()`, the same
-  callable the data migration invokes — rather than creating groups of its own.
-  A seeding task that created groups itself would pass every local check while
-  leaving every deployed component ungovernable: its IdP asserts groups no
-  `Group` row matches, so nobody gets any authorization and nobody can reach the
-  admin to fix it. See [Authentication](authentication.md).
-- **It drives the real mapper.** Each persona's declaration is turned into a
-  synthetic claims payload keyed by the configured claim names, and that payload
-  goes through the same `resolve_user` and `sync_for_interactive` an IdP login
-  does. So changing a persona's declared groups and re-authenticating produces
-  the corresponding membership change — including the *removal* of a group it no
-  longer declares — and signing in twice resolves to the same user, because
-  resolution is by the identity key and by nothing else.
-
-### Signing in as a persona
-
-Seeding creates the accounts; signing in as one is a **URL route and nothing
-else**. It is mounted at `_local/`:
-
-| Path | Method | What it does |
-| --- | --- | --- |
-| `/_local/` | `GET` | Lists the declared personas, one form each |
-| `/_local/<persona>/` | `POST` | Signs in as that persona and redirects to `LOGIN_REDIRECT_URL` |
-
-Four properties are deliberate and none of them is incidental:
-
-- **`POST` only.** A `GET` to the sign-in path answers `405` and establishes no
-  session. A credential path you can reach by following a link is a drive-by
-  session — a prefetch, an image tag or a link in a chat message would sign you
-  in — so listing is a `GET` and the act is a `POST`. The persona is selected by
-  a **path segment**, never a query parameter.
-- **Mounted only when `COMPONENT_RUNTIME=local`.** The module ships in every
-  component; the route is mounted only where locality is local, and the gate is
-  `config.locality.is_local()` rather than `DEBUG` — see
-  [Locality is declared by the environment](#locality-is-declared-by-the-environment).
-  Shipping is not mounting. The views also refuse a non-local run themselves,
-  with `404` rather than a configuration error, so a route that became reachable
-  by a hand edit still answers nothing.
-- **It drives the real mapper.** The view builds the same synthetic claims
-  payload the seeding task does, hands it to `resolve_user` and then to
-  `sync_for_interactive`, and contains no mapping logic of its own: no group
-  assignment, no `is_staff` write, no permission decision. That is why the
-  `staff` persona reaches `/admin/` and the `reader` persona is refused it — the
-  difference is produced by the mapper reading the claims, exactly as it is for
-  an identity the IdP asserted. If the claims cannot be mapped, the page
-  re-renders with the mapper's reason and status `400`; on a fresh clone with no
-  `COMPONENT_IDENTITY_CLAIM` configured, that is the first thing you will see.
-- **It adds no authentication backend.** `AUTHENTICATION_BACKENDS` is unchanged;
-  the session names the already-declared `ModelBackend`. The route prefix is the
-  one new entry on the component's credential surface. That surface is not yet
-  enumerated anywhere — the allowlist that will enumerate it is a later epic's,
-  and until it lands the prefix is guarded by the locality gate alone.
-
-The route's name and prefix are fixed constants declared once, in
-`src/config/local_dev/constants.py`, and they move into `accelerator.toml` in a
-later epic without changing their meaning.
-
-**What the route is not.** Signing in as a persona calls
-`django.contrib.auth.login` directly; it does not go through allauth. The
-authorization you see is the deployed authorization — that is the whole point of
-driving the real mapper — but the *session* is not the deployed session: it
-carries no `EmailAddress`, no `SocialAccount`, and none of allauth's own state,
-so email verification, logout and re-authentication behave differently here than
-they do against a real identity provider. This is one more face of R-5 below.
-
-**This route will be refused at startup in a deployed component — that refusal
-does not exist yet.** Its reachability is one of the startup refusal conditions a
-later epic adds, and that refusal will resolve the view callable's owning module
-rather than match the URL name or the prefix, so a rename cannot evade it. It is
-the backstop for a route that is reachable anyway, not the expected path. Until
-it lands, the locality gate above is the only thing keeping the route unmounted,
-so a `COMPONENT_RUNTIME=local` that leaked into a deployed environment would
-serve it rather than fail closed at boot.
-
-**R-5, said plainly: the local personas are not a mitigation.** The product's own
-risk register puts it that way — there is no break-glass account, and "the local
-personas are not a mitigation; they exist only where the refusals do not apply."
-Synthetic claims never exercise JWKS retrieval, signature verification against a
-rotating key, discovery, or anything else an IdP actually does; they exercise the
-mapping and nothing below it. A persona signing in locally is evidence about this
-component's authorization logic, never evidence that its identity provider
-integration works.
-
-### Minting a development token
-
-The browser path above signs a persona in. The programmatic path mints that same
-persona a **Bearer token the real authentication class genuinely verifies**:
-
-```sh
-pixi run -e dev mint-token staff
-```
-
-The `-e dev` is required, for the same reason it is required for
-`seed-personas`: locality is declared once in the `dev` feature's activation
-env, and a bare `pixi run mint-token` resolves in `default`, reads *deployed*,
-and is refused before a key is generated. Present the token as
-`Authorization: Bearer <token>` against any API route.
-
-**Nothing is stubbed.** There is no development authentication class, no
-`verify_signature=False` path, and no settings flag that relaxes audience
-checking. What makes the token acceptable is that it is correctly signed by a key
-the component's configured JWKS location publishes. `config/authorization/authentication.py`
-verifies its signature, `iss`, `aud` and `exp` exactly as it verifies a token
-issued by a real identity provider, and a tampered, expired, wrong-issuer,
-wrong-audience or unknown-`kid` token is refused with 401.
-
-Three pieces make that work, all of them in `config/settings/local.py`:
-
-| Setting | Local value | Why |
-| --- | --- | --- |
-| `OIDC_JWKS_URL` | a `file://` URL under `.local-dev-keys/` | there is no IdP running locally to serve a JWKS endpoint |
-| `OIDC_ISSUER` | a reserved `.invalid` URL | `base.py` defaults it to the empty string, and an empty issuer verifies nothing |
-| `OIDC_AUDIENCE` | a local audience name | PyJWT refuses a token whose `aud` is empty, so with this unset *every* minted token is rejected |
-
-All three fill only what the environment left unset, so pointing a local run at a
-real identity realm still works through the `COMPONENT_OIDC_*` variables.
-`config/authorization/jwks.py` accepts the `file://` scheme **only where locality
-is local**; deployed, the same location is refused there, and once the startup
-refusal contract lands it is refused again at boot by AD-23's trust-anchor
-condition.
-
-**The keypair is generated on demand and is never committed.** The first
-`mint-token` writes an RSA-2048 private key to `.local-dev-keys/signing-key.pem`
-at mode `0o600`, publishes its public half as `.local-dev-keys/jwks.json`, and
-reuses both from then on. The directory is gitignored, and
-`tests/unit/test_gitignore_covers_dev_keys.py` fails the gate if that entry is
-ever dropped.
-
-That guard matters more here than the same rule would in an ordinary repository.
-This tree is a template: a key committed to it would ship inside *every component
-generated from it*, so one published private key would be shared by every service
-the accelerator ever produces. Delete the directory to rotate; the next mint
-generates a fresh keypair.
-
-**Rotating against a running server costs up to a minute.** The new keypair
-publishes a new `kid`, and a running process holds its JWKS cache behind the same
-refetch rate limit a deployed component uses — `COMPONENT_JWKS_MIN_REFETCH_SECONDS`,
-sixty seconds by default. Until that window passes, requests carrying the new
-token are refused with `refetch refused by the rate limit`. Restart the server
-and it clears immediately. The rate limit is deliberately *not* relaxed for local
-runs: the point of this whole section is that what you exercise locally is what
-production does, and a local-only exemption would hide exactly the behaviour a
-rotation at the real IdP would show you.
-
-**R-5 applies to this path too, and is not softened by any of it.** The token is
-locally signed, so synthetic claims still never exercise JWKS retrieval over the
-network, discovery, or key rotation at the identity provider. What is proven
-locally is the *verification*; the *retrieval* is proven only against a real IdP.
-
 ## Database
 
 `config/settings/base.py` selects a backend in this order:
@@ -1058,6 +826,86 @@ opens that parameter.
 If a caller genuinely needs more rows than a page holds, the answer is an export,
 which is a task rather than an unpaginated response.
 
+### The three queues, and what fills them
+
+`pixi run -e dev seed-demo` fills them, because the policy run does: `core/after_run.py`
+declares a seam, `conda_sentinel.workflow` registers a step into it at `ready()`, and
+the run calls whatever is registered. `core/policy_run.py` has never heard of a
+queue, which is the same inversion the pass registry uses and the reason the layering
+audit covers `workflow`.
+
+**A failing step fails the run.** A run that reported success with the queues it was
+meant to fill still empty is nobody looking at work nobody knows exists.
+
+Which role owns which queue is `QUEUE_OWNERS` in `workflow/states.py`:
+
+| Queue | Owner |
+|---|---|
+| identity review | platform and engineering leadership |
+| remediation | packaging engineer |
+| compliance review | security and compliance reviewer |
+
+**Identity review belonging to leadership is the surprising one**, and it follows
+from `CPM-IDENTITY-S05`: the audited identity override is the product's one governed
+human write, and `ROLE_GROUP_PERMISSIONS` grants its permission to leadership alone.
+The queue is where that permission is exercised. A reviewer still *reads* every
+package's identity and provenance — read access to evidence is granted to all three
+roles — and acting on identity review is a different grant.
+
+**A queue that is not yours is refused, never rendered empty.** An empty queue says
+there is no work, and somebody who reads that goes away satisfied. The nav lists all
+three to every role for the same reason the health view does not hide columns:
+scoping happens below the nav, and a nav that differed per role would make a shared
+link look broken to whoever received it.
+
+`QueueView` is the one surface whose required roles depend on the request — which
+queue decides which role. `RoleRequiredMixin.roles_required()` is the seam for that;
+overriding a method rather than assigning to the class attribute, which two requests
+could race on.
+
+Queues rank by priority bucket then score, which is the priority pass's own order
+rather than a second one. The bucket is ranked by its **index** in
+`PRIORITY_BUCKETS`, not by its value — `p10` sorts before `p2` lexicographically —
+and the ordering terminates on the finding key so a queue pages deterministically.
+
+### Queue items and the finding key
+
+`CPM-AD-22` puts all three queues — identity review, remediation, compliance review —
+on one table in `conda_sentinel.workflow`, as filtered views rather than three
+models. One row cannot diverge from itself; two can, and routing is an update to a
+column rather than a create-and-delete that can half-happen.
+
+**An item is keyed on the finding, never on the evidence row.** Evidence is
+append-only, so tonight's collector run inserts a *new row* for the advisory it saw
+yesterday. An item keyed on a row id would find no item for the new row, open a
+second one, and put an accepted finding back at the top of a queue — with the
+original still sitting there resolved and nothing failing.
+
+So each table that can produce work inherits `FindingKeyed` and declares its own
+key: `advisory_id + affected_range` for a vulnerability, `normalized_license +
+channel` for a licence. Declared beside the evidence rather than in a central
+registry, because a registry lets a table be added without one and the omission is
+invisible until duplicates appear weeks later.
+
+What a key must never include is anything that moves when the same fact is observed
+again — `observed_at`, the primary key — and, less obviously, anything that moves
+when the *world* changes without the finding changing: `matched_version` (a package
+upgraded towards a fix), `severity` (a re-scored advisory), `raw_license` (a source
+that tidied its metadata). Each of those would open a second item for one question.
+
+**Every move goes through `apply_transition`**, and the four things it does are four
+separate protections: it locks the row, checks the state the caller *believed* the
+item was in, refuses on mismatch, and appends the audit row in the same transaction.
+The second is the one that is easy to leave out — the lock alone does not catch a
+stale move, because by the time the lock is held the item is simply in a different
+state.
+
+The machine itself is data in `workflow/states.py`. Nothing returns an item to
+`open`, which is how "created by the policy run, never by a human" is enforced for
+free; nothing leaves `resolved` or `accepted`; and one transition — accepting a risk
+— is restricted to the security reviewer and requires a recorded reason, both from
+the declaration rather than from each caller.
+
 ### The product's screens
 
 `CPM-AD-19` gives every app under `src/django_apps/` two kinds of surface: an
@@ -1088,10 +936,11 @@ itself — the targets genuinely differ, two days for an advisory sweep and thir
 for a Python 3.14 build — and one that has never run says so rather than rendering
 blank.
 
-Both that screen and the home view were built without a story: no PRD requirement
-commissions them, and their acceptance criteria were written by the implementing
-agent. `_bmad-output/implementation-artifacts/stories/cpm-app-x01-coverage-and-home.md`
-carries the warning; treat the metric definitions as a proposal.
+Both that screen and the home view are `CPM-APP-S09` and `CPM-APP-S10`, added to
+the epic after it was written to close design gaps `G-8` and `G-9`. No PRD
+requirement commissions them and their acceptance criteria were drafted by the
+implementing agent; each story file leads with that caveat. Treat the metric
+definitions as a proposal.
 
 **Evidence is read off the derived row's own citation, never re-derived.** Every
 pass records what it used — `PackageVulnerability` names its `vulnerability_finding`,

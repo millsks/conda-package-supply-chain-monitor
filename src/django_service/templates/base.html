@@ -1,20 +1,33 @@
 
 {% load static i18n %}<!DOCTYPE html>
 {% get_current_language as LANGUAGE_CODE %}
-<html lang="{{ LANGUAGE_CODE }}">
+{% comment %} CPM-APP-S12. This shell is inherited from the accelerator this component
+   was built from, and until this story it said so: the title, the meta description
+   and the navbar brand all named a different product. The pages behind it are the
+   ones somebody reaches when they are *not* on one of this product's screens --
+   sign-in, account management, /about/, and 403/404/500 -- so it was branded for
+   another product at exactly the moments a reader most needs to know where they are.
+
+   It keeps Bootstrap, and that is deliberate. The allauth and users templates below
+   are the accelerator's and are written against it; restyling them is a different
+   piece of work from telling a reader which product they are in. What changes here
+   is the shell: the product's tokens, the product's top bar, the product's theme.
+
+   `data-theme` for the same reason as the product's own shell, and from the same
+   context processor -- a reader who chose dark and then signed out should not be
+   handed a white page. {% endcomment %}
+<html lang="{{ LANGUAGE_CODE }}"{% if data_theme %} data-theme="{{ data_theme }}"{% endif %}>
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="x-ua-compatible" content="ie=edge" />
     <title>
       {% block title %}
-      Django 15-Factor Application Accelerator
+      {% translate "Conda Sentinel" %}
     {% endblock title %}
   </title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-        content="A Django application accelerator template based on 15 factor application principles." />
-  <meta name="author"
-        content="Kevin Samuel Mills" />
+        content="Evidence-based health, vulnerability and currency monitoring for a Conda/Python package inventory." />
   <link rel="icon" href="{% static 'images/favicons/favicon.ico' %}" />
   {% block css %}
     <!-- Latest compiled and minified Bootstrap CSS -->
@@ -28,6 +41,10 @@
 
 
   <link href="{% static 'css/project.css' %}" rel="stylesheet" />
+  {% comment %} After Bootstrap, so the product's tokens win where the two meet. The
+     chrome below is built from them; the content is the accelerator's and stays
+     Bootstrap's. {% endcomment %}
+  <link href="{% static 'css/conda-sentinel.css' %}" rel="stylesheet" />
 
 
 {% endblock css %}
@@ -56,53 +73,7 @@
 </head>
 <body class="{% block bodyclass %}{% endblock bodyclass %}">
   {% block body %}
-  <div class="mb-1">
-    <nav class="navbar navbar-expand-md navbar-light bg-light">
-      <div class="container-fluid">
-        <button class="navbar-toggler navbar-toggler-right"
-                type="button"
-                data-bs-toggle="collapse"
-                data-bs-target="#navbarSupportedContent"
-                aria-controls="navbarSupportedContent"
-                aria-expanded="false"
-                aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <a class="navbar-brand" href="{% url 'home' %}">Django 15-Factor Application Accelerator</a>
-        <div class="collapse navbar-collapse" id="navbarSupportedContent">
-          <ul class="navbar-nav mr-auto">
-            <li class="nav-item active">
-              <a class="nav-link" href="{% url 'home' %}">Home <span class="visually-hidden">(current)</span></a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="{% url 'about' %}">About</a>
-            </li>
-            {% if request.user.is_authenticated %}
-              <li class="nav-item">
-                <a class="nav-link"
-                   href="{% url 'users:detail' request.user.username %}">{% translate "My Profile" %}</a>
-              </li>
-              <li class="nav-item">
-                {# URL provided by django-allauth/account/urls.py #}
-                <a class="nav-link" href="{% url 'account_logout' %}">{% translate "Sign Out" %}</a>
-              </li>
-            {% else %}
-              {% if ACCOUNT_ALLOW_REGISTRATION %}
-                <li class="nav-item">
-                  {# URL provided by django-allauth/account/urls.py #}
-                  <a id="sign-up-link" class="nav-link" href="{% url 'account_signup' %}">{% translate "Sign Up" %}</a>
-                </li>
-              {% endif %}
-              <li class="nav-item">
-                {# URL provided by django-allauth/account/urls.py #}
-                <a id="log-in-link" class="nav-link" href="{% url 'account_login' %}">{% translate "Sign In" %}</a>
-              </li>
-            {% endif %}
-          </ul>
-        </div>
-      </div>
-    </nav>
-  </div>
+  {% include "conda_sentinel/_chrome.html" %}
   <div class="container">
     {% if messages %}
       {% for message in messages %}

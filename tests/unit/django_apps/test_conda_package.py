@@ -1470,7 +1470,7 @@ def test_a_further_channels_call_answers_rather_than_raises_when_it_cannot_even_
     one, and it is the least likely and the worst if it were not: an exception from
     here would leave `translate` and turn the answers the channels *before* it had
     already given into a single `error` row and a `failed` run, which is precisely
-    the invariant `CPM-FR-15` and `docs/deployment.md` both state.
+    the invariant `CPM-FR-15` and `docs/conda-sentinel/operations.md` both state.
 
     It is unreachable through `collect()` today -- `source_for` builds the first
     channel's locator from the same name and refuses the run if it cannot -- so it

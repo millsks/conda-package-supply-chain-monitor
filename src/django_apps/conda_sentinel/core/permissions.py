@@ -298,6 +298,21 @@ class RoleRequiredMixin:
     #: directly: a view that forgot to declare fails closed rather than open.
     required_roles: ClassVar[frozenset[str]] = frozenset()
 
+    def roles_required(self) -> frozenset[str]:
+        """Return the roles this request must hold one of.
+
+        The declaration by default, and the extension point for the one surface whose
+        answer depends on the request: `CPM-AD-22`'s queues are three views over one
+        table, and which role owns each is a property of the *queue*, not of the view
+        class. Overriding a method is how that is expressed; assigning to a
+        `ClassVar` per request would be a class attribute two requests could race on.
+
+        Returns:
+            The roles, any one of which admits the request.
+
+        """
+        return self.required_roles
+
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Refuse the request unless the acting user holds a role this surface accepts.
 
@@ -325,9 +340,10 @@ class RoleRequiredMixin:
             # than an authorization failure.
             return redirect_to_login(request.get_full_path(), str(settings.LOGIN_URL))
 
+        required = self.roles_required()
         held = granted_roles(request.user)
-        if not (held & self.required_roles):
-            record_refusal(request, self, self.required_roles, held)
+        if not (held & required):
+            record_refusal(request, self, required, held)
             raise PermissionDenied(REFUSAL_MESSAGE)
         # `super()` is the view class this mixin is mixed into, which mypy cannot
         # see from here: a mixin declares no base and the MRO is composed at the

@@ -190,6 +190,8 @@ __all__ = [
     "Correction",
     "FeedstockMapping",
     "OverrideError",
+    "OverrideNotPermittedError",
+    "OverrideTargetMissingError",
     "RecordedResolution",
     "Resolution",
     "ResolutionError",
@@ -355,18 +357,56 @@ class OverrideError(ValueError):
     -- the surface that will call this door (`CPM-APP-S05`) answers one of them
     with a form error and the other with a refusal to act at all.
 
-    One type rather than a hierarchy, on the same terms `ResolutionError` states:
-    the detail is in the message, and no caller branches on which check failed.
-    What distinguishes the permission refusal from the rest is not the class, it
-    is the log record -- `OVERRIDE_REFUSED_EVENT` above, naming the actor.
+    One type for every refusal *about the correction*, on the terms
+    `ResolutionError` states: the detail is in the message, and no caller branches
+    on which of those checks failed.
+
+    **The permission refusal is the one exception, and it acquired a subclass in
+    `CPM-APP-S07`.** The paragraph here used to say there was no hierarchy because
+    no caller branched -- which was true while the only caller was a management
+    command. An HTTP surface has to branch: an actor the product will not accept
+    is a 403 and a correction it will not accept is a 400, and collapsing them
+    would tell somebody without the permission that their reason was bad. Matching
+    on the message would work and would break the first time somebody improved the
+    wording, so `OverrideNotPermittedError` below carries the distinction in the
+    type, and `OverrideTargetMissingError` does the same for a package id that
+    names no row -- "the URL points at nothing" is a 404, not a bad body. Every
+    existing `except OverrideError` still catches both.
 
     A `ValueError` subclass, matching every other "this declaration or input is
     unusable" in this product, so a caller catching one catches them all.
     Deliberately **not** `django.core.exceptions.PermissionDenied`: that
     exception is a request-layer instruction to render a 403, and this service is
-    reached by no request today -- see the story's design notes for why the
-    permission is enforced at the service boundary rather than at a surface that
-    does not exist.
+    reached by more than one surface -- the view above it translates, which is
+    what keeps the permission enforced at the service boundary rather than
+    delegated to whichever caller happens to be in front of it.
+    """
+
+
+class OverrideTargetMissingError(OverrideError):
+    """The package id names no row.
+
+    The second refusal `CPM-APP-S07` needed to tell apart, and for the same reason
+    as the first: an HTTP surface answers "the URL names nothing" with a 404 and "the
+    body is wrong" with a 400, and an integrator with a stale package id needs to see
+    which of those happened. Collapsing it into the correction refusals told them
+    their reason was bad.
+
+    **It is not a creation path.** `CPM-AD-25` makes `resolve_package_shell` the only
+    creator of a package row, so this stays a refusal -- naming the missing id rather
+    than quietly filling the gap.
+    """
+
+
+class OverrideNotPermittedError(OverrideError):
+    """The actor does not hold `IDENTITY_OVERRIDE_PERMISSION`.
+
+    The only refusal in this module that is about *who asked* rather than about
+    what they asked for, which is the whole reason it is a separate type: an HTTP
+    surface answers it 403 and every other `OverrideError` 400.
+
+    A subclass rather than a sibling, so nothing that already catches
+    `OverrideError` stops catching this one.
     """
 
 
@@ -1765,7 +1805,7 @@ def _require_permitted(actor: User) -> None:
         f"data and CPM-AD-14 gates it on a permission, which core/roles.py grants to the leadership role group "
         f"alone."
     )
-    raise OverrideError(message)
+    raise OverrideNotPermittedError(message)
 
 
 def _require_reason(reason: str) -> str:
@@ -1941,7 +1981,7 @@ def _package_with_id(package_id: int) -> Package:
             f"by resolve_package_shell during ingestion (CPM-AD-25); this door corrects one that exists and "
             f"never creates one."
         )
-        raise OverrideError(message) from unknown
+        raise OverrideTargetMissingError(message) from unknown
 
 
 def _require_name_is_unclaimed(name: str, *, package: Package) -> None:

@@ -56,7 +56,7 @@ renamed the repository and moved one of them, so exactly one remains:
 * `config/observability/telemetry.py`'s `DEFAULT_SERVICE_NAME` names the
   **product**, and `CPM-RENAME-S02` deliberately left it. It is an *emitted*
   value -- every span's `service.name` -- so moving it silently breaks any
-  dashboard or alert keyed on the old one. `docs/observability.md`'s
+  dashboard or alert keyed on the old one. `docs/accelerator/observability.md`'s
   `OTEL_SERVICE_NAME` row records that decision. Do not "finish the rename" here
   on the strength of this gate being green; a story that wants the trace identity
   moved owns the migration note, and nothing in this suite pins the literal, so
@@ -172,7 +172,7 @@ APPLICATION_LABELS: Final[tuple[str, ...]] = ("collectors", "core", "identity", 
 #: "these are the labels", and the next application added would restate it again
 #: until the case stopped being about the rename at all. The two are unioned at each
 #: assertion, so the roster stays exact and the claim stays true.
-LABELS_ADDED_SINCE: Final[tuple[str, ...]] = ("surface",)
+LABELS_ADDED_SINCE: Final[tuple[str, ...]] = ("surface", "workflow")
 
 
 def _path_names_the_former_import_root(path: Path, root: Path) -> bool:

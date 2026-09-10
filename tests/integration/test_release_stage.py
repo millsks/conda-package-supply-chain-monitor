@@ -29,7 +29,7 @@ action that clears the condition, so a refusal that fired on it would deadlock
 the release stage against a state nothing could resolve. The price is that a
 serving process started outside `pixi run web`, `worker` or `beat` does not fire
 the refusal either. That price is carried and recorded -- in
-`docs/deployment.md` under its own subheading -- not mitigated, and this module
+`docs/accelerator/deployment.md` under its own subheading -- not mitigated, and this module
 asserts the shape of it rather than pretending it away.
 
 **State.** `COMPONENT_PROCESS` and `COMPONENT_RUNTIME` are process-global and are

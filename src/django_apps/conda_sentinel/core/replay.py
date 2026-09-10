@@ -19,7 +19,7 @@ replaces it. So a replay overwrites the rollup rather than adding to it, and the
 no earlier row left to compare against -- the derived tables, keyed
 `(package, policy_run)` by `CPM-AD-21`, are the only record that survives both runs.
 That is also why a replay has an operational consequence worth stating loudly, which
-`core/management/commands/replay_policy_run.py` and `docs/deployment.md` both do:
+`core/management/commands/replay_policy_run.py` and `docs/conda-sentinel/operations.md` both do:
 until the next scheduled run, the current-health table reflects the cut-off that was
 replayed.
 

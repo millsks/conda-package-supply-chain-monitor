@@ -87,7 +87,7 @@ __all__ = [
 #: `site-packages` parent that resolves perfectly well and holds no
 #: `component.toml`, and the failure surfaces as the ordinary missing-file
 #: refusal in `_read`. Packaging the declaration into a built distribution is
-#: Story 5.6's call; see `docs/deployment.md`.
+#: Story 5.6's call; see `docs/accelerator/deployment.md`.
 COMPONENT_DECLARATION_PATH: Final[Path] = Path(__file__).resolve(strict=True).parents[3] / "component.toml"
 
 #: The three selectable features, closed (AD-29, revision 3). `ui` is absent

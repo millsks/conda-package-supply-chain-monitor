@@ -7,11 +7,22 @@ site_dir: site
 
 theme:
   name: material
+  # The product's own faces (CPM-DOCS-S02). `docs/stylesheets/conda-sentinel.css`
+  # names each with a real fallback stack, so a site read offline stays legible
+  # rather than dropping to a serif nobody chose.
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
   features:
     - content.code.copy
     - navigation.sections
     - navigation.top
+    - navigation.indexes
+    - toc.follow
   palette:
+    # Three states, like the application's own control: follow the machine, or say
+    # otherwise in either direction. Material's default entry has no `media`, so it
+    # is the one a reader lands on -- and it follows the system until they choose.
     - media: "(prefers-color-scheme: light)"
       scheme: default
       toggle:
@@ -23,17 +34,42 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+# Mapped onto Material's own `--md-*` variables rather than restyling its components,
+# so the theme keeps working and only the colours are this product's.
+extra_css:
+  - stylesheets/conda-sentinel.css
+
 markdown_extensions:
   - admonition
+  # `attr_list` is what lets prose mark an outcome state as a state --
+  # `unknown`{.cs-state .unknown} -- rather than setting it as an ordinary word,
+  # which would make in documentation the mistake CPM-AD-24 forbids in an export.
+  - attr_list
+  - md_in_html
+  - tables
   - pymdownx.details
   - pymdownx.superfences
   - toc:
       permalink: true
 
+# Two trees, and the split is the point (CPM-DOCS-S01). This component is
+# Conda-Sentinel, built on a Django service platform; a reader asking how package
+# health is decided should not be handed a chapter on 15-factor process models, and
+# a reader deploying a component should not have to read about advisory sources.
 nav:
   - Home: index.md
-  - Technology Stack: technology-stack.md
-  - Development: development.md
-  - Observability: observability.md
-  - Authentication: authentication.md
-  - Deployment: deployment.md
+  - Conda-Sentinel:
+      - What it does: conda-sentinel/index.md
+      - How it is built: conda-sentinel/architecture.md
+      - A policy run: conda-sentinel/the-policy-run.md
+      - Running it: conda-sentinel/running-it.md
+      - Operating: conda-sentinel/operations.md
+      - Developing: conda-sentinel/development.md
+      - Maintaining it: conda-sentinel/maintaining-it.md
+  - The platform:
+      - Overview: accelerator/index.md
+      - Developing: accelerator/development.md
+      - Deploying: accelerator/deployment.md
+      - Authentication: accelerator/authentication.md
+      - Observability: accelerator/observability.md
+      - Technology stack: accelerator/technology-stack.md

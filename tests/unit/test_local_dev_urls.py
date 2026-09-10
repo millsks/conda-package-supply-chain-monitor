@@ -221,7 +221,7 @@ def test_each_constant_is_spelled_in_exactly_one_module(literal: str) -> None:
 
     Its reach is exactly what it scans and no more, which is worth saying because
     the guarantee sounds wider than it is: `src/`, `.py` and `.html` only, by
-    substring. A second spelling in `tests/`, in `docs/development.md` (which has
+    substring. A second spelling in `tests/`, in `docs/accelerator/development.md` (which has
     one, in prose), or in a `.toml` -- `accelerator.toml` among them, the very
     file Epic 7 relocates these into -- is invisible to it, and a longer name
     containing one of these reads as the same declaration. What it does cover is

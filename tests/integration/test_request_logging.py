@@ -16,6 +16,7 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 
 import pytest
 from django.urls import reverse
@@ -24,6 +25,16 @@ if TYPE_CHECKING:
     from django.test import Client
 
     from django_service.users.models import User
+
+#: A page that renders for a visitor with no session.
+#:
+#: These cases are about the logging middleware and the ASGI path, not about
+#: which page they drive -- any 200 would do. It was `home` until
+#: `CPM-APP-S12` moved this product's own home page to the root and gated it
+#: behind a role, which turned every one of them into an assertion about a
+#: redirect to the sign-in page. Named once here so the next such move is one
+#: edit rather than nine.
+A_PUBLIC_PAGE: Final[str] = "about"
 
 pytestmark = pytest.mark.django_db
 
@@ -57,7 +68,7 @@ class TestRequestLogging:
         client: Client,
         request_logs: pytest.LogCaptureFixture,
     ):
-        response = client.get(reverse("home"))
+        response = client.get(reverse(A_PUBLIC_PAGE))
 
         assert response.status_code == HTTPStatus.OK
         assert _events(request_logs, "request_started")
@@ -69,7 +80,7 @@ class TestRequestLogging:
         request_logs: pytest.LogCaptureFixture,
     ):
         """One id ties every line from a single request together."""
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         started = _events(request_logs, "request_started")[0]
         finished = _events(request_logs, "request_finished")[0]
@@ -82,7 +93,7 @@ class TestRequestLogging:
         client: Client,
         request_logs: pytest.LogCaptureFixture,
     ):
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
         client.get(reverse("about"))
 
         started = _events(request_logs, "request_started")
@@ -94,7 +105,7 @@ class TestRequestLogging:
         client: Client,
         request_logs: pytest.LogCaptureFixture,
     ):
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         assert _events(request_logs, "request_started")[0]["user_id"] is None
 
@@ -106,7 +117,7 @@ class TestRequestLogging:
     ):
         """Proves RequestMiddleware runs after AuthenticationMiddleware."""
         client.force_login(user)
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         assert _events(request_logs, "request_started")[0]["user_id"] == user.pk
 
@@ -128,7 +139,7 @@ class TestLogPipeline:
         request_logs: pytest.LogCaptureFixture,
     ):
         """Timestamp, level and logger come from the shared processor chain."""
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         started = _events(request_logs, "request_started")[0]
         assert started["level"] == "info"

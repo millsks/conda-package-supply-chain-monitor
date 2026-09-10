@@ -125,16 +125,40 @@ development_status:
   cpm-app-s01-pagination-role-checks-configured-once: done
   cpm-app-s02-current-package-health-view: done
   cpm-app-s03-package-detail-traced-evidence: done
-  # INVENTED: no epic entry and no PRD requirement. Built at the user's direction
-  # from the UX mockups' S2 and S8; its acceptance criteria were written by the
-  # implementing agent. See the warning at the top of its story file.
-  cpm-app-x01-coverage-and-home: done
-  cpm-app-s04-workflow-table-keyed-stable-finding: ready-for-dev
-  cpm-app-s05-three-role-scoped-queues-over: ready-for-dev
-  cpm-app-s06-recurring-operational-reports: ready-for-dev
-  cpm-app-s07-governed-documented-api: ready-for-dev
-  cpm-app-s08-long-work-leaves-request: ready-for-dev
+  cpm-app-s04-workflow-table-keyed-stable-finding: done
+  cpm-app-s05-three-role-scoped-queues-over: done
+  cpm-app-s06-recurring-operational-reports: done
+  cpm-app-s07-governed-documented-api: done
+  cpm-app-s08-long-work-leaves-request: done
+  # Added to the epic after it was written; acceptance criteria drafted by the
+  # implementing agent rather than derived from the PRD. Each story file leads with
+  # that caveat.
+  #
+  # S09 and S10 close design gaps G-8 and G-9. S11 and S12 were raised by the product
+  # owner: the design spine has carried three-state theming since the mockups and
+  # nothing ever set it, and eleven inherited templates still name the accelerator
+  # this component was built from.
+  cpm-app-s09-coverage-what-the-monitor-cannot-see: done
+  cpm-app-s10-a-home-that-dates-the-picture: done
+  cpm-app-s11-theme-choice: done
+  cpm-app-s12-every-page-is-this-products: done
+  cpm-app-s13-mounted-under-its-own-name: done
+  cpm-app-s14-api-under-its-own-name: done
+  cpm-app-s15-navigation-reads-the-way-a-person-reads: done
+  cpm-app-s16-wide-content-scrolls-itself: done
   epic-app-retrospective: optional
+
+  # CPM-EP-DOCS: Documentation that says which product it is about
+  #
+  # Added after the epics were written and raised by the product owner. No functional
+  # requirement commissions documentation; every story's acceptance criteria were
+  # drafted by the implementing agent, and each story file leads with that caveat.
+  epic-docs: done
+  cpm-docs-s01-two-trees-and-every-reference-resolves: done
+  cpm-docs-s02-the-site-wears-the-products-skin: done
+  cpm-docs-s03-what-it-does-and-how-it-was-built: done
+  cpm-docs-s04-running-it-and-keeping-it-running: done
+  epic-docs-retrospective: optional
 
   # CPM-EP-NL: Governed natural-language investigation
   epic-nl: backlog

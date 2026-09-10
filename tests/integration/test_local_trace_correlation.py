@@ -31,6 +31,7 @@ import os
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 
 import pytest
 from django.urls import reverse
@@ -47,6 +48,14 @@ if TYPE_CHECKING:
 
     from django.test import Client
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+#: A page that renders for a visitor with no session.
+#:
+#: These cases are about tracing and log correlation, not about which page they
+#: drive -- any 200 would do. It was `home` until `CPM-APP-S12` moved this
+#: product's own home page to the root and gated it behind a role. Named once so
+#: the next such move is one edit rather than four.
+A_PUBLIC_PAGE: Final[str] = "about"
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 
@@ -146,7 +155,7 @@ class TestSpansAreStillCreatedAndEnded:
         live too, so "at least one span" would be satisfied by a database span
         while the request span was missing entirely.
         """
-        response = client.get(reverse("home"))
+        response = client.get(reverse(A_PUBLIC_PAGE))
 
         assert response.status_code == HTTPStatus.OK
         kinds = [span.kind for span in recorded_spans.get_finished_spans()]
@@ -165,7 +174,7 @@ class TestTraceContextReachesTheLogs:
 
         Asserting the behaviour, not the processor's presence in a list.
         """
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         started = _events(request_logs, "request_started")
         assert started, f"django-structlog emitted no request_started event{_span_absence_hint()}"
@@ -190,7 +199,7 @@ class TestTraceContextReachesTheLogs:
         request_logs: pytest.LogCaptureFixture,
     ):
         """Correlation, not merely presence: the two ids are the same trace."""
-        client.get(reverse("home"))
+        client.get(reverse(A_PUBLIC_PAGE))
 
         logged = {event["trace_id"] for event in _events(request_logs, "request_started")}
         recorded = {format(span.context.trace_id, "032x") for span in recorded_spans.get_finished_spans()}
@@ -240,7 +249,7 @@ class TestNothingRetriesAgainstAnUnreachableCollector:
         quiet for a batch processor whose export cycle has not come round yet.
         """
         with caplog.at_level(logging.WARNING, logger=OTEL_LOGGER):
-            client.get(reverse("home"))
+            client.get(reverse(A_PUBLIC_PAGE))
             client.get(reverse("about"))
 
         offending = [

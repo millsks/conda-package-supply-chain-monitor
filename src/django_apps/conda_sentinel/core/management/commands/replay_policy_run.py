@@ -26,7 +26,7 @@ current-health table showing what was true a quarter ago -- until the next sched
 run puts it back. Every row carries `computed_at` and `evidence_cutoff` so the state
 is visible rather than silent, but a reviewer running this against a production
 database at 09:00 should know before they press return. Hence the confirmation, the
-warning in the output, and the section in `docs/deployment.md`.
+warning in the output, and the section in `docs/conda-sentinel/operations.md`.
 
 **A management command rather than a task** (`AD-31`'s shape). A replay is something
 a person decides to do and reads the output of; a Celery task would put the answer in

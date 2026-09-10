@@ -1248,7 +1248,7 @@ def test_each_operator_facing_detail_says_the_thing_it_is_relied_on_to_say(
     where the expected value *is* the code under test -- so rewording
     `IDENTITY_UNRESOLVED_DETAIL` to say the question does not *apply* would keep every
     one of them green while inverting the distinction the whole story turns on. These
-    are the sentences an operator and `docs/deployment.md` are handed, so they are
+    are the sentences an operator and `docs/conda-sentinel/operations.md` are handed, so they are
     asserted against their words the way `CLASSIFIER_PREFIX` and the state values
     already are.
     """

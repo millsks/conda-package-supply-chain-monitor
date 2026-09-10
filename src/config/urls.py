@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import Any
+from typing import Final
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -8,17 +10,39 @@ from django.contrib import admin
 from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 from django.urls import include
 from django.urls import path
+from django.urls import re_path
 from django.views import defaults as default_views
+from django.views.generic import RedirectView
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularSwaggerView
 
+from config import api_router
+from config.api_versions import UnknownApiVersion
 from config.local_dev.constants import LOCAL_SIGNIN_PATH_PREFIX
 from config.locality import is_local
 
 if TYPE_CHECKING:
     from django.urls import URLPattern
     from django.urls import URLResolver
+
+#: The URLconf the application's own schema is generated from.
+#:
+#: A list of patterns rather than a module path, so the document describes exactly
+#: what is mounted at `/conda-sentinel/api/v1/` and cannot drift from it.
+PRODUCT_API_URLCONF: Final[list[Any]] = [
+    path("conda-sentinel/api/v1/", include((api_router.product_urlpatterns, "conda_sentinel_api"))),
+]
+
+#: What the application's own contract is called, and the prefix it is *about*.
+#:
+#: `SCHEMA_PATH_PREFIX` drives tag and operation-id derivation. It does not remove the
+#: prefix from the paths -- that is `SCHEMA_PATH_PREFIX_TRIM`, deliberately left off,
+#: because a client generated from this document should reach the right URL without
+#: also being handed a base path to prepend.
+PRODUCT_API_TITLE: Final[str] = "Conda-Sentinel API"
+PRODUCT_API_PREFIX: Final[str] = "/conda-sentinel/api/v1"
+
 
 urlpatterns = [
     # The platform's probes, first (AD-22, Story 5.3). First because the resolver
@@ -33,7 +57,6 @@ urlpatterns = [
     # See config/health/urls.py for why the paths carry no trailing slash and are
     # not part of the FR-17 authentication surface.
     path("", include("config.health.urls")),
-    path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
     path(
         "about/",
         TemplateView.as_view(template_name="pages/about.html"),
@@ -44,14 +67,31 @@ urlpatterns = [
     # User management
     path("users/", include("django_service.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
-    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`.
+    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`
+    # and mounted under the application's own name since `CPM-APP-S13`.
+    #
+    # **One line, and that is the point of `CPM-AD-19`.** Routing is central, and
+    # every template and test reaches these pages through the namespace rather than
+    # through a written path -- so moving all of them is this prefix and nothing else.
+    #
+    # The prefix names the *application within this service*. `django_apps/` is a
+    # second import root and `component.toml` adopts applications explicitly; the
+    # paths this product holds are the generic ones -- `packages`, `reports`,
+    # `coverage`, `queues` -- and a namespace prevents a name collision, not a path
+    # one. A second product adopted beside this one would shadow a route silently.
+    #
+    # It is not `FORCE_SCRIPT_NAME`, which names the *service within a host* and moves
+    # `/api/` and the accounts flows with it. A deployment can use both.
     #
     # Mounted here rather than discovered: `AD-8` forbids entry-point discovery, and
-    # a domain app that mounted its own routes would be exactly that. Below the
-    # platform's probes and above nothing that depends on order -- the namespace is
-    # what keeps a product route called `home` from colliding with the unprefixed
-    # `home` above.
-    path("", include("conda_sentinel.surface.urls")),
+    # a domain app that mounted its own routes would be exactly that.
+    path("conda-sentinel/", include("conda_sentinel.surface.urls")),
+    # The root leads here. `CPM-APP-S12` made the front door this product's and
+    # `CPM-APP-S13` moved the pages behind the prefix; a permanent redirect is what
+    # keeps the front door working. `RedirectView` rather than a view of our own:
+    # there is nothing to decide, and `pattern_name` means the target follows the
+    # route if it ever moves again.
+    path("", RedirectView.as_view(pattern_name="conda_sentinel:home", permanent=False), name="root"),
     # Media files
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
@@ -62,15 +102,57 @@ if settings.DEBUG:
     urlpatterns += staticfiles_urlpatterns()
 
 # API URLS
+#
+# **Two roots since `CPM-APP-S14`**, and the split is `CPM-APP-S13`'s boundary applied
+# to the API: everything this application serves lives under its own name, and the
+# platform's own endpoints do not move.
 urlpatterns += [
-    # API base url
-    path("api/", include("config.api_router")),
+    # The platform's. `/api/users/` is the accelerator's endpoint for editing your own
+    # name; putting it under this application's prefix would say something untrue
+    # about who owns it.
+    path("api/", include((api_router.platform_urlpatterns, "api"), namespace="api")),
+    # The service-wide document, which describes both roots. Kept because a deployment
+    # operator asking "what does this service expose" is asking about the service.
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path(
         "api/docs/",
         SpectacularSwaggerView.as_view(url_name="api-schema"),
         name="api-docs",
     ),
+    # This application's, versioned. `CPM-APP-S07` published the contract and its own
+    # acceptance criteria call it v1; until `CPM-APP-S14` no version appeared in any
+    # path, so the first breaking change had nowhere to go. Added now rather than
+    # later because the contract is hours old and nobody holds these URLs yet.
+    path(
+        "conda-sentinel/api/v1/",
+        include((api_router.product_urlpatterns, "conda_sentinel_api"), namespace="conda_sentinel_api"),
+    ),
+    # This application's own contract, scoped to this application's own routes.
+    #
+    # An integrator reading it gets what this product publishes rather than that plus
+    # half of somebody's platform -- which is also what lets
+    # `tests/unit/django_apps/test_api_contract_audit.py` drop the exemption it needed
+    # while the two shared a document.
+    path(
+        "conda-sentinel/api/v1/schema/",
+        SpectacularAPIView.as_view(
+            urlconf=PRODUCT_API_URLCONF,
+            custom_settings={"TITLE": PRODUCT_API_TITLE, "SCHEMA_PATH_PREFIX": PRODUCT_API_PREFIX},
+        ),
+        name="conda-sentinel-api-schema",
+    ),
+    path(
+        "conda-sentinel/api/v1/docs/",
+        SpectacularSwaggerView.as_view(url_name="conda-sentinel-api-schema"),
+        name="conda-sentinel-api-docs",
+    ),
+    # Any other version, answered rather than 404'd into silence.
+    #
+    # A bare 404 on `/conda-sentinel/api/v2/packages/` is indistinguishable from a
+    # missing endpoint, and the two send an integrator looking in different places.
+    # This says which versions exist, which is the only thing they need.
+    path("conda-sentinel/api/<str:version>/", UnknownApiVersion.as_view(), name="conda-sentinel-api-version"),
+    re_path(r"^conda-sentinel/api/(?P<version>[^/]+)/.*$", UnknownApiVersion.as_view()),
 ]
 
 

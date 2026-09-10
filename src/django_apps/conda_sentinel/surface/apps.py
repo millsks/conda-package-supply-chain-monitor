@@ -28,9 +28,32 @@ class SurfaceConfig(AppConfig):
 
     The derived label is `surface`, the last segment of `name`.
 
-    No `ready()`, on the terms `CoreConfig` states: `django_service.users` is the
-    sole stage-two owner (`AD-26`), and this application registers nothing.
+    **It acquired a `ready()` in `CPM-APP-S08`**, which is worth saying because the
+    docstring here previously stated it had none. `CPM-AD-9` sends an export beyond
+    the row cap out of the request, and the work that leaves is *this* application's
+    -- producing a report is what `surface/reports.py` does. `core` may not import
+    it, so `core/jobs.py` declares the seam and this fills it, on the same terms
+    `policies/apps.py` adopts its passes and `workflow/apps.py` adopts its after-run
+    step. It is still not a stage-two owner: `django_service.users` remains the sole
+    one (`AD-26`), and this registers a runner rather than configuring anything.
     """
 
     name = "conda_sentinel.surface"
     verbose_name = _("Surface")
+
+    def ready(self) -> None:
+        """Register the runner that produces a report export outside a request.
+
+        Registration is a side effect of *adoption* rather than of import: nothing
+        self-registers and nothing is discovered, so a component that has not adopted
+        this application runs no exports and `core` is none the wiser.
+
+        The import is here rather than at module scope because `apps.py` is imported
+        during `django.setup()` *before* the app registry is populated, and the
+        runner's module reaches models through the report projection.
+        """
+        from conda_sentinel.core.jobs import register_job_runner  # noqa: PLC0415 - see above
+        from conda_sentinel.surface.exports import EXPORT_JOB_KIND  # noqa: PLC0415 - see above
+        from conda_sentinel.surface.exports import run_export_job  # noqa: PLC0415 - see above
+
+        register_job_runner(EXPORT_JOB_KIND, run_export_job)

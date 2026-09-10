@@ -272,13 +272,13 @@ def test_the_declared_variables_pair_with_the_contract_fields_in_order() -> None
 
 
 def test_the_documented_variables_are_the_variables_read() -> None:
-    """`docs/authentication.md` is the only operator-facing home for these names.
+    """`docs/accelerator/authentication.md` is the only operator-facing home for these names.
 
     With no `.env.example` in the tree, a rename here would otherwise leave the
     published documentation instructing operators to set a variable nothing
     reads.
     """
-    doc = Path(settings.BASE_DIR) / "docs" / "authentication.md"
+    doc = Path(settings.BASE_DIR) / "docs" / "accelerator" / "authentication.md"
     documented = set(re.findall(r"CPM_[A-Z_]+", doc.read_text(encoding="utf-8")))
 
     assert documented == set(ROLE_ENVIRONMENT_VARIABLES)

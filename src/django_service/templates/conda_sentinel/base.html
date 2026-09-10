@@ -5,7 +5,17 @@
    the design spine's tokens and the mockups' application chrome. Sharing one base
    would mean either the product looking like the accelerator or the accelerator's
    own pages inheriting a stylesheet written for a different product. {% endcomment %}
-<html lang="{{ LANGUAGE_CODE }}">
+{% comment %} `data-theme` is written only when a reader has chosen light or dark.
+   `auto` renders *no attribute*, and that absence is the mechanism rather than a
+   shortcut: the stylesheet's `prefers-color-scheme` block only decides when nothing
+   has overridden it, so `data-theme="auto"` would take the decision away from the
+   machine and hand it to a value the CSS has no rule for.
+
+   Server-rendered, which is what makes CPM-APP-S11's AC 3 satisfiable: the cookie is
+   on the request, so the right theme is on the first paint. A client-side toggle
+   cannot know the choice before the document loads, so it paints the default and
+   corrects it -- the flash every localStorage implementation has. {% endcomment %}
+<html lang="{{ LANGUAGE_CODE }}"{% if data_theme %} data-theme="{{ data_theme }}"{% endif %}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,42 +24,15 @@
     </title>
     <link rel="icon" href="{% static 'images/favicons/favicon.ico' %}" />
     <link href="{% static 'css/conda-sentinel.css' %}" rel="stylesheet" />
+    {% comment %} Empty here, and used by one page: `CPM-APP-S08`'s export status
+       screen refreshes itself while a job is running, and a meta refresh has to be
+       in the head. A block rather than the tag itself, because a refresh on every
+       screen in the product is not what any of the others want. {% endcomment %}
+    {% block extra_head %}{% endblock extra_head %}
   </head>
   <body>
     <div class="app">
-      <div class="app-top">
-        <div class="brand">
-          <span class="glyph">cs</span> {% translate "Conda Sentinel" %}
-        </div>
-        {% comment %} Flat, and every entry readable by all three roles. The UX contract:
-           role scoping happens below the nav -- at the deep queue URL, at the item
-           and at the transition -- never by hiding an entry, because a nav that
-           differs per role makes a shared link look broken to whoever it was sent
-           to. Entries with no story yet are marked and inert rather than absent, so
-           the shape of the product is visible from the first screen. {% endcomment %}
-        <nav class="app-nav">
-          <a href="{% url 'conda_sentinel:package-health' %}"
-             {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Packages" %}
-          </a>
-          <a href="{% url 'conda_sentinel:home' %}"
-             {% if request.resolver_match.url_name == 'home' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Home" %}
-          </a>
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "My queue" %}</a>
-          <a class="locked" aria-disabled="true" title="{% translate 'Not built yet' %}">{% translate "Reports" %}</a>
-          <a href="{% url 'conda_sentinel:coverage' %}"
-             {% if request.resolver_match.url_name == 'coverage' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Coverage" %}
-          </a>
-        </nav>
-        <div class="who">
-          {% if request.user.is_authenticated %}
-            <span class="av">{{ request.user.username|slice:":2"|upper }}</span>
-            {{ request.user.username }}
-          {% endif %}
-        </div>
-      </div>
+      {% include "conda_sentinel/_chrome.html" %}
       <div class="app-body">
         {% block content %}{% endblock content %}
       </div>

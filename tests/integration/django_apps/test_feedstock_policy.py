@@ -628,7 +628,7 @@ def test_a_feedstock_pushed_to_exactly_the_threshold_ago_is_maintained() -> None
 
     A closed boundary falls on one side; which side is written down in
     `policies/feedstock.py`, in `policies/data/README.md` and in
-    `docs/deployment.md`, and this is the executable half of it. The age is
+    `docs/conda-sentinel/operations.md`, and this is the executable half of it. The age is
     asserted equal to the threshold as well, or the case would be about a fixture
     that merely happened to be near it.
     """

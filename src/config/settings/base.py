@@ -217,6 +217,11 @@ LOCAL_APPS = [
     # declaration order: a later pass may read an earlier pass's derived rows, so
     # the order applications are adopted in is part of what is declared.
     "conda_sentinel.policies",
+    # The one application that owns every queue item (`CPM-AD-22`, `CPM-APP-S04`).
+    # After `policies` because the policy run opens items, and before `surface`
+    # because the queues are read there. It declares no `ready()` and registers no
+    # pass, so `test_policies_app.py`'s ordering rule is untouched.
+    "conda_sentinel.workflow",
     # The read surfaces (`CPM-EP-APP`, `CPM-APP-S02`). Last, and after `policies`
     # rather than merely after the stage-2 owner: it reads every pass's derived
     # table by name, so it depends on those applications rather than the other way
@@ -277,7 +282,7 @@ LOGIN_URL = reverse_lazy("openid_connect_login", kwargs={"provider_id": OIDC_PRO
 # claim, and the staff- and superuser-conferring groups, each read from a
 # COMPONENT_-prefixed variable with no default. Unset stays unset -- an empty
 # field means unconfigured, which is what Epic 4's startup check refuses on.
-# See config/authorization/claims.py and docs/authentication.md.
+# See config/authorization/claims.py and docs/accelerator/authentication.md.
 CLAIMS_CONTRACT = load_claims_contract(env)
 # The product's role contract (CPM-FR-30): the names of the three groups that
 # confer the security-and-compliance-reviewer, packaging-engineer and leadership
@@ -297,7 +302,7 @@ CLAIMS_CONTRACT = load_claims_contract(env)
 # application, and `roles.py` imports nothing from `django.apps` or
 # `django.contrib.auth`, so it loads before the app registry exists.
 # See src/django_apps/conda_sentinel/core/roles.py and
-# docs/authentication.md.
+# docs/accelerator/authentication.md.
 ROLE_CONTRACT = load_role_contract(env)
 
 # CPM-NFR-5's latency budget for the current package-health view, in milliseconds
@@ -335,6 +340,33 @@ ROLE_CONTRACT = load_role_contract(env)
 # without a code change -- which is also what makes the number replaceable when
 # Open Question 5 is answered.
 CPM_HEALTH_VIEW_P95_BUDGET_MS = env.int("CPM_HEALTH_VIEW_P95_BUDGET_MS", default=800)
+
+# The largest export this product will build inside a request, in rows.
+#
+# **PROVISIONAL**, and the second of PRD Open Question 5's two numbers -- the first
+# is the latency budget above. `CPM-AD-12` and `CPM-AD-9` name this constant and say
+# what it is for: "an export beyond the row cap is a task, never an unpaginated
+# response". `CPM-APP-S06` needs a bound now because it ships the export;
+# `CPM-APP-S08` is the story that moves the work beyond it out of the request, and
+# until then an export at the cap is truncated and says so in a response header
+# rather than silently handing somebody a partial file.
+#
+# 5,000, and the reasoning is that the cap should *bite* rather than be decorative:
+#
+#   * `CPM-NFR-1` sizes the inventory at ten thousand packages, so a cap of five
+#     thousand means the largest reports genuinely take the asynchronous path. A cap
+#     set above the inventory would be a number nothing ever reaches, and the export
+#     path `CPM-AD-9` requires would ship untested until the day it mattered.
+#   * Most reports are filtered subsets well under it -- known-exploited
+#     vulnerabilities is tens of rows, unmapped identities hundreds -- so the common
+#     case stays synchronous and immediate.
+#   * Five thousand rows of eight columns is roughly a megabyte of CSV, which is a
+#     second or two of work. That is a request somebody waits through, not one they
+#     abandon.
+#
+# Read from the environment so a deployment can state its own without a code change,
+# which is also what makes it replaceable when Open Question 5 is answered.
+CPM_SYNC_EXPORT_MAX_ROWS = env.int("CPM_SYNC_EXPORT_MAX_ROWS", default=5_000)
 # The inventory source's file (CPM-AD-29, CPM-FR-42): the versioned watchlist the
 # declared adapter reads, selected by locality.
 #
@@ -367,7 +399,7 @@ INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
 # surface, permanently, in an append-only log nothing may correct. So the
 # mechanism ships, the declaration ships empty, and a collection refuses --
 # loudly, naming the setting -- until an operator declares both. See
-# docs/deployment.md.
+# docs/conda-sentinel/operations.md.
 #
 # Declared here rather than read from the environment, on the same terms the
 # watchlist is a reviewed file rather than a variable: which surfaces this
@@ -466,6 +498,17 @@ TEMPLATES = [
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
                 "django_service.users.context_processors.allauth_settings",
+                # The product's own navigation (`CPM-APP-S05`). On the base template
+                # rather than in each view: a view that forgot would render a page
+                # with a queue missing from its nav, and a reader would conclude the
+                # queue did not exist rather than that the page was wrong.
+                "conda_sentinel.surface.context_processors.navigation",
+                # The reader's theme (`CPM-APP-S11`). Here for the same reason and
+                # one more: the control is on the base template, so a view that had
+                # to remember this would eventually be one that did not -- and the
+                # symptom is a single page rendering in the wrong theme, which is the
+                # page nobody thinks to check.
+                "conda_sentinel.surface.context_processors.theme",
             ],
         },
     },
@@ -649,7 +692,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # deploy -- the scheduler rewrites every entry it finds here on each beat start,
 # so a value edited in the admin is live only until beat restarts. Cadence as data
 # is what lets a *later* schedule be added or changed in the tables; these seven
-# are the declaration, and changing one is a pull request. docs/deployment.md says
+# are the declaration, and changing one is a pull request. docs/conda-sentinel/operations.md says
 # the same thing to an operator.
 #
 # So the schedule and the collector each state a cadence independently, and the
@@ -674,7 +717,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # I/O, and the collections they enqueue are then bounded by each collector's own
 # rate limiter, which is where the real pacing lives (CPM-AD-20). The three
 # security entries are the group worth naming: each asks its own source and each
-# spends its own allowance -- docs/deployment.md states what that costs against
+# spends its own allowance -- docs/conda-sentinel/operations.md states what that costs against
 # CPM-NFR-1's inventory. Two of them carry a countdown for reasons their own
 # comments give; offsetting an entry any other way would need a crontab, which the
 # reconciliation below deliberately cannot read as an interval.
@@ -731,7 +774,7 @@ CELERY_BEAT_SCHEDULE = {
         # at ten thousand packages the vulnerability sweep spends most of a day
         # inside its own allowance -- and `collectors/kev.py`'s KEV_DISPATCH_OFFSET
         # says so, `tests/unit/test_settings.py` reconciles the two, and
-        # `docs/deployment.md` states the residual to an operator.
+        # `docs/conda-sentinel/operations.md` states the residual to an operator.
         "options": {"countdown": 60 * 60},
     },
     "cpm-sweep-license": {
@@ -748,7 +791,7 @@ CELERY_BEAT_SCHEDULE = {
         # Deliberately a different number from the KEV entry's: two entries sharing
         # a phase would fire together again and the offset would buy nothing.
         # `collectors/license.py`'s LICENSE_DISPATCH_OFFSET is the declaration,
-        # `tests/unit/test_settings.py` reconciles the two, and docs/deployment.md
+        # `tests/unit/test_settings.py` reconciles the two, and docs/conda-sentinel/operations.md
         # states what the two sweeps cost that host to an operator.
         "options": {"countdown": 2 * 60 * 60},
     },
@@ -764,7 +807,7 @@ CELERY_BEAT_SCHEDULE = {
         # entries sharing a phase fire together and the offset buys nothing.
         # collectors/python_readiness.py's READINESS_DISPATCH_OFFSET is the
         # declaration, tests/unit/test_settings.py reconciles the two, and
-        # docs/deployment.md states what the two sweeps cost that host.
+        # docs/conda-sentinel/operations.md states what the two sweeps cost that host.
         #
         # **Weekly rather than daily**, which no other collect entry is except the
         # feedstock one. What this collector reads is a project's declared metadata,
@@ -933,7 +976,7 @@ REST_FRAMEWORK = {
     # These two are the whole credential surface (FR-6, Story 2.8): the
     # locally minted static-token path is deleted, app and class alike, so every
     # credential a component accepts is one the IdP owns, plus the session those
-    # flows establish. See docs/authentication.md, "Retired surfaces".
+    # flows establish. See docs/accelerator/authentication.md, "Retired surfaces".
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "config.authorization.authentication.OIDCBearerAuthentication",
         "rest_framework.authentication.SessionAuthentication",
@@ -973,18 +1016,38 @@ REST_FRAMEWORK = {
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup
-CORS_URLS_REGEX = r"^/api/.*$"
+#
+# **Both API roots since `CPM-APP-S14`.** The platform's is at `/api/` and this
+# application's at `/conda-sentinel/api/<version>/`, and a regex naming only the first
+# would leave every browser-based caller of this product's API failing preflight --
+# silently, because a CORS rule that matches nothing raises nothing. The optional
+# group is what keeps one rule covering both rather than two rules drifting apart.
+CORS_URLS_REGEX = r"^(/conda-sentinel)?/api/.*$"
 
 # By Default swagger ui is available only to admin user(s). You can change permission classes to change that
 # See more configuration options at https://drf-spectacular.readthedocs.io/en/latest/settings.html#settings
 # Annotated because production.py adds a "SERVERS" list of dicts, which a
 # value-inferred dict type would reject.
 SPECTACULAR_SETTINGS: dict[str, Any] = {
-    "TITLE": "Django 15-Factor Application Accelerator API",
-    "DESCRIPTION": "Documentation of API endpoints of Django 15-Factor Application Accelerator",
+    # Named for the product rather than the accelerator it was built from.
+    # `CPM-RENAME-S02` put Conda-Sentinel on every operator-facing surface and the
+    # published contract is one: an integrator reading a document titled for a
+    # different product has no way to know it is the right one.
+    "TITLE": "Conda-Sentinel API",
+    "DESCRIPTION": (
+        "Current package health, per-package evidence, the recurring reports and the work queues. "
+        "Derived statuses are emitted verbatim as their outcome values -- `unknown` is a state this product "
+        "asserts, never an absence -- and the two writes are the package-identity override and the queue action."
+    ),
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "SCHEMA_PATH_PREFIX": "/api/",
+    # Two vocabularies over one choice set. `expected_state` and `to_state` are both
+    # `ItemState`, and without this drf-spectacular mints two enum components with
+    # the same members and warns that it had to guess a name. One named component is
+    # also what a generated client wants: two would give it two incompatible types
+    # for one thing.
+    "ENUM_NAME_OVERRIDES": {"WorkflowItemState": "conda_sentinel.workflow.states.ItemState.choices"},
 }
 # Your stuff...
 # ------------------------------------------------------------------------------

@@ -13,7 +13,7 @@ use.
 `django-storages`, and only through `pixi run spike-storage`. The module is
 named `spike_*.py` so `pytest tests/` -- what `test-cov` runs -- never collects
 it. The recorded verdict lives beside the dependency declaration in `pixi.toml`
-and in `docs/development.md`, "Object storage fitness (R-1)".
+and in `docs/accelerator/development.md`, "Object storage fitness (R-1)".
 
 **What is proven and what is not.** The legs below marked mandatory run without
 any S3-compatible server and must all pass for the verdict to be anything but
@@ -411,7 +411,7 @@ def test_the_runtime_under_test_is_the_runtime_the_verdict_names() -> None:
     assert running == VERDICT_VERSIONS, (
         f"the spike is running against {running}, not the versions the recorded verdict names "
         f"({VERDICT_VERSIONS}). Re-run the spike and re-record the verdict in pixi.toml and "
-        "docs/development.md rather than carrying the old one forward."
+        "docs/accelerator/development.md rather than carrying the old one forward."
     )
 
 

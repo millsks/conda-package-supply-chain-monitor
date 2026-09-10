@@ -363,7 +363,7 @@ def test_the_event_stream_carries_one_count_per_pruned_kind(user: User) -> None:
     thing to "improve" by naming what was removed.
 
     Both output channels are scanned, not only the structured one.
-    `docs/deployment.md` promises the operator that nothing in what a run writes
+    `docs/accelerator/deployment.md` promises the operator that nothing in what a run writes
     is a session key or a token identifier, and the module's own claim is that
     stdout is a *second* channel -- so a "which rows?" line added to stdout for a
     human to read would honour the event-stream assertion exactly while putting
@@ -392,7 +392,7 @@ def test_the_event_stream_carries_one_count_per_pruned_kind(user: User) -> None:
             assert secret not in rendered, (
                 f"the {channel} carries {secret!r}. A jti is a token identifier that has left the token and a "
                 f"session key is the credential in the session cookie; the counts are the whole of what an "
-                f"operator needs, and docs/deployment.md promises neither appears."
+                f"operator needs, and docs/accelerator/deployment.md promises neither appears."
             )
 
     assert stdout.strip(), "the command wrote nothing to stdout; the human-facing channel is the second one"
@@ -412,7 +412,7 @@ def test_a_second_run_removes_nothing_and_reports_zero(user: User) -> None:
     `per_label[label]`, which reads as the obvious tidy-up, would raise `KeyError`
     on every steady-state run in production with the whole suite green.
 
-    The claim is also the one `docs/deployment.md` and the command's own docstring
+    The claim is also the one `docs/accelerator/deployment.md` and the command's own docstring
     make to an operator in as many words -- "a second run a second later removes
     nothing and says so" -- so both halves are asserted: nothing further is
     deleted, *and* both events are still emitted carrying zero. An event suppressed
@@ -474,7 +474,7 @@ def test_an_epoch_expiring_inside_the_leeway_window_survives(user: User) -> None
     remove a session that expired a minute ago.
 
     The leeway is set to minutes rather than the single-digit seconds
-    `docs/deployment.md` tells an operator to keep it in, because the row has to
+    `docs/accelerator/deployment.md` tells an operator to keep it in, because the row has to
     be placed *inside* the window and a window of seconds would make that
     placement a race against how long the transaction takes.
     """

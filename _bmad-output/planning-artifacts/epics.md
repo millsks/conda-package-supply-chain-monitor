@@ -229,8 +229,9 @@ The PRD's epic table assigned only six of thirteen. The remaining seven are plac
 
 ## Epic List
 
-Nine epics, on the non-positional keys the PRD fixed. They are not renumbered here, and
-adding one later never renumbers another.
+Ten epics, on the non-positional keys the PRD fixed. They are not renumbered here, and
+adding one later never renumbers another -- which `CPM-EP-DOCS` is the first exercise of:
+it was added after the other nine and took the next key rather than a position.
 
 Build order is a dependency graph, not the list order below.
 
@@ -368,6 +369,20 @@ settled independently of the spike's outcome.
 **BLOCKED.** Not plannable until a fitness spike establishes LangChain's conda-forge
 availability and its transitive resolution against Python 3.14. Only the spike story is
 written; the rest waits on its outcome.
+
+### `CPM-EP-DOCS`: Documentation that says which product it is about
+
+Splits the accelerator's documentation from this product's, brands the site, and writes
+the product documentation that has never existed -- the domain model, the five outcome
+states, the policy run, the roles and their queues, and the architecture spine distilled
+for a reader rather than for a reviewer.
+
+**User outcome:** a new maintainer can understand and run the system without reading the
+planning artifacts.
+
+**FRs covered:** none. Raised by the product owner; every acceptance criterion in it was
+drafted by the implementing agent.
+**Depends on:** nothing.
 
 ### Build order
 
@@ -1891,6 +1906,598 @@ So that the page returns instead of hanging on a rate-limited third party.
 **Satisfies:** `CPM-NFR-6`
 **Governed by:** `CPM-AD-9`
 **Constrained:** the row cap value and the p95 latency budget (`CPM-NFR-5`) are PRD Open Question 5. This story enforces that a single constant exists and is honoured everywhere; it does not choose the number.
+
+### CPM-APP-S09: Coverage — what the monitor cannot see
+
+> **Added after the epic was written, and the acceptance criteria below were drafted
+> by the implementing agent rather than derived from the PRD.** No functional
+> requirement commissions this screen. It closes design gap `G-8`, and it is the
+> aggregate of what `CPM-FR-5` requires per package: that nothing is presented as
+> clean without evidence. Whether that deserves an FR of its own is an open question
+> for the next PRD pass — see "Open questions this epic raises" below.
+>
+> Appended as `S09` rather than inserted in reading order: renumbering `S04`–`S08`
+> would break their references in the architecture spine, the test-design handoff and
+> four merged pull requests.
+
+As any of the three roles,
+I want to see how much of the estate the product has formed no opinion about,
+So that I do not read a partial picture as a complete one.
+
+**Acceptance Criteria:**
+
+**Given** the inventory
+**When** the coverage view is opened
+**Then** it states how many packages have no established identity
+**And** how many carry no verdict in each rollup status column, with a denominator
+
+**Given** a status of `not_found` or `not_applicable`
+**When** coverage is counted
+**Then** it is reported as an answer and never as a gap — a gap is `unknown` or `error`
+
+**Given** the adopted collectors
+**When** collector health is displayed
+**Then** every **registered** collector appears, including one that has never run
+**And** each is judged against the freshness target it declares for itself
+
+**Given** a collector that has never completed a run
+**When** it is displayed
+**Then** it says so, and never renders as blank or as healthy
+
+**Serves:** `CPM-FR-5` (its aggregate). **Satisfies no FR directly.**
+**Governed by:** `CPM-AD-10`, `CPM-AD-11`, `CPM-AD-13`, `CPM-AD-24`, `CPM-AD-26`
+**Constrained:** the definition of a "gap" is the implementing agent's, narrowed once
+in review. It excludes adverse verdicts and negative answers, on the reasoning that a
+gap number which rises as the product learns more is measuring the wrong thing.
+
+### CPM-APP-S10: A home that dates the picture
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09` above. It
+> closes design gap `G-9`. Navigational rather than functional: no FR is expected to
+> commission it.
+
+As any of the three roles,
+I want the first screen to tell me how current the product's picture is,
+So that I do not act on a conclusion that stopped being true last week.
+
+**Acceptance Criteria:**
+
+**Given** no policy run has completed
+**When** the home view is opened
+**Then** it says so, rather than showing counts that read as conclusions
+
+**Given** a completed policy run
+**When** the home view is opened
+**Then** it shows when the rollup was computed and the evidence cut-off it used
+
+**Given** a counter on the home view
+**When** it is displayed
+**Then** it links to the surface that shows the packages it counted
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-10`, `CPM-AD-11`, `CPM-AD-13`
+**Constrained:** the mockup's "top of my queue" panel is deliberately **not** built.
+`CPM-AD-22`'s workflow application arrives with `CPM-APP-S04`, and a placeholder would
+mean inventing the product's central abstraction on a screen no requirement asks for.
+It is the natural content of this screen once `CPM-APP-S05` exists.
+
+### CPM-APP-S11: A reader chooses light, dark, or the machine's answer
+
+> **Added after the epic was written, and the acceptance criteria below were drafted
+> by the implementing agent rather than derived from the PRD.** No functional
+> requirement commissions a theme control. It closes a gap between what the design
+> spine shipped and what the product exposes: `static/css/conda-sentinel.css` has
+> carried three-state theming since the mockups landed — light tokens on bare
+> `:root`, a `prefers-color-scheme: dark` block, and a `:root[data-theme="dark"]`
+> block for an explicit choice — and nothing has ever set `data-theme`. Half of that
+> stylesheet is unreachable and the product cannot be told it is wrong about the
+> machine.
+
+As any of the three roles,
+I want to choose whether this product is light, dark, or follows my machine,
+So that I can read it on the screen I am actually sitting at.
+
+**Acceptance Criteria:**
+
+**Given** any page in the product
+**When** it is rendered
+**Then** the control is present and marks which of the three is in force
+
+**Given** a reader who has chosen nothing
+**When** a page is rendered
+**Then** it is light, whatever the operating system says
+
+**Given** a reader who chooses light or dark
+**When** the next page is rendered
+**Then** the choice is honoured on the **first paint**, with no flash of the other
+
+**Given** a reader who chooses "auto"
+**When** a page is rendered
+**Then** it follows the machine — auto is a choice a reader makes, not the state they
+are left in by making none
+
+**Given** a stored preference
+**When** it is read
+**Then** a value outside the three is discarded rather than rendered
+
+**Satisfies:** nothing directly. Serves the design spine's own three-state palette.
+**Governed by:** `CPM-AD-24` (the tone vocabulary is unaffected by the theme — a
+status renders as its own value under every one).
+**Constrained:** **light is the default, at the product owner's direction**, and it is
+a product decision rather than a technical one — following the machine would have been
+the technical default, since that is what the stylesheet does when nothing overrides
+it. The reasoning: this product is read beside other operator tooling and in
+screenshots pasted into tickets, and a reader who has not chosen should see the same
+screen as whoever is describing it to them. The cost is stated rather than hidden — a
+reader on a dark desktop gets a light page until they say otherwise — and it is why
+`auto` stays in the control rather than being what you get by not choosing.
+
+The default has to *assert* itself: the stylesheet's dark block is guarded by
+`:root:not([data-theme="light"])`, so a default of light that rendered no attribute
+would still hand a dark-desktop reader the dark palette.
+
+The product ships no JavaScript, so the choice is a form post and a cookie rather than
+`localStorage`. That is what makes the first-paint criterion
+satisfiable at all: a client-side toggle cannot render the right theme before the
+document loads, and the flash it produces is the failure this criterion names.
+Deliberately **not** stored on `User`: a theme is a property of the screen somebody is
+looking at, not of who they are, and it has to work before anybody signs in — the
+sign-in page is a screen too.
+
+### CPM-APP-S12: Every page a person sees is this product's
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09` above, and
+> raised by the product owner rather than by a design gap. It finishes what
+> `CPM-RENAME-S02` started: that story put Conda-Sentinel on every operator-facing
+> surface the *product* owns, and left the inherited accelerator pages alone.
+
+Eleven templates still extend the accelerator's shell, and they are exactly the pages
+a person hits when they are **not** on one of this product's screens: the front page
+at `/`, `/about/`, sign-in and account management, and the 403, 404 and 500 pages.
+`base.html` still reads "Django 15-Factor Application Accelerator" in its `<title>`
+and its navbar brand. So a reviewer who mistypes a package name is shown an error page
+branded for a different product, which is the moment they are least able to tell
+whether they are in the right place.
+
+As any of the three roles,
+I want every page this deployment serves to be recognisably Conda-Sentinel,
+So that I can tell I am in the right product, especially when something has gone wrong.
+
+**Acceptance Criteria:**
+
+**Given** the root URL
+**When** it is opened
+**Then** it is this product's home, not the accelerator's landing page
+
+**Given** any page a person can reach without knowing a product URL — sign-in, account
+management, `/about/`, and the 403, 404 and 500 pages
+**When** it is rendered
+**Then** it carries this product's name and shell
+
+**Given** the product's shell
+**When** it is rendered for somebody who is not signed in
+**Then** it does not offer navigation they cannot use, and does not fail to render
+
+**Given** the accelerator's own routes
+**When** they are enumerated
+**Then** none of them serves a page naming a different product
+
+**Satisfies:** nothing directly. Completes `CPM-RENAME-S02`.
+**Governed by:** `CPM-AD-13` (the shell is shared; role scoping stays below the nav).
+**Constrained:** a path prefix was considered twice and is **deferred**, not rejected.
+
+The first framing — that it would make the root this product's — it does not answer:
+mounting the pages under `/conda-sentinel/` moves `/packages/` and its siblings while
+leaving `/`, `/about/`, `/accounts/` and every error page where they are, so the
+product would live in two places and the accelerator would still own the front door.
+This story answers that directly instead.
+
+The second framing is stronger, and it was **decided in favour** shortly after this
+story shipped -- `CPM-APP-S13` below delivers it. A prefix says which application a
+page belongs to, if this platform ever hosts more than one. It does not
+today — the six apps under `django_apps/` are this product's own domains, which is
+what `CPM-AD-19` means by "one app per domain" — and the deferral rests on one
+measured fact: every product page is mounted by a **single line** in `config/urls.py`,
+and nothing anywhere reverses by path, because `CPM-AD-19` routes centrally and every
+template goes through the `conda_sentinel:` namespace. Adding the prefix the day a
+second product arrives is that one line -- which is exactly why the product owner's
+decision to add it now costs no more than deferring it would have saved.
+
+`FORCE_SCRIPT_NAME` remains the mechanism for a deployment that needs a prefix on
+*everything*, including `/api/` and the accounts flows, with no code change at all.
+
+### CPM-APP-S13: The application is mounted under its own name
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and
+> decided by the product owner against the implementing agent's recommendation. That
+> is recorded plainly because the reasoning on both sides is worth keeping: the
+> recommendation was to defer, and the deferral rested on the change being cheap to
+> make later. It is the same change either way, so the cost of making it now is the
+> cost of making it at all.
+
+`CPM-APP-S12` made the root this product's. This puts every one of its pages under a
+path that says which application they belong to.
+
+**The argument for it is legibility across a platform that may host more than one
+product.** `django_apps/` is a second import root and `component.toml` adopts
+applications into a component explicitly. Today the six adopted applications are this
+product's own domains — that is what `CPM-AD-19` means by "one app per domain" — but
+nothing in the architecture says a second product's application could not be adopted
+beside them, and the paths this product holds are the generic ones: `packages`,
+`reports`, `coverage`, `queues`. A namespace prevents a *name* collision. It does not
+prevent a *path* collision, and the first one would be discovered by a route
+silently shadowing another.
+
+The prefix also answers a smaller question every day: which system produced this line
+in a log, this URL in a ticket, this entry in somebody's browser history.
+
+**What it does not do**, and this was the first framing's mistake: it does not make
+the root this product's, and it leaves `/api/`, `/accounts/` and `/users/` where they
+are. `CPM-APP-S12` answered the first. The second is deliberate — the API is versioned
+and routed centrally on its own terms, and the accounts flows are the platform's.
+
+As any of the three roles,
+I want this product's pages to live under a path that names it,
+So that I can tell which application a URL belongs to, and so a second application on
+this platform cannot silently take a path this one holds.
+
+**Acceptance Criteria:**
+
+**Given** any of this product's HTML surfaces
+**When** its URL is resolved
+**Then** it is under `/conda-sentinel/`
+
+**Given** the root
+**When** it is opened
+**Then** it sends the reader to this product's home under the prefix
+
+**Given** anything that names one of this product's pages — a template, a redirect, a
+test
+**When** it is resolved
+**Then** it resolves through the URL namespace and not through a written path
+
+**Given** the platform's own routes — the API, the accounts flows, the health probes
+**When** the prefix is applied
+**Then** they are unmoved
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-19` — routing is central, which is what makes this one line.
+**Constrained:** `FORCE_SCRIPT_NAME` remains the mechanism for a deployment that needs
+a prefix on *everything*, including the API and the accounts flows. This story is not
+that and does not replace it: it names the application within a service, where
+`FORCE_SCRIPT_NAME` names the service within a host. A deployment can use both.
+
+### CPM-APP-S14: The API is under the application's name, and carries a version
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner as a direct question: if the pages moved, should the API move
+> too, and where does a version go?
+
+`CPM-APP-S13` moved this application's HTML surfaces under its own name and left the
+API at `/api/`, which put the application in two places again — the exact shape S13
+was written against. This finishes it.
+
+**The version is the other half, and it was free to add for one more day.**
+`CPM-APP-S07` published the contract and its own acceptance criteria call it "the API
+in v1", yet no version appeared in any path. A published contract with no version has
+nowhere to put a breaking change. Nobody holds these URLs yet, so the cost of adding
+it now is nothing and the cost of adding it later is every integrator's client.
+
+**Two roots also remove a wart rather than adding one.** While this application's API
+and the platform's user endpoint shared `/api/`, they shared a schema document — and
+`tests/unit/django_apps/test_api_contract_audit.py` had to record the platform's
+`UserViewSet` as a named exemption to answer "what does this API write" honestly. Two
+roots, two contracts, and an integrator reading this application's schema is no longer
+reading half of somebody's platform.
+
+As an integrator,
+I want this product's API under the product's own name and behind a version,
+So that I can tell whose contract I am calling, and so a change to it has somewhere to
+go that does not break what I already wrote.
+
+**Acceptance Criteria:**
+
+**Given** any endpoint this application publishes
+**When** its URL is resolved
+**Then** it is under `/conda-sentinel/api/v1/`
+
+**Given** a request for a version this API does not serve
+**When** it is answered
+**Then** it says which versions exist, rather than answering as though the endpoint
+were missing
+
+**Given** the platform's own API
+**When** the move is made
+**Then** it is unmoved, and is not described by this application's contract
+
+**Given** this application's published schema
+**When** it is read
+**Then** it describes this application's endpoints and no others
+
+**Given** a browser-based caller of either API
+**When** its preflight is evaluated
+**Then** the CORS rule covers both roots
+
+**Satisfies:** nothing directly. Completes `CPM-FR-27`'s addressing.
+**Governed by:** `CPM-AD-19` — routing is central, which is why both rosters are
+declared in `config/api_router.py` even though they are mounted apart.
+**Constrained:** versioning is a path segment and a refusal, **not** DRF's
+`URLPathVersioning`. That class reads the version from a URL keyword argument, which
+would mean `<str:version>` in every mounted pattern and a `version` argument in every
+one of the thirty-odd `reverse()` calls that name these routes. Nothing branches on
+`request.version`; the refusal is the only behaviour wanted, and it is bought for one
+route rather than for every call site. Adding the class later changes no path.
+
+`SCHEMA_PATH_PREFIX_TRIM` is deliberately off: a client generated from the document
+should reach the right URL without also being handed a base path to prepend.
+
+### CPM-APP-S15: The navigation reads the way a person reads
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner from the screen: why is Packages before Home, and why do the
+> queues read `identity_review`?
+
+Both were real. The order was never revisited -- Packages was the first screen built
+(`CPM-APP-S02`) and Home arrived eight stories later (`CPM-APP-S10`). The queue names
+were the *stored values*: `Queue` has carried labels since `CPM-APP-S04` and no
+surface had ever used one, which is also why they were lower case -- nothing was
+reading them to notice.
+
+It leaked in four places: the navigation, the queue page's title, its heading, and its
+"owned by" line, which showed a role slot.
+
+**The rule this settles is not "never render a raw value", and getting that wrong in
+either direction is a defect.** A derived status is emitted verbatim by `CPM-AD-24`
+precisely so the five states mean the same thing on a screen, in a CSV and in a JSON
+response; a well-meant "Unknown" on one surface takes that away. A queue name and a
+role name are storage nobody says aloud. So: **a value a person reads is a status this
+product asserts, or it has a label.**
+
+As any of the three roles,
+I want the screens to name things the way I would say them,
+So that I can read the product without translating its database columns.
+
+**Acceptance Criteria:**
+
+**Given** the navigation
+**When** it is rendered
+**Then** Home is its first entry
+
+**Given** a queue anywhere a person reads it
+**When** it is rendered
+**Then** it is the queue's label, never its stored value
+
+**Given** a role anywhere a person reads it
+**When** it is rendered
+**Then** it is the role's label, never its slot
+
+**Given** a derived status
+**When** it is rendered
+**Then** it is still emitted verbatim, and has acquired no label
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-24` — which this is careful *not* to break: the same story
+that gives queues labels asserts the statuses have none.
+**Constrained:** the labels are spelled out rather than derived from the slot.
+`leadership.title()` is "Leadership" and the role is called "Platform and engineering
+leadership"; a derived label is one nobody can correct without first replacing the
+mechanism.
+
+### CPM-APP-S16: Wide content scrolls itself, not the page
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner with a screenshot: the health table is too wide and would
+> benefit from scrollbars.
+
+The screenshot showed more than a wide table. The *page* had scrolled: the navigation
+and the heading were off-screen to the left, and the visible left edge read "alth".
+
+**That is the defect, and the width is not.** Eleven columns of status chips do not
+fit a laptop beside the facet rail, and never will. What went wrong is how that
+failed: `.main-pane` could shrink and declared no `overflow-x`, so the table did not
+overflow its container -- it made its container wider, and the page grew with it.
+
+A table that scrolls is a table somebody reads. A page that scrolls is a layout
+somebody believes is broken: they cannot see the product's name or which screen they
+are on, and the first thing they do is scroll left to find out, which puts the table's
+own left edge off-screen instead.
+
+`.panel` -- the container the queue, coverage and report tables sit in -- has carried
+the pair since the mockups. `.main-pane` had half of it, which is why the health view
+was the one that broke.
+
+As any of the three roles,
+I want a table wider than my screen to scroll inside itself,
+So that I can still see where I am while I read it.
+
+**Acceptance Criteria:**
+
+**Given** a table wider than the viewport
+**When** the page is rendered
+**Then** the table scrolls within its own container
+
+**Given** the same page
+**When** it is rendered
+**Then** the page body does not scroll horizontally, and the navigation and heading
+stay where they are
+
+**Given** a container that holds content wider than a laptop
+**When** the stylesheet is read
+**Then** it declares both halves — the container may shrink, and it scrolls what does
+not fit
+
+**Given** the health table at a narrow width
+**When** it is rendered
+**Then** its columns scroll rather than being crushed to unreadability
+
+**Satisfies:** nothing directly.
+**Constrained:** asserted against the stylesheet rather than a rendered page, because
+this suite has no browser. That is a real limit and is written down rather than
+implied: the audit proves the rules are declared, not that the result looks right. The
+rendered check was done by hand.
+
+### Open questions this epic raises
+
+- **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
+  built without one. Its subject — what the product cannot see, across the whole
+  inventory — is the aggregate of `CPM-FR-5`, and `CPM-FR-5` is written per package.
+  Either the FR is widened or a new one is added; this is recorded rather than
+  decided.
+
+## CPM-EP-DOCS: Documentation that says which product it is about
+
+> **Added after the epics were written, and raised by the product owner.** No
+> functional requirement commissions documentation. The acceptance criteria in every
+> story below were drafted by the implementing agent, on the terms `CPM-APP-S09`
+> established.
+
+`mkdocs` has been configured since `CPM-PLATFORM-S01` and the site builds. What it
+serves is the accelerator's documentation with this product's name on the tab:
+`docs/index.md` opens *"Django 15-Factor Base — A Django application accelerator
+template"*, and all six pages describe the platform — the stack, the development
+workflow, observability, authentication, deployment. **Nothing on the site explains
+what Conda-Sentinel does.** The domain model, the five outcome states, the policy
+run, the three roles and their queues, and the twenty-six architecture decisions
+exist only in `_bmad-output/planning-artifacts/`, which is not served and is not
+written for a reader.
+
+The two are also mixed inside single files. `docs/development.md` has eighteen
+sections: thirteen are the platform's and three are this product's. So the split this
+epic performs is a content separation rather than a file move, and it has a cost that
+has to be paid rather than deferred — **237 references** in source comments, tests and
+planning artifacts cite `docs/development.md` and `docs/deployment.md` by path.
+
+**Depends on:** nothing. Every story here is documentation and configuration.
+
+### CPM-DOCS-S01: Two trees, and every reference still resolves
+
+As a maintainer,
+I want the platform's documentation and this product's kept apart,
+So that a reader asking how Conda-Sentinel works is not handed a chapter on
+15-factor process models.
+
+**Acceptance Criteria:**
+
+**Given** the documentation tree
+**When** it is listed
+**Then** every page lives under `docs/accelerator/` or `docs/conda-sentinel/`, and
+the navigation reflects the same split
+
+**Given** a section of a page that describes the other side
+**When** the split is performed
+**Then** it moves rather than being duplicated, and no content is lost
+
+**Given** any reference to a documentation path in source, tests or planning
+artifacts
+**When** the move is complete
+**Then** it names a file that exists
+
+**Given** a later change that moves or renames a documentation page
+**When** the suite runs
+**Then** a reference naming a file that no longer exists fails a test
+
+**Satisfies:** nothing directly.
+**Constrained:** the reference sweep is the expensive half and is not optional — 237
+citations exist today, and a stale pointer in a module docstring is worse than the
+mixture it replaced, because a reader who follows it concludes the documentation was
+deleted rather than moved. The audit in AC 4 is what stops the count growing back.
+
+### CPM-DOCS-S02: The site wears the product's own skin
+
+As any reader,
+I want the documentation to look like the product it documents,
+So that I can tell at a glance which system I am reading about.
+
+**Acceptance Criteria:**
+
+**Given** the documentation site
+**When** any page is rendered
+**Then** it uses the product's palette, type and brand mark
+
+**Given** the site's front page
+**When** it is opened
+**Then** it describes Conda-Sentinel and not the accelerator this component was
+built from
+
+**Given** a reader's light or dark preference
+**When** a page is rendered
+**Then** the site honours it, in both schemes
+
+**Given** an outcome state named in prose
+**When** it is rendered
+**Then** it is distinguishable as a state rather than set as ordinary words
+
+**Satisfies:** nothing directly. Serves `CPM-FR-5` in prose: a page that wrote
+`unknown` as an ordinary word would make, in documentation, the mistake `CPM-AD-24`
+forbids in an export.
+**Constrained:** the palette is *mapped* onto Material's own `--md-*` variables
+rather than restated, so the theme keeps working and only the colours are this
+product's. The site's scheme attribute is Material's `[data-md-color-scheme]` and is
+deliberately **not** reconciled with the application's `[data-theme]`: the docs are
+read in a tab beside the product, not inside it.
+
+### CPM-DOCS-S03: What Conda-Sentinel does, and how it was built
+
+As a new maintainer,
+I want the product explained on the documentation site,
+So that I do not have to read the planning artifacts to understand the system.
+
+**Acceptance Criteria:**
+
+**Given** the product documentation
+**When** it is read start to finish
+**Then** it explains what the product concludes about a package and from what
+evidence
+
+**Given** the five outcome states
+**When** they are documented
+**Then** each is named, and it is explained why `unknown` is a finding rather than an
+absence
+
+**Given** the architecture spine
+**When** it is presented on the site
+**Then** the decisions a maintainer has to know are explained in prose, with the
+identifiers preserved so the spine remains findable
+
+**Given** the flow from a collector to a screen
+**When** it is documented
+**Then** each stage names the table it writes and the rule that governs it
+
+**Satisfies:** nothing directly.
+**Constrained:** a distillation, never a copy. `_bmad-output/planning-artifacts/`
+stays the record; a second full copy of the spine would be a second thing to keep
+true, and the one that drifts is always the copy.
+
+### CPM-DOCS-S04: Running it, and keeping it running
+
+As a maintainer,
+I want to be able to start the product, put data in it, and change it safely,
+So that my first day does not depend on somebody being available to explain it.
+
+**Acceptance Criteria:**
+
+**Given** a fresh checkout
+**When** the documentation is followed
+**Then** the application can be started and signed into with no external service
+running
+
+**Given** the demo seeder
+**When** it is documented
+**Then** it is explained what it writes and, more importantly, what it does not
+
+**Given** a change to the product
+**When** the documentation describes how to ship it
+**Then** it names the gate, the audits a change has to satisfy, and why each exists
+
+**Given** the audits the suite enforces
+**When** they are listed
+**Then** each names the failure it prevents rather than only the rule it applies
+
+**Satisfies:** nothing directly.
+**Constrained:** `pixi run ci` cannot complete on macOS — the `docker build` child in
+`tests/integration/test_image_payload.py` zombies, which reproduces on unmodified
+`main`. That is documented as the substitute procedure rather than hidden, because a
+maintainer who does not know it concludes their change broke the suite.
 
 ## CPM-EP-NL: Governed natural-language investigation
 
