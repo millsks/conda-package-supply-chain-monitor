@@ -649,12 +649,48 @@ def _run_policy(*, observed_at: datetime, clock: object) -> dict[str, object]:
         "policy_version": version,
         "rollup_rows": summary.rollup_rows,
         "parameters_file": str(parameters_file()),
-        "unconfigured": (
-            "priority_rules and license_rules are empty in the shipped parameter file, so every priority "
-            "bucket comes out unknown and every licence manual_review. Both files say why; the values are "
-            "PRD Open Questions 8 and 4. Record a rule set at a new version to see those columns work."
-        ),
+        "unconfigured": _unconfigured_at(version),
     }
+
+
+def _unconfigured_at(version: str) -> str:
+    """Return what the parameter file leaves undecided at the version just run.
+
+    **Read from the parameters rather than written as a sentence**, and the reason is
+    a lesson rather than a preference: this used to be a fixed string saying priority
+    and licence come out inert. Recording a rule set at a newer version made that
+    string false the moment the seeder picked the newer version up -- a demo
+    confidently explaining a state it was no longer in, which is worse than a demo
+    that says nothing.
+
+    Args:
+        version: The policy version the run applied.
+
+    Returns:
+        A sentence naming what is still empty, or -- when nothing is -- pointing at
+        the file so a reader can see whether the version they just ran at is a
+        proposal.
+
+    """
+    from conda_sentinel.policies.parameters import parameters_for  # noqa: PLC0415 - after django.setup()
+
+    recorded = parameters_for(version)
+    empty = [
+        name
+        for name, values in (("priority_rules", recorded.priority_rules), ("license_rules", recorded.license_rules))
+        if not values
+    ]
+    if not empty:
+        return (
+            f"Every rule set is recorded at {version}. If that version is a PROPOSAL -- the comment above it in "
+            f"the parameter file says so -- then the priority buckets on these screens are a proposal too, and "
+            f"reviewing them by looking at the screens is exactly what it is for."
+        )
+    return (
+        f"{' and '.join(empty)} are empty at {version}, so the columns they drive come out unknown or "
+        f"manual_review whatever evidence is behind them. The parameter file says why; the values are PRD "
+        f"Open Questions 8 and 4."
+    )
 
 
 def _shipped_policy_version() -> str:

@@ -75,14 +75,20 @@ licence needing review, a package behind upstream, an absent feedstock, and one
 `internal-telemetry-sdk` that nothing can identify, so you can see what
 <span class="cs-state unknown">unknown</span> looks like across a whole row.
 
-!!! note "Two columns come out flat, deliberately"
+!!! note "One column still comes out flat, deliberately"
 
-    The seeder reports it: `priority_rules` and `license_rules` are **empty in the
-    shipped parameter file**, so every priority bucket is
-    <span class="cs-state unknown">unknown</span> and every licence
-    <span class="cs-state warn">manual_review</span>. Both are open questions in the
-    PRD, and both files say so. Record a rule set at a new version to see those
-    columns work.
+    The seeder reports which, and reads it off the version it ran rather than saying
+    it in prose — so this stays true as versions are added.
+
+    `license_rules` is **empty in the shipped parameter file**, so every licence comes
+    out <span class="cs-state warn">manual_review</span>. That is PRD Open Question 4
+    and the file says so. Record a rule set at a new version to see the column work.
+
+    `priority_rules` was empty too until `2026.09.4` recorded ten of them (PRD Open
+    Question 8), so priority buckets and scores are real from that version on. A run
+    at an *older* version still produces
+    <span class="cs-state unknown">unknown</span> buckets — which is the point of
+    versioning the rules rather than the code.
 
 ## Running a policy pass yourself
 
@@ -93,9 +99,17 @@ There is no management command for a first run — the schedule owns it in produ
 # pixi run -e dev python manage.py shell
 from conda_sentinel.core.clock import SystemClock
 from conda_sentinel.core.policy_run import execute_policy_run
+from conda_sentinel.policies.parameters import parameters_file, parameters_from
 
-execute_policy_run(policy_version="2026.09.3", clock=SystemClock())
+source = parameters_file()
+newest = sorted(parameters_from(source.read_text(encoding="utf-8"), source=source))[-1]
+
+execute_policy_run(policy_version=newest, clock=SystemClock())
 ```
+
+**Read rather than written down**, which is what the seeder does and for the same
+reason: a version pinned in prose is one that stops being the newest the day somebody
+records another, and this page would then be telling you to run the old rules.
 
 The version must be one the parameter file **records**. An unrecorded version fails
 every package rather than falling back to a default — a verdict whose rules nobody
