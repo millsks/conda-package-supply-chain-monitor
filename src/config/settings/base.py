@@ -503,6 +503,12 @@ TEMPLATES = [
                 # with a queue missing from its nav, and a reader would conclude the
                 # queue did not exist rather than that the page was wrong.
                 "conda_sentinel.surface.context_processors.navigation",
+                # The reader's theme (`CPM-APP-S11`). Here for the same reason and
+                # one more: the control is on the base template, so a view that had
+                # to remember this would eventually be one that did not -- and the
+                # symptom is a single page rendering in the wrong theme, which is the
+                # page nobody thinks to check.
+                "conda_sentinel.surface.context_processors.theme",
             ],
         },
     },

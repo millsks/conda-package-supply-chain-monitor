@@ -1269,6 +1269,70 @@ the acting user, the view, the path, the roles required and the roles held. That
 last field is what distinguishes a user whose groups were never mapped (`held` is
 empty) from somebody reaching for another role's queue.
 
+## Themes
+
+Three states, and the third is the one that matters: **light** (the default), **dark**,
+and **auto**, which follows the reader's operating system.
+
+`auto` is a choice somebody makes, not the state they are left in by making none.
+Collapsing three into a light/dark toggle is the common mistake and it is lossy — a
+laptop that switches at sunset should take the product with it, and a two-state
+control can only record where somebody was when they last touched it.
+
+### How it works
+
+`surface/theming.py` owns the vocabulary. A cookie holds the choice;
+`surface/context_processors.py` reads it onto every page; `conda_sentinel/base.html`
+writes `data-theme` on the document element:
+
+```html
+<html lang="en" data-theme="light">   <!-- light or dark: asserted -->
+<html lang="en">                      <!-- auto: nothing asserted -->
+```
+
+**`auto` renders no attribute, and that absence is the mechanism.** The stylesheet's
+`prefers-color-scheme: dark` block is guarded by `:root:not([data-theme="light"])`, so
+it only decides when nothing has overridden it. Writing `data-theme="auto"` would take
+the decision away from the machine and hand it to a value the CSS has no rule for.
+
+**The default asserts itself, for the same reason in reverse.** A default of light that
+rendered *nothing* would still give a dark-desktop reader the dark palette. If you
+change the default, change what is written, not just what is returned.
+
+### Why a cookie and not `localStorage`
+
+The product ships no JavaScript, and here that is what makes the requirement
+satisfiable rather than a cost. A client-side toggle cannot know the choice before the
+document loads, so it paints the default and corrects it — the flash of the wrong theme
+every such implementation has. A cookie is on the request, so the server renders the
+right attribute on the first paint.
+
+### Why not on the `User`
+
+A theme is a property of the screen somebody is looking at, not of who they are: the
+same person on a bright monitor and a dark laptop wants different answers, and a column
+on `User` would make those one answer. It also has to work before anybody signs in,
+because the sign-in page is a screen too.
+
+### Adding a fourth state
+
+Add it to `THEMES` and `THEME_LABELS` — both, and the template loops over the roster so
+nothing else changes. `THEME_LABELS` exists precisely so a new value cannot reach the
+page without a name: a template titling raw values would render whatever it was given.
+
+Then add the CSS branch. A value in `THEMES` with no rule in the stylesheet is the
+worst outcome, because it is selectable and does nothing.
+
+### Two things the view gets right
+
+**`POST` only.** A `GET` that set a cookie would let a prefetch, a link checker or a
+shared URL change somebody's preference — and the last one actually happens.
+
+**The return path is validated.** `next` comes from a form field on whatever page the
+reader was on, and a form field is attacker-supplied.
+`url_has_allowed_host_and_scheme` is what keeps it from being an open redirect
+somebody can hang a phishing page off.
+
 ## The request boundary
 
 `CPM-AD-9` splits the product in two. A request may read derived state and evidence,

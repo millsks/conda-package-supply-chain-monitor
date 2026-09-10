@@ -2005,15 +2005,16 @@ So that I can read it on the screen I am actually sitting at.
 
 **Given** a reader who has chosen nothing
 **When** a page is rendered
-**Then** it follows the operating system, and no explicit theme is asserted
+**Then** it is light, whatever the operating system says
 
 **Given** a reader who chooses light or dark
 **When** the next page is rendered
 **Then** the choice is honoured on the **first paint**, with no flash of the other
 
-**Given** a reader who chooses "auto" again
+**Given** a reader who chooses "auto"
 **When** a page is rendered
-**Then** it returns to following the machine — auto is a choice, not the absence of one
+**Then** it follows the machine — auto is a choice a reader makes, not the state they
+are left in by making none
 
 **Given** a stored preference
 **When** it is read
@@ -2022,8 +2023,21 @@ So that I can read it on the screen I am actually sitting at.
 **Satisfies:** nothing directly. Serves the design spine's own three-state palette.
 **Governed by:** `CPM-AD-24` (the tone vocabulary is unaffected by the theme — a
 status renders as its own value under every one).
-**Constrained:** the product ships no JavaScript, so the choice is a form post and a
-cookie rather than `localStorage`. That is what makes the first-paint criterion
+**Constrained:** **light is the default, at the product owner's direction**, and it is
+a product decision rather than a technical one — following the machine would have been
+the technical default, since that is what the stylesheet does when nothing overrides
+it. The reasoning: this product is read beside other operator tooling and in
+screenshots pasted into tickets, and a reader who has not chosen should see the same
+screen as whoever is describing it to them. The cost is stated rather than hidden — a
+reader on a dark desktop gets a light page until they say otherwise — and it is why
+`auto` stays in the control rather than being what you get by not choosing.
+
+The default has to *assert* itself: the stylesheet's dark block is guarded by
+`:root:not([data-theme="light"])`, so a default of light that rendered no attribute
+would still hand a dark-desktop reader the dark palette.
+
+The product ships no JavaScript, so the choice is a form post and a cookie rather than
+`localStorage`. That is what makes the first-paint criterion
 satisfiable at all: a client-side toggle cannot render the right theme before the
 document loads, and the flash it produces is the failure this criterion names.
 Deliberately **not** stored on `User`: a theme is a property of the screen somebody is

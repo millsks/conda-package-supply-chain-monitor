@@ -27,6 +27,7 @@ from conda_sentinel.surface.views import PackageHealthView
 from conda_sentinel.surface.views import QueueView
 from conda_sentinel.surface.views import ReportExportView
 from conda_sentinel.surface.views import ReportView
+from conda_sentinel.surface.views import ThemeView
 
 app_name = "conda_sentinel"
 
@@ -62,4 +63,7 @@ urlpatterns = [
     # the same report and each is asking about their own request.
     path("exports/<int:pk>/", ExportJobView.as_view(), name="export-job"),
     path("exports/<int:pk>/download/", ExportJobDownloadView.as_view(), name="export-job-download"),
+    # `CPM-APP-S11`. Not under any of the surfaces above, because the control is on
+    # every one of them -- including the sign-in page, which belongs to the platform.
+    path("theme/", ThemeView.as_view(), name="theme"),
 ]

@@ -36,6 +36,7 @@ Reads source and the URLconf: no database, no network, no requests. The refusal 
 from __future__ import annotations
 
 import ast
+import importlib
 from typing import TYPE_CHECKING
 from typing import Final
 
@@ -319,6 +320,27 @@ def declares_a_role(view: type) -> bool:
     return bool(view.required_roles) or overrides_the_seam
 
 
+#: The registered surfaces that deliberately declare no role, and why each does.
+#:
+#: **Spelled exactly and spent exactly**, on the terms `test_app_layering_audit.py`
+#: sets for its recorded imports: `test_every_ungated_surface_is_still_ungated` below
+#: fails on an entry that has acquired a role or stopped existing, so this cannot go
+#: on licensing nothing.
+#:
+#: One entry, and it should stay hard to add a second. `CPM-AD-13` scopes access to
+#: *evidence*, and a theme is not evidence -- it is a property of the screen somebody
+#: is looking at. Requiring a role would also break the thing the control is for:
+#: `CPM-APP-S12` brings the sign-in page into this product's shell and the control
+#: goes with it, and a reader meets this product there, before they hold any role at
+#: all. A control that was visible and inert on that page would be worse than none.
+RECORDED_UNGATED_SURFACES: Final[dict[str, str]] = {
+    "conda_sentinel.surface.views.ThemeView": (
+        "CPM-APP-S11's theme control. It reads and writes no evidence -- it stores one of three words in a "
+        "cookie -- and it has to work on the sign-in page, which a reader reaches before they hold any role"
+    ),
+}
+
+
 def test_every_registered_view_declares_a_product_permission() -> None:
     """AC 2: every view, viewset and report names the role it requires.
 
@@ -330,12 +352,52 @@ def test_every_registered_view_declares_a_product_permission() -> None:
     name, so a surface cannot satisfy it with a class of its own that happens to be
     called something similar.
     """
-    undeclared = [f"{view.__module__}.{view.__name__}" for view in registered_views() if not declares_a_role(view)]
+    undeclared = [
+        name
+        for view in registered_views()
+        if not declares_a_role(view) and (name := f"{view.__module__}.{view.__name__}") not in RECORDED_UNGATED_SURFACES
+    ]
 
     assert undeclared == [], (
         f"these surfaces declare no role: {undeclared}. CPM-AD-13: the platform's IsAuthenticated floor says "
         f"somebody is signed in and nothing about what they may see."
     )
+
+
+@pytest.mark.parametrize("recorded", sorted(RECORDED_UNGATED_SURFACES))
+def test_every_ungated_surface_is_still_ungated(recorded: str) -> None:
+    """An exemption that has stopped being real is one quietly widening the sweep.
+
+    Two ways it stops being real: the view is gone, or it has acquired a role and no
+    longer needs licensing. Both fail here rather than going unnoticed -- the second
+    is the one worth catching, because a stale entry means the next view added to that
+    module inherits an exemption nobody granted it.
+
+    Args:
+        recorded: The dotted name of the exempted view.
+
+    """
+    module_name, _, class_name = recorded.rpartition(".")
+    view = getattr(importlib.import_module(module_name), class_name, None)
+
+    assert view is not None, f"{recorded} is exempted and no longer exists."
+    assert not declares_a_role(view), (
+        f"{recorded} now declares a role, so its exemption in RECORDED_UNGATED_SURFACES is spent and should be "
+        f"removed -- an exemption that licenses nothing is one the next view in that module inherits."
+    )
+
+
+def test_the_ungated_surfaces_are_reachable_and_few() -> None:
+    """The exemption list is about *registered* views, and it should stay short.
+
+    A list that named views nobody routes would be describing an intention rather than
+    the deployment, and one that grew would mean `CPM-AD-13` had quietly become
+    advisory.
+    """
+    registered = {f"{view.__module__}.{view.__name__}" for view in registered_views()}
+
+    assert set(RECORDED_UNGATED_SURFACES) <= registered, sorted(set(RECORDED_UNGATED_SURFACES) - registered)
+    assert len(RECORDED_UNGATED_SURFACES) < len(registered) // 2
 
 
 def test_the_sweep_has_a_registered_view_to_sweep() -> None:

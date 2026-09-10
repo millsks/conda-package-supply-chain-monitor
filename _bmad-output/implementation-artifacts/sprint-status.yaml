@@ -140,7 +140,7 @@ development_status:
   # this component was built from.
   cpm-app-s09-coverage-what-the-monitor-cannot-see: done
   cpm-app-s10-a-home-that-dates-the-picture: done
-  cpm-app-s11-theme-choice: ready-for-dev
+  cpm-app-s11-theme-choice: done
   cpm-app-s12-every-page-is-this-products: ready-for-dev
   epic-app-retrospective: optional
 

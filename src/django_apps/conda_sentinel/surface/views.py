@@ -43,9 +43,11 @@ from typing import Final
 from typing import cast
 
 from django.conf import settings
+from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.http import Http404
 from django.http import HttpResponse
 from django.shortcuts import redirect
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import DetailView
 from django.views.generic import ListView
@@ -83,6 +85,10 @@ from conda_sentinel.surface.queues import queue_rows
 from conda_sentinel.surface.reports import REPORTS
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
 from conda_sentinel.surface.reports import report_page
+from conda_sentinel.surface.theming import THEME_COOKIE
+from conda_sentinel.surface.theming import THEME_COOKIE_MAX_AGE
+from conda_sentinel.surface.theming import THEME_PARAMETER
+from conda_sentinel.surface.theming import THEMES
 from conda_sentinel.workflow.states import QUEUE_OWNERS
 
 if TYPE_CHECKING:
@@ -709,4 +715,73 @@ class ExportJobDownloadView(RoleRequiredMixin, View):
         slug = job.parameters.get(REPORT_SLUG_PARAMETER, "report")
         response["Content-Disposition"] = f'attachment; filename="{slug}.csv"'
         response[PROVENANCE_HEADER] = job.parameters.get(PROVENANCE_PARAMETER, "")
+        return response
+
+
+class ThemeView(View):
+    """Record which of the three themes a reader wants, and send them back.
+
+    **Not role-gated, and it is the one surface in this product that is not.**
+    `CPM-AD-13` scopes access to *evidence*, and a theme is not evidence -- it is a
+    property of the screen somebody is looking at. Requiring a role here would buy
+    nothing (a reader with no role cannot reach a page carrying the control anyway)
+    and would cost something later: `CPM-APP-S12` brings the sign-in and error pages
+    into this product's shell, and the control goes with them. A reader meets this
+    product on the sign-in page, before they hold any role at all, and a control that
+    was visible and inert there would be worse than no control.
+
+    **`POST` only.** A `GET` that set a cookie would let a prefetch, a link checker or
+    a shared URL change somebody's preference, and the last of those is the one that
+    actually happens: a reader sends a colleague a link to a screen and changes their
+    theme.
+
+    **The redirect target is validated.** `next` comes from the form on whatever page
+    the reader was on, and a value from a request is a value an attacker can supply --
+    `url_has_allowed_host_and_scheme` is what keeps this from being an open redirect
+    somebody can hang a phishing page off.
+    """
+
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Store the choice and return the reader to where they were.
+
+        Args:
+            request: The request, carrying the chosen theme and where to go back to.
+            *args: Django's positional URL arguments.
+            **kwargs: Django's keyword URL arguments.
+
+        Returns:
+            A redirect to the page the control was on, carrying the cookie.
+
+        """
+        chosen = request.POST.get(THEME_PARAMETER, "")
+        target = request.POST.get(REDIRECT_FIELD_NAME, "")
+        # A relative URL from this host, or the product's home. Not the referer and
+        # not the raw field: both are attacker-supplied, and the check is what makes
+        # the difference between a redirect and an open one.
+        allowed = url_has_allowed_host_and_scheme(
+            target,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        )
+        response = redirect(target if allowed else "conda_sentinel:home")
+
+        if chosen in THEMES:
+            response.set_cookie(
+                THEME_COOKIE,
+                chosen,
+                max_age=THEME_COOKIE_MAX_AGE,
+                samesite="Lax",
+                secure=request.is_secure(),
+                # Readable by script, and deliberately: `httponly` protects a
+                # credential from being read, and this is a colour. Marking it
+                # would say something untrue about what it holds, and would stop a
+                # later story doing anything client-side with it.
+                httponly=False,
+            )
+        else:
+            # A value outside the three is discarded rather than stored (AC 5). The
+            # reader still goes back where they were: a preference that will not take
+            # is not worth an error page, and the control cannot produce one -- only a
+            # hand-made request can.
+            response.delete_cookie(THEME_COOKIE)
         return response
