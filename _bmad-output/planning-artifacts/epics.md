@@ -2540,6 +2540,124 @@ this suite has no browser. That is a real limit and is written down rather than
 implied: the audit proves the rules are declared, not that the result looks right. The
 rendered check was done by hand.
 
+
+### CPM-APP-S17: Finding a package by name
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner: should the views be searchable by package?
+
+`CPM-APP-S02` gave the health table nine facets, and every one of them filters by
+something the **policy engine decided** — a status, a bucket, a confidence. None of
+them answers "where is django", because `django` is not a status.
+
+So today the only way to reach a package's detail page is to page to it or to type its
+URL. On the seeded hundred that is two pages. At `CPM-NFR-1`'s ten thousand it is two
+hundred, and a name search stops being a convenience and becomes the primary way
+anybody reaches a package at all.
+
+As any of the three roles,
+I want to find a package by typing part of its name,
+So that I can reach it without knowing which page it is on.
+
+**Acceptance Criteria:**
+
+**Given** the health table
+**When** a name fragment is submitted
+**Then** the rows are narrowed to packages whose canonical name contains it, matched
+without regard to case
+
+**Given** the same fragment
+**When** it is sent to the JSON API instead
+**Then** the parameter is spelled the same and means the same thing, so a URL a
+reviewer sends an integrator works
+
+**Given** a fragment no package matches
+**When** it is submitted
+**Then** the result is **empty and not a refusal** — unlike a facet value outside its
+vocabulary, which stays a 400
+
+**Given** a search and a set of facets together
+**When** both are submitted
+**Then** they narrow the same result rather than replacing one another, and the
+applied-filter summary says both are in force
+
+**Given** a search is in force
+**When** the reader clears it
+**Then** the facets they had ticked survive, and the reverse also holds
+
+**Satisfies:** nothing directly; `CPM-NFR-1` is what makes it necessary rather than
+pleasant.
+**Governed by:** `CPM-AD-12` — the search narrows the queryset the paginator counts,
+so the page count is the number of matches and not the number of packages.
+`CPM-AD-24` — one queryset builder feeds the screen and the API, so `?q=` cannot come
+to mean two things.
+
+**Constrained: a search is not a tenth facet, and the difference is the whole
+design.** `surface/filters.py` refuses a value outside its vocabulary, deliberately:
+`CPM-AD-24`'s vocabularies are closed, so `?vuln=criticl` is a typo or a stale
+bookmark and silently returning the unfiltered inventory under a URL that claims to be
+filtered is the worse answer. A name is not a closed vocabulary. `?q=djangoo` is a
+search that matched nothing, which is a *result*, and answering it with a 400 would
+be as wrong as answering `?vuln=criticl` with the whole inventory.
+
+The two rules are opposites and both are right. Whoever writes this has to say so
+where it can be read, or the next person reconciles them — in either direction, and
+both are damage.
+
+**Constrained:** matched with `icontains` against the canonical name. Adequate at ten
+thousand rows; the answer if it stops being adequate is a trigram index, which is
+PostgreSQL-only and would make the SQLite development database diverge from the
+deployed one. Noted rather than done.
+
+### CPM-APP-S18: The queues and the reports are searchable too
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`. The second
+> half of the product owner's question, separated from `CPM-APP-S17` because the
+> health table shares a queryset builder with the API and these surfaces share nothing.
+
+`CPM-APP-S17` makes the inventory searchable. The queues and the reports are the
+surfaces a reviewer actually *works* from, and neither can be narrowed at all: a queue
+is a ranked list of open items and a report is a projection, and both are read
+top-to-bottom or not at all.
+
+A reviewer who has been told "the aiohttp finding is wrong" cannot get to it except by
+reading the queue until they see it.
+
+As any of the three roles,
+I want to narrow a queue or a report to one package,
+So that I can answer a question about that package without reading a list.
+
+**Acceptance Criteria:**
+
+**Given** any of the three queues
+**When** a name fragment is submitted
+**Then** the open items are narrowed to those about matching packages, and their rank
+order is unchanged
+
+**Given** any of the six reports
+**When** a name fragment is submitted
+**Then** its rows are narrowed the same way
+
+**Given** a narrowed queue or report
+**When** the count is displayed
+**Then** it is the number of matches, and the pagination follows the matches
+
+**Given** the parameter
+**When** it is read on any of these surfaces
+**Then** it is spelled exactly as `CPM-APP-S17` spells it on the health table
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-12`, `CPM-AD-13` (the search narrows what a role may already
+see and never widens it), `CPM-AD-24`.
+
+**Constrained:** all six reports, including the three that are usually one or two rows
+on the seeded inventory. A control that appears on four of six pages of the same kind
+reads as a bug in the two that lack it, and the three small ones are only small on
+*this* inventory.
+
+**Constrained:** the coverage screen is **excluded, deliberately**. It has one row per
+collector rather than per package, so a box that looked like the others would answer a
+different question. Not an oversight; recorded so it is not later "completed".
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
