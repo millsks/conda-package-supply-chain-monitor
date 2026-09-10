@@ -21,6 +21,8 @@ seeder actually produces is `tests/integration/test_local_dev_demo_seeding.py`.
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Final
 
 import pytest
@@ -45,10 +47,15 @@ DECLARED_STATES: Final[tuple[tuple[str, type], ...]] = (
     ("inferred_compatible", PythonReadinessAssessment),
 )
 
-#: How many packages the demo seeds. Ten, and the number is asserted because the
-#: point of the roster is *variety* -- a seeder that had lost eight of them would
-#: still produce a screen, and the screen would look fine.
-EXPECTED_PACKAGES: Final[int] = 10
+#: How many packages the demo seeds.
+#:
+#: A hundred since `CPM-PLATFORM-S05`, and the number is asserted for the reason it
+#: was asserted at ten: the point of the roster is *variety*, and a seeder that had
+#: lost most of it would still produce a screen that looked fine. What changed is why
+#: a hundred -- ten rows fit above the fold, sort instantly and paginate never, so a
+#: reviewer asking whether a screen is usable was being shown one that could not be
+#: unusable.
+EXPECTED_PACKAGES: Final[int] = 100
 
 
 @pytest.mark.parametrize(("value", "model"), DECLARED_STATES, ids=str)
@@ -247,3 +254,216 @@ def test_an_idle_feedstock_is_older_than_the_shipped_inactivity_threshold() -> N
     idle = max(demo.feedstock_idle_days for demo in demo_data.DEMO_PACKAGES)
 
     assert idle > shipped_threshold_days
+
+
+def _parsed(version: str) -> tuple[int, ...] | None:
+    """Return a version as a comparable tuple, or `None` where it is not numeric.
+
+    Deliberately not `packaging.version.Version`. This module needs to compare two
+    strings the roster wrote next to each other, not to implement PEP 440, and every
+    version in the roster is dotted digits -- so a parser that gives up on anything
+    else is honest about its own reach and adds no dependency to say so.
+
+    Args:
+        version: The version string as the roster declares it.
+
+    Returns:
+        The dotted numbers as a tuple, or `None` when any component is not a number.
+
+    """
+    parts = version.split(".")
+    if not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def test_no_roster_row_declares_an_installed_version_ahead_of_its_upstream() -> None:
+    """The guard that makes the roster's positional columns safe rather than shorter.
+
+    `CPM-PLATFORM-S05` turned a ten-row roster into a hundred, and a hundred rows only
+    stay readable as one line each -- which means the first three arguments are
+    positional and one of them is `upstream_version` and the next is
+    `installed_version`. Swapping that pair is the mistake positional arguments always
+    invite, and it is a *silent* one here: the currency pass concludes `behind` for a
+    package that is current and `current` for one that is behind, both of which render
+    perfectly and neither of which is flagged by anything else.
+
+    Equal versions are correct and common -- most of the roster is up to date.
+    """
+    inverted = [
+        f"{demo.name}: installed {demo.installed_version} ahead of upstream {demo.upstream_version}"
+        for demo in demo_data.DEMO_PACKAGES
+        if (installed := _parsed(demo.installed_version)) is not None
+        and (upstream := _parsed(demo.upstream_version)) is not None
+        and installed > upstream
+    ]
+
+    assert inverted == []
+
+
+def test_the_guard_would_catch_an_inverted_pair() -> None:
+    """Because a comparison over a roster that happens to be right proves nothing.
+
+    The case above passes on an empty roster, on a roster of equal pairs, and on one
+    where every version failed to parse. This is the one that says the comparison
+    itself works, written against a declaration rather than against the real roster.
+    """
+    inverted = demo_data.DemoPackage(name="wrong-way-round", upstream_version="1.0.0", installed_version="2.0.0")
+
+    installed = _parsed(inverted.installed_version)
+    upstream = _parsed(inverted.upstream_version)
+
+    assert installed is not None
+    assert upstream is not None
+    assert installed > upstream
+
+
+def test_every_advisory_identifier_is_one_somebody_can_look_up() -> None:
+    """The product owner asked for real advisories, and this is what "real" has to mean.
+
+    The roster used to carry `GHSA-demo-high` and `GHSA-demo-moderate`. A reviewer who
+    looks one of those up finds nothing, and what they learn is to stop looking things
+    up -- which is a worse outcome than a demo with no advisories at all, because it
+    trains the habit the product exists to support out of them.
+
+    Every identifier below came from OSV.dev. This asserts the *shape* rather than
+    re-querying: a test that made a network request would fail on an aeroplane, and
+    what it would be checking is that OSV is up rather than that this roster is
+    honest. What it does catch is a placeholder, which is the thing that actually went
+    wrong.
+    """
+    identifiers = [demo.advisory[0] for demo in demo_data.DEMO_PACKAGES if demo.advisory]
+    real = re.compile(r"^(?:CVE-\d{4}-\d{4,}|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})$")
+
+    assert identifiers != []
+    assert [name for name in identifiers if not real.match(name)] == []
+    assert [name for name in identifiers if "demo" in name.casefold()] == []
+
+
+def test_every_advisory_states_a_severity_the_shipped_order_ranks() -> None:
+    """A severity outside the recorded order contributes nothing to the risk level.
+
+    `vulnerability_risk_order` is matched case-insensitively against the finding's own
+    stated severity, and a severity the order does not name is silently ignored -- so
+    a roster full of advisories could still produce a screen where every risk level is
+    blank, which looks like the pass being broken.
+    """
+    shipped_order = {"critical", "high", "moderate", "low"}
+    stated = {demo.advisory[1] for demo in demo_data.DEMO_PACKAGES if demo.advisory}
+
+    assert stated <= shipped_order
+    # More than one, or the risk column shows a single tone and demonstrates no order.
+    assert len(stated) > 1
+
+
+def test_a_kev_listing_carries_the_date_the_catalogue_states() -> None:
+    """The reason a KEV listing is worth showing at all is that it is checkable.
+
+    A date computed from the run -- "thirty days ago", which this seeder used to do --
+    moves every time somebody reseeds and matches nothing in CISA's catalogue. A
+    reader who checks finds a mismatch and concludes the collector is wrong.
+    """
+    listed = [demo for demo in demo_data.DEMO_PACKAGES if demo.kev_listed]
+
+    assert listed != []
+    assert [demo.name for demo in listed if not demo.kev_catalogued] == []
+    for demo in listed:
+        assert date.fromisoformat(demo.kev_catalogued) <= date.today(), demo.name  # noqa: DTZ011
+
+
+def test_nothing_unlisted_claims_a_catalogue_date() -> None:
+    """`kev_findings` refuses a `not_listed` row that carries one, and rightly.
+
+    A date on a row saying the catalogue does not list the advisory is a contradiction
+    the table has a constraint against, so a roster that declared one would fail at
+    the first insert rather than at the point the mistake was made.
+    """
+    stray = [demo.name for demo in demo_data.DEMO_PACKAGES if demo.kev_catalogued and not demo.kev_listed]
+
+    assert stray == []
+
+
+def test_the_roster_is_the_mixture_it_was_asked_to_be() -> None:
+    """Web frameworks, data science, utilities, and things that are not Python at all.
+
+    Asked for by name by the product owner. A roster of a hundred packages all of one
+    kind would be a hundred rows that still demonstrate one thing -- and the
+    non-Python entries are load-bearing rather than decorative: they are where
+    `not_applicable` on the Python 3.14 column comes from, instead of a contrivance.
+    """
+    names = {demo.name for demo in demo_data.DEMO_PACKAGES}
+
+    for kind, sample in (
+        ("web frameworks", {"django", "flask", "fastapi", "tornado", "litestar"}),
+        ("data science", {"numpy", "pandas", "scikit-learn", "pytorch", "hdbscan"}),
+        ("utilities", {"setuptools", "pytest", "boto3", "sqlalchemy", "cattrs"}),
+        ("not Python at all", {"git", "nodejs", "cmake", "ffmpeg", "sqlite"}),
+    ):
+        assert sample <= names, f"the roster lost its {kind}: {sorted(sample - names)}"
+
+
+@pytest.mark.parametrize(
+    ("licence", "method"),
+    [
+        ("MIT", "spdx-identifier"),
+        ("Apache-2.0 OR BSD-3-Clause", "spdx-expression"),
+        ("Apache-2.0 AND BSD-3-Clause", "spdx-expression"),
+        ("GPL-2.0-only WITH Classpath-exception-2.0", "spdx-expression"),
+        # Not an operator: the word is inside an identifier, not joining two.
+        ("BSD-3-Clause-Clear", "spdx-identifier"),
+    ],
+)
+def test_a_compound_licence_is_recorded_as_an_expression(licence: str, method: str) -> None:
+    """The column declares three values and the seeder has to pick the right one.
+
+    It used to test for `" OR "` alone, which was true of the ten-package roster and
+    false of this one: `tqdm` declares `MPL-2.0 AND MIT` and `python-dateutil`
+    declares `Apache-2.0 AND BSD-3-Clause`, and both would have been filed as single
+    identifiers -- a licence screen quietly saying an expression is an identifier.
+
+    Args:
+        licence: What the metadata declared.
+        method: What the seeder should record as having recognised it.
+
+    """
+    recognised = "spdx-expression" if demo_data._COMPOUND.search(licence) else "spdx-identifier"  # noqa: SLF001
+
+    assert recognised == method
+
+
+def test_the_roster_answers_the_python_question_both_ways() -> None:
+    """`CPM-FR-24` exists to tell a package that is ready from one that is not.
+
+    Every seeded package used to come out ready, which made the product's headline
+    column render one tone across the whole screen -- and made two of the shipped
+    priority rules, `p8` and `p9`, unreachable by anything the demo could produce.
+    """
+    kinds = {demo.python_evidence for demo in demo_data.DEMO_PACKAGES}
+
+    assert {"build", "metadata", "metadata-incompatible", "build-failed", "none"} <= kinds
+
+
+def test_the_roster_pushes_a_fix_to_every_surface_the_remediation_pass_reads() -> None:
+    """Otherwise the screen that separates "act today" from "wait" shows one value.
+
+    `policies/remediation.py` decides between `ready`, `awaiting_build` and
+    `awaiting_packaging` by reading which surface carries the fixed version, and the
+    priority rules `p1` and `p2` turn on that difference. A roster where the fix had
+    reached exactly one surface put every vulnerable package in `p3` -- "no fix is in
+    sight" -- including the ones whose fix conda-forge was already shipping.
+    """
+    reached = {demo.fix_reached for demo in demo_data.DEMO_PACKAGES if demo.advisory}
+
+    assert reached == {"release", "recipe", "channel"}
+
+
+def test_only_a_package_with_an_advisory_says_how_far_its_fix_got() -> None:
+    """The field is meaningless without one, and a value on a clean row would read as one.
+
+    `_surface_version` ignores it in that case, so a stray value changes nothing and
+    would sit in the roster looking like it did -- which is the kind of dead
+    declaration somebody later reasons from.
+    """
+    stray = [demo.name for demo in demo_data.DEMO_PACKAGES if demo.advisory is None and demo.fix_reached != "release"]
+
+    assert stray == []

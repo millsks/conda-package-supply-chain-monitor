@@ -41,6 +41,15 @@ pytestmark = pytest.mark.integration
 #: The package the roster leaves unresolved, so `CPM-AD-4`'s gate has something to do.
 THE_UNMAPPED_PACKAGE: Final[str] = "internal-telemetry-sdk"
 
+#: Every package the roster leaves unresolved.
+#:
+#: Read off the declarations rather than listed here: the roster is a hundred rows and
+#: a hand-written list of the unmapped ones would be a second place to remember. What
+#: is asserted below is that there *are* some and that everything else was resolved,
+#: which is the pairing that matters -- a seeder that resolved nothing would satisfy
+#: the gate case above on its own.
+THE_UNMAPPED_PACKAGES: Final[frozenset[str]] = frozenset(demo.name for demo in DEMO_PACKAGES if not demo.identified)
+
 #: How many distinct vulnerability verdicts the seeded inventory should produce.
 #:
 #: Three: an advisory matched, a lookup that matched nothing, and one that could not
@@ -142,9 +151,10 @@ def test_the_identified_packages_really_were_identified(seeded: dict[str, object
         seeded: What the seeder reported.
 
     """
-    identified = Package.objects.exclude(canonical_name=THE_UNMAPPED_PACKAGE)
+    identified = Package.objects.exclude(canonical_name__in=THE_UNMAPPED_PACKAGES)
 
-    assert identified.count() == len(DEMO_PACKAGES) - 1
+    assert THE_UNMAPPED_PACKAGES, "the roster resolves everything, so the gate case above proves nothing"
+    assert identified.count() == len(DEMO_PACKAGES) - len(THE_UNMAPPED_PACKAGES)
     assert set(identified.values_list("confidence", flat=True)) == {IdentityConfidence.VERIFIED}
 
 

@@ -590,6 +590,87 @@ that used to read "no persona holds more than one role" now reads "exactly one d
 and it is this one" — narrowed rather than dropped, so the day somebody adds a second
 multi-role persona the gate still says so.
 
+### CPM-PLATFORM-S05: A hundred packages, and real advisories behind them
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> asked for by the product owner — who asked for a hundred packages rather than ten,
+> named the mixture (web frameworks, data science, ordinary utilities, well known and
+> less so), and then rejected this agent's recommendation that the advisories stay
+> fictional.
+
+The demo seeder wrote ten packages. Ten is enough to put every tone the stylesheet
+draws on one screen and not nearly enough to judge one: ten rows fit above the fold,
+sort instantly on any design, paginate never, and make a queue holding two items look
+like a queue. A reviewer asking "is this screen usable" was being shown a screen that
+could not be unusable.
+
+It also carried advisories named `GHSA-demo-high` and `GHSA-demo-moderate`. A reviewer
+who looks one of those up finds nothing, and what they learn is to stop looking things
+up — which is worse than a demo with no advisories at all, because it trains out the
+habit the product exists to support.
+
+As a reviewer,
+I want the demo inventory to look like a real one,
+So that what I conclude from these screens is about the design rather than about the
+fixture.
+
+**Acceptance Criteria:**
+
+**Given** the demo seeder
+**When** it runs
+**Then** it writes a hundred packages, mixing web frameworks, data science packages
+and ordinary utilities — well known and lesser known — and things conda-forge ships
+that are not Python at all
+
+**Given** a package the roster says is vulnerable
+**When** its advisory is recorded
+**Then** the identifier, the severity and the affected range are the ones a real
+advisory database states, and the identifier resolves
+
+**Given** a package the roster says is in the KEV catalogue
+**When** its listing is recorded
+**Then** it is genuinely listed and the catalogue date is the one the catalogue states
+
+**Given** the seeded screens
+**When** they are opened
+**Then** every state `CPM-FR-5` distinguishes appears on more than one row, the
+package table paginates, and the priority buckets that the shipped rules can reach are
+reached
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-2` (the seeder writes evidence, never a verdict),
+`CPM-AD-10` (which is why it cannot write one), `CPM-AD-14` and `CPM-AD-25` (identity
+arrives through resolution), `CPM-AD-8` (every status on the resulting screens is
+concluded by the pass that owns it, at the shipped policy version).
+
+**Constrained:** **the advisories are real and everything around them is a fixture**,
+and the seeder has to be able to say which is which. Identifier, severity, affected
+range and fixed version come from OSV.dev; the KEV listing is a real CISA entry with
+its stated date. No collector ran, no build was performed, and the versions on a
+package with no advisory are plausible rather than observed.
+
+**Constrained:** a hundred rows only stay readable as one line each, so the roster's
+first three columns are positional — name, upstream, installed. That is the shape
+positional arguments always make risky, and the risk is specific: swapping the version
+pair inverts a package's currency verdict and renders perfectly either way. The audit
+that compares every parsable pair is what makes the shape safe rather than merely
+shorter.
+
+**Two shipped priority rules turned out to be unreachable**, which is what a hundred
+packages found and ten could not:
+
+- `p6` — "behind upstream, with no conda-forge feedstock" — cannot match. A package
+  with no feedstock has `feedstock_status = not_found`, and `not_found` outranks every
+  determinate value in the one precedence order, so its overall currency is
+  `not_found` and never `behind`. The two conditions the rule joins are mutually
+  exclusive by construction.
+- `p4` and `p7` are licence rules and are unreachable *by design*, because
+  `license_rules` is deliberately empty (PRD Open Question 4).
+
+Neither is fixed here. A priority rule is `CPM-AD-8` policy and changing one means
+recording a new version, which is a decision for whoever owns PRD Open Question 8 —
+not a side effect of improving a fixture.
+
 ## CPM-EP-EVIDENCE: An evidence log that cannot lie
 
 Delivers the shared kernel every later epic builds on. Nothing here is user-facing, and
