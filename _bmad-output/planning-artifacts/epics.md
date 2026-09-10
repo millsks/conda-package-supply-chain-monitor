@@ -2821,6 +2821,75 @@ running
 `main`. That is documented as the substitute procedure rather than hidden, because a
 maintainer who does not know it concludes their change broke the suite.
 
+### CPM-DOCS-S05: The three subsystems with no page of their own
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> asked for by the product owner: teach me how to run all of the components, how the
+> collectors work, where the data comes from, how the queues are maintained, how the
+> authentication and authorization work, how OIDC fits, and how Celery and beat fit.
+
+`CPM-DOCS-S03` and `CPM-DOCS-S04` covered what the product does, how it is built, how
+to run it and how to change it. `operations.md` is a thorough reference on the
+collectors and the policy passes. Between them they leave three subsystems a
+maintainer has to understand and cannot read about anywhere:
+
+- **Identity and authorization.** The platform's half is documented; the product's is
+  not. Nothing says how a claim becomes one of three roles, what each role reaches, or
+  how a surface declares its requirement.
+- **The asynchronous half.** Nothing lists the tasks, says which queue each lands on,
+  or says what beat actually fires — and therefore nothing says that two of the
+  thirteen tasks are fired by nothing at all.
+- **The queues.** The state machine, who may move an item, and the fact that moving
+  one is an API call rather than a button.
+
+Adding or removing a package has the same problem in a smaller way: it is described
+inside a collector's section of a long operations reference, where somebody looking for
+"how do I add a package" will not find it.
+
+As a maintainer new to this product,
+I want a page for each subsystem I have to operate,
+So that I can answer a question about it without reading the source.
+
+**Acceptance Criteria:**
+
+**Given** a person configuring a deployment
+**When** they read the authorization page
+**Then** every environment variable the product reads for identity or roles is named,
+along with what each role reaches and what a refusal looks like
+
+**Given** an operator planning a schedule
+**When** they read the asynchronous-work page
+**Then** every registered task is listed with the queue it lands on, every beat entry
+is named, and any task that nothing fires is called out as such
+
+**Given** a reviewer working a queue
+**When** they read the queues page
+**Then** they can find every state transition, the role each requires, and where a
+transition is actually performed
+
+**Given** somebody adding a package
+**When** they read the inventory page
+**Then** they can do it, and can say what happens to a package they remove
+
+**Given** any table on any of these pages
+**When** the code it describes changes
+**Then** a test fails
+
+**Satisfies:** nothing directly.
+**Governed by:** nothing new. Each page distils decisions already recorded —
+`CPM-AD-9`, `CPM-AD-13`, `CPM-AD-14`, `CPM-AD-20`, `CPM-AD-22`, `CPM-AD-25`.
+
+**Constrained: a table is the most dangerous shape to leave unchecked.** Prose that
+goes stale reads as vague; a table that goes stale reads as precise and is wrong, and
+a reader has no way to tell. Every table on these pages is swept against its
+declaration — the seven environment variables, the thirteen tasks, the four queues,
+the eight beat entries, the seven transitions, the eight watchlist columns. A
+documented state machine missing a move is worse than no documented state machine,
+because somebody plans around it.
+
+**Constrained:** these pages **distil and link**; they do not restate. `operations.md`
+remains the per-collector reference and is not duplicated.
+
 ## CPM-EP-NL: Governed natural-language investigation
 
 **BLOCKED.** Only the spike is written. The remaining stories are deliberately not authored

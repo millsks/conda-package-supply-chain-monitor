@@ -63,6 +63,10 @@ nav:
       - How it is built: conda-sentinel/architecture.md
       - A policy run: conda-sentinel/the-policy-run.md
       - Running it: conda-sentinel/running-it.md
+      - Identity and authorization: conda-sentinel/authorization.md
+      - Asynchronous work: conda-sentinel/asynchronous-work.md
+      - The queues: conda-sentinel/the-queues.md
+      - Managing the inventory: conda-sentinel/managing-the-inventory.md
       - Operating: conda-sentinel/operations.md
       - Developing: conda-sentinel/development.md
       - Maintaining it: conda-sentinel/maintaining-it.md
