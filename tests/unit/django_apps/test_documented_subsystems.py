@@ -311,3 +311,106 @@ def test_the_watchlist_columns_are_the_columns_the_file_declares() -> None:
     # that documented seven of eight and a ninth that does not exist would satisfy the
     # sweep above on the seven and mislead on both of the others.
     assert str(len(WATCHLIST_COLUMNS)) in page or "eight" in page
+
+
+# ---------------------------------------------------------------------------
+# onboarding.md -- the primer, which is a curriculum rather than a reference
+# ---------------------------------------------------------------------------
+
+#: The guided path. Swept here rather than in a module of its own because what it
+#: carries is the same kind of claim: tables about the code, which go stale silently.
+ONBOARDING: Final[Path] = DOCS / "onboarding.md"
+
+#: Shorter than this and the primer has been emptied rather than edited. A round
+#: number, and the point is the order of magnitude: the page is thousands of words, so
+#: anything near this is a file somebody truncated.
+A_SUBSTANTIAL_PAGE: Final[int] = 1000
+
+
+def test_the_primer_exists_and_says_something() -> None:
+    """Because every sweep below reads it, and a missing file reads as a clean sweep."""
+    assert ONBOARDING.is_file()
+    assert len(text(ONBOARDING)) > A_SUBSTANTIAL_PAGE
+
+
+def test_the_primer_names_every_collector_and_the_table_it_writes() -> None:
+    """Part 3's table is a reader's index of where the data comes from.
+
+    A collector missing from it is a source somebody does not know is being read --
+    which matters here more than usual, because three of the ten ship with no source
+    declared and observe nothing until an operator configures one. Somebody who never
+    learned a collector exists never learns theirs is inert.
+    """
+    from conda_sentinel.core.registry import registered_collectors  # noqa: PLC0415 - after django.setup()
+
+    page = text(ONBOARDING)
+    missing = [
+        f"{collector.name} ({collector.evidence_model.__name__})"
+        for collector in registered_collectors()
+        if collector.name not in page or collector.evidence_model.__name__ not in page
+    ]
+
+    assert missing == [], f"the collector roster is missing {missing}"
+
+
+def test_the_primer_is_honest_about_which_collectors_ship_without_a_source() -> None:
+    """The three that observe nothing until configured are the ones to say so about.
+
+    A primer that listed all ten as though they worked out of the box would send a new
+    maintainer looking for a bug in the vulnerability column, which is reading
+    `unknown` for the honest reason.
+    """
+    page = text(ONBOARDING)
+
+    assert "you declare" in page
+    assert "observe nothing" in page or "observes nothing" in page
+
+
+@pytest.mark.parametrize("state", ["ok", "not_applicable", "not_found", "unknown", "error"])
+def test_the_primer_explains_every_outcome_state(state: str) -> None:
+    """Five states, and three of them are about the absence of an answer.
+
+    A reader who learned four of them has learned a vocabulary with a hole in exactly
+    the place this product's whole argument lives.
+
+    Args:
+        state: The state that must be explained.
+
+    """
+    assert state in text(ONBOARDING), state
+
+
+def test_the_primer_writes_the_precedence_order_the_way_the_code_declares_it() -> None:
+    """Worst-first, and getting it backwards inverts every aggregate verdict.
+
+    Read off `OutcomeState`'s own order rather than compared against a literal here,
+    so this cannot agree with a page that is wrong by both being wrong the same way.
+    """
+    from conda_sentinel.core.outcomes import PRECEDENCE  # noqa: PLC0415 - after django.setup()
+
+    # The arrow line itself, not the first occurrence of each word on the page. Every
+    # state is named several times before that line -- `ok` appears in the vocabulary
+    # table above it -- so a sweep for first positions measures the order of the prose
+    # rather than the order the page states, which is how the first version of this
+    # case failed.
+    arrows = re.search(r"^\s*([a-z_]+(?:\s*→\s*[a-z_]+)+)\s*$", text(ONBOARDING), re.MULTILINE)
+
+    assert arrows is not None, "the primer states no precedence order at all"
+    stated = [state.strip() for state in arrows.group(1).split("→")]
+    assert stated == [str(state.value) for state in PRECEDENCE], (
+        f"the primer states {stated}; the code declares {[str(state.value) for state in PRECEDENCE]}"
+    )
+
+
+def test_the_primer_links_to_every_page_it_is_the_path_through() -> None:
+    """A curriculum that does not reach a page leaves that page unfindable in order.
+
+    The primer's whole job is to be the sequence; the other pages are references it
+    sends people to. One added later and not linked from here is one a new maintainer
+    meets only by scrolling the navigation.
+    """
+    page = text(ONBOARDING)
+    siblings = {path.name for path in DOCS.glob("*.md") if path.name not in {"onboarding.md", "index.md"}}
+    unlinked = sorted(name for name in siblings if f"({name}" not in page and f"({name}#" not in page)
+
+    assert unlinked == [], f"the primer links to no {unlinked}"

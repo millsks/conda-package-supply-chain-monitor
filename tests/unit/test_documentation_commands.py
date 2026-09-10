@@ -41,9 +41,20 @@ import pytest
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 #: The product pages that tell somebody to run something.
+#:
+#: `onboarding.md` joined them at `CPM-DOCS-S06`: it is the page a person reads with a
+#: terminal open, so it is the page where a wrong command costs the most. The four
+#: subsystem pages are here for the same reason -- each names a task or sends somebody
+#: to a URL, and a sweep that covered only two of seven such pages was checking the
+#: minority of the commands this documentation gives.
 INSTRUCTIONAL_PAGES: Final[tuple[Path, ...]] = (
+    REPO_ROOT / "docs" / "conda-sentinel" / "onboarding.md",
     REPO_ROOT / "docs" / "conda-sentinel" / "running-it.md",
     REPO_ROOT / "docs" / "conda-sentinel" / "maintaining-it.md",
+    REPO_ROOT / "docs" / "conda-sentinel" / "authorization.md",
+    REPO_ROOT / "docs" / "conda-sentinel" / "asynchronous-work.md",
+    REPO_ROOT / "docs" / "conda-sentinel" / "the-queues.md",
+    REPO_ROOT / "docs" / "conda-sentinel" / "managing-the-inventory.md",
 )
 
 #: A pixi task as the documentation writes it, with or without an environment.
