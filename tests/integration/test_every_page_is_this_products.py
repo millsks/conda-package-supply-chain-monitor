@@ -100,14 +100,16 @@ def names_another_product(body: str) -> list[str]:
 
 
 @pytest.mark.django_db
-def test_the_root_is_this_products_home() -> None:
+def test_the_root_leads_to_this_products_home() -> None:
     """AC 1. It was the accelerator's landing page.
 
-    Asserted through a signed-in reader, because the page itself is what changed --
-    that an anonymous visitor is sent to sign in is
-    `tests/integration/test_template_rendering.py`'s.
+    **Followed rather than asserted on the first hop**, because `CPM-APP-S13` moved
+    the pages under `/conda-sentinel/` and left the root leading here. What the
+    criterion is about is where a reader who types the bare host ends up, and that is
+    unchanged -- which is the reason this case follows redirects rather than being
+    rewritten to assert a 302 and stop.
     """
-    response = a_reader().get("/")
+    response = a_reader().get("/", follow=True)
 
     assert response.status_code == HTTPStatus.OK
     assert response.resolver_match is not None
@@ -115,15 +117,20 @@ def test_the_root_is_this_products_home() -> None:
 
 
 @pytest.mark.django_db
-def test_the_root_is_the_only_address_of_the_home_page() -> None:
-    """One canonical URL, which is why `home/` was not kept as an alias.
+def test_the_home_page_has_one_address_and_the_root_redirects_to_it() -> None:
+    """One canonical URL, which is why the root is a redirect and not a second mount.
 
     Two addresses for one page is what makes a link somebody pastes into a ticket
     disagree with the one in the navigation, and the disagreement is invisible until
-    somebody compares them.
+    somebody compares them. A redirect has one address; a second `path("")` mounting
+    the same view would have two.
     """
-    assert reverse("conda_sentinel:home") == "/"
-    assert a_reader().get("/home/").status_code == HTTPStatus.NOT_FOUND
+    assert reverse("conda_sentinel:home") == "/conda-sentinel/"
+
+    landing = a_reader().get("/")
+
+    assert landing.status_code == HTTPStatus.FOUND
+    assert landing["Location"] == reverse("conda_sentinel:home")
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +248,7 @@ def test_the_shell_offers_no_navigation_a_signed_out_reader_cannot_use() -> None
 @pytest.mark.django_db
 def test_the_shell_offers_the_navigation_to_a_reader_who_can_use_it() -> None:
     """The other side, or the case above would pass on a product with no navigation."""
-    body = a_reader().get("/").content.decode()
+    body = a_reader().get(reverse("conda_sentinel:home")).content.decode()
 
     navigation = re.search(r'<nav class="app-nav">(.*?)</nav>', body, re.S)
     assert navigation is not None
@@ -268,7 +275,14 @@ def test_no_route_this_deployment_serves_names_another_product() -> None:
     client = a_reader()
     offenders: list[str] = []
 
-    for path in ("/", "/about/", "/accounts/login/", "/packages/", "/coverage/", "/no-such-page/"):
+    for path in (
+        "/",
+        "/about/",
+        "/accounts/login/",
+        reverse("conda_sentinel:package-health"),
+        reverse("conda_sentinel:coverage"),
+        "/no-such-page/",
+    ):
         body = client.get(path, follow=True).content.decode()
         found = names_another_product(body)
         if found:

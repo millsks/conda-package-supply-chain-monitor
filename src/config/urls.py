@@ -9,6 +9,7 @@ from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 from django.urls import include
 from django.urls import path
 from django.views import defaults as default_views
+from django.views.generic import RedirectView
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularSwaggerView
@@ -43,18 +44,31 @@ urlpatterns = [
     # User management
     path("users/", include("django_service.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
-    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`,
-    # **and the root is one of them** since `CPM-APP-S12`.
+    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`
+    # and mounted under the application's own name since `CPM-APP-S13`.
     #
-    # It was not. The accelerator's own landing page held `""` and this include sat
-    # below it, so a visitor to the server's root met a page describing the template
-    # this component was built from. That route is gone and `conda_sentinel:home` has
-    # taken the root; there is no unprefixed `home` left for a product route to
-    # collide with, which is what the note here used to be about.
+    # **One line, and that is the point of `CPM-AD-19`.** Routing is central, and
+    # every template and test reaches these pages through the namespace rather than
+    # through a written path -- so moving all of them is this prefix and nothing else.
+    #
+    # The prefix names the *application within this service*. `django_apps/` is a
+    # second import root and `component.toml` adopts applications explicitly; the
+    # paths this product holds are the generic ones -- `packages`, `reports`,
+    # `coverage`, `queues` -- and a namespace prevents a name collision, not a path
+    # one. A second product adopted beside this one would shadow a route silently.
+    #
+    # It is not `FORCE_SCRIPT_NAME`, which names the *service within a host* and moves
+    # `/api/` and the accounts flows with it. A deployment can use both.
     #
     # Mounted here rather than discovered: `AD-8` forbids entry-point discovery, and
     # a domain app that mounted its own routes would be exactly that.
-    path("", include("conda_sentinel.surface.urls")),
+    path("conda-sentinel/", include("conda_sentinel.surface.urls")),
+    # The root leads here. `CPM-APP-S12` made the front door this product's and
+    # `CPM-APP-S13` moved the pages behind the prefix; a permanent redirect is what
+    # keeps the front door working. `RedirectView` rather than a view of our own:
+    # there is nothing to decide, and `pattern_name` means the target follows the
+    # route if it ever moves again.
+    path("", RedirectView.as_view(pattern_name="conda_sentinel:home", permanent=False), name="root"),
     # Media files
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
