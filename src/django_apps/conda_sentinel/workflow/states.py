@@ -100,9 +100,13 @@ class Queue(models.TextChoices):
     routing is an update.
     """
 
-    IDENTITY_REVIEW = "identity_review", _("identity review")
-    REMEDIATION = "remediation", _("remediation")
-    COMPLIANCE_REVIEW = "compliance_review", _("compliance review")
+    # The labels are what a reader sees -- `CPM-APP-S15` -- and are sentence case
+    # rather than lower, because they appear as a navigation entry, a page title and a
+    # heading. They were lower case and unused until that story: every surface
+    # rendered the *value*, so a reviewer's navigation read `identity_review`.
+    IDENTITY_REVIEW = "identity_review", _("Identity review")
+    REMEDIATION = "remediation", _("Remediation")
+    COMPLIANCE_REVIEW = "compliance_review", _("Compliance review")
 
 
 #: Which role may open which queue.
