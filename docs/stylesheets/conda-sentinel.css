@@ -1,0 +1,198 @@
+/* Conda-Sentinel — the documentation site, wearing the product's own skin.
+ *
+ * The tokens below come from `src/django_service/static/css/conda-sentinel.css`,
+ * which is itself lifted from `docs/ux/ui-mockups.html`. Three copies of a palette is
+ * two too many, and the reason there are three is that they serve three runtimes: a
+ * mockup opened from disk, a Django template, and a generated static site.
+ *
+ * What keeps them honest is that this file **maps rather than restyles**. Every value
+ * is assigned to one of Material's own `--md-*` variables, so the theme keeps doing
+ * its job and only the colours are ours. A stylesheet that restyled Material's
+ * components directly would break on its next minor release, and the breakage would
+ * be a documentation site nobody notices is broken.
+ *
+ * Material owns light and dark through `[data-md-color-scheme]`, which is a different
+ * attribute from the application's `[data-theme]` (CPM-APP-S11). They are deliberately
+ * not reconciled: the documentation is read in a tab beside the product, not inside
+ * it, and a reader who wants one dark and the other light is not confused about
+ * anything.
+ */
+
+/* ── the product's palette, on Material's names ─────────────────────────── */
+[data-md-color-scheme="default"] {
+  --cs-surface: #ffffff;
+  --cs-surface-2: #f4f7f8;
+  --cs-ink: #0e1719;
+  --cs-ink-2: #33454c;
+  --cs-muted: #63767e;
+  --cs-line: #ccd7db;
+  --cs-line-2: #e0e8ea;
+  --cs-accent: #0d5c73;
+  --cs-accent-2: #0a4557;
+  --cs-accent-wash: #dfedf1;
+  --cs-ok: #22643f;
+  --cs-warn: #855505;
+  --cs-crit: #9d1729;
+  --cs-unk: #5a6d75;
+
+  --md-primary-fg-color: var(--cs-accent);
+  --md-primary-fg-color--dark: var(--cs-accent-2);
+  --md-accent-fg-color: var(--cs-accent-2);
+  --md-default-bg-color: var(--cs-surface);
+  --md-default-fg-color: var(--cs-ink);
+  --md-default-fg-color--light: var(--cs-ink-2);
+  --md-default-fg-color--lighter: var(--cs-muted);
+  --md-typeset-color: var(--cs-ink);
+  --md-typeset-a-color: var(--cs-accent);
+  --md-code-bg-color: var(--cs-surface-2);
+  --md-code-fg-color: var(--cs-ink-2);
+  --md-footer-bg-color: var(--cs-accent-2);
+}
+
+[data-md-color-scheme="slate"] {
+  --cs-surface: #121c1f;
+  --cs-surface-2: #172327;
+  --cs-ink: #e6eef0;
+  --cs-ink-2: #b3c4c9;
+  --cs-muted: #8ba1a8;
+  --cs-line: #2b3d43;
+  --cs-line-2: #223136;
+  --cs-accent: #57b6d2;
+  --cs-accent-2: #8ad2e6;
+  --cs-accent-wash: #123039;
+  --cs-ok: #6cc191;
+  --cs-warn: #d6a441;
+  --cs-crit: #e8697d;
+  --cs-unk: #8ba1a8;
+
+  --md-primary-fg-color: #0a4557;
+  --md-accent-fg-color: var(--cs-accent-2);
+  --md-default-bg-color: #0b1214;
+  --md-default-fg-color: var(--cs-ink);
+  --md-default-fg-color--light: var(--cs-ink-2);
+  --md-default-fg-color--lighter: var(--cs-muted);
+  --md-typeset-color: var(--cs-ink);
+  --md-typeset-a-color: var(--cs-accent);
+  --md-code-bg-color: var(--cs-surface-2);
+  --md-code-fg-color: var(--cs-ink-2);
+  --md-footer-bg-color: #0a1a1f;
+}
+
+/* ── type ───────────────────────────────────────────────────────────────── */
+/* IBM Plex, the product's own. `mkdocs.yml` pulls the faces; every stack below
+ * carries a real fallback so a site read offline stays legible rather than dropping
+ * to a serif nobody chose. */
+:root {
+  --md-text-font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-code-font: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+}
+
+/* ── the brand mark ─────────────────────────────────────────────────────── */
+/* The `cs` glyph from the product's own top bar, rebuilt in CSS rather than shipped
+ * as an image: it is two letters on a rounded square, and an SVG would be a second
+ * asset to keep in step with a colour that already comes from a token. */
+.md-header__title .md-header__topic:first-child .md-ellipsis::before {
+  content: "cs";
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 9px;
+  border-radius: 3px;
+  background: var(--cs-accent);
+  color: #fff;
+  font-family: var(--md-code-font);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: -4px;
+}
+
+[data-md-color-scheme="slate"] .md-header__title .md-header__topic:first-child .md-ellipsis::before {
+  color: #08171c;
+}
+
+/* ── the outcome vocabulary in prose ────────────────────────────────────── */
+/* `CPM-FR-5` makes five states distinguishable and `CPM-AD-24` emits each verbatim.
+ * Documentation that set `unknown` as an ordinary word would make, in prose, the
+ * mistake the export rule forbids in a file -- so a state written here reads the way
+ * it reads on a screen, and `unknown` is visibly a state rather than a hedge.
+ *
+ * Written as, e.g., `<span class="cs-state unknown">unknown</span>`. Verbose on
+ * purpose: a shorter spelling would get used for emphasis, and the classes would stop
+ * meaning "this is one of the five". */
+.cs-state {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-family: var(--md-code-font);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.cs-state.ok { color: var(--cs-ok); background: color-mix(in srgb, var(--cs-ok) 13%, transparent); }
+.cs-state.warn { color: var(--cs-warn); background: color-mix(in srgb, var(--cs-warn) 13%, transparent); }
+.cs-state.crit { color: var(--cs-crit); background: color-mix(in srgb, var(--cs-crit) 13%, transparent); }
+.cs-state.unknown { color: var(--cs-unk); background: color-mix(in srgb, var(--cs-unk) 15%, transparent); }
+
+/* ── tables ─────────────────────────────────────────────────────────────── */
+/* The product's own treatment: quiet rules and a tinted, uppercase header. Material
+ * already scrolls a wide table inside its own container; the rule is restated in
+ * `CPM-APP-S16`'s terms because the page body must never scroll horizontally, and
+ * this is the second surface where that has to be true. */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--cs-line);
+  font-size: 0.74rem;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--cs-surface-2);
+  color: var(--cs-ink-2);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.62rem;
+}
+
+.md-typeset table:not([class]) td,
+.md-typeset table:not([class]) th {
+  border-bottom: 1px solid var(--cs-line-2);
+}
+
+.md-typeset__scrollwrap {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+/* ── admonitions ────────────────────────────────────────────────────────── */
+.md-typeset .admonition,
+.md-typeset details {
+  border-left-width: 3px;
+  font-size: 0.76rem;
+}
+
+.md-typeset .admonition.note,
+.md-typeset details.note {
+  border-color: var(--cs-accent);
+}
+
+.md-typeset .note > .admonition-title,
+.md-typeset .note > summary {
+  background: var(--cs-accent-wash);
+}
+
+.md-typeset code {
+  font-size: 0.78em;
+}

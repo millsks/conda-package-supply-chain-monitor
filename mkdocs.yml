@@ -7,11 +7,22 @@ site_dir: site
 
 theme:
   name: material
+  # The product's own faces (CPM-DOCS-S02). `docs/stylesheets/conda-sentinel.css`
+  # names each with a real fallback stack, so a site read offline stays legible
+  # rather than dropping to a serif nobody chose.
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
   features:
     - content.code.copy
     - navigation.sections
     - navigation.top
+    - navigation.indexes
+    - toc.follow
   palette:
+    # Three states, like the application's own control: follow the machine, or say
+    # otherwise in either direction. Material's default entry has no `media`, so it
+    # is the one a reader lands on -- and it follows the system until they choose.
     - media: "(prefers-color-scheme: light)"
       scheme: default
       toggle:
@@ -23,8 +34,19 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+# Mapped onto Material's own `--md-*` variables rather than restyling its components,
+# so the theme keeps working and only the colours are this product's.
+extra_css:
+  - stylesheets/conda-sentinel.css
+
 markdown_extensions:
   - admonition
+  # `attr_list` is what lets prose mark an outcome state as a state --
+  # `unknown`{.cs-state .unknown} -- rather than setting it as an ordinary word,
+  # which would make in documentation the mistake CPM-AD-24 forbids in an export.
+  - attr_list
+  - md_in_html
+  - tables
   - pymdownx.details
   - pymdownx.superfences
   - toc:
