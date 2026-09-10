@@ -96,7 +96,12 @@ def cited_paths() -> dict[str, list[str]]:
         root = REPO_ROOT / entry
         candidates = [root] if root.is_file() else sorted(root.rglob("*"))
         for path in candidates:
-            relative = str(path.relative_to(REPO_ROOT))
+            # `as_posix()`, never `str()`: `Path` renders with the host separator, so this
+            # compared `tests\\unit\\...` against `tests/unit/...` and excluded nothing on the
+            # Windows runner alone -- the module then found its own deliberate mentions of the
+            # two retired paths and reported them as stale. The same mistake as the export-cap
+            # audit made earlier the same day, which is why it is written down here.
+            relative = path.relative_to(REPO_ROOT).as_posix()
             if not path.is_file() or path.suffix not in READABLE or ".pixi" in path.parts:
                 continue
             if relative == THIS_MODULE:
