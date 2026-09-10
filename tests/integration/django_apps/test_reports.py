@@ -25,6 +25,7 @@ import csv
 import io
 from datetime import UTC
 from datetime import datetime
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Final
 
@@ -45,7 +46,6 @@ from conda_sentinel.surface.reports import EMPTY
 from conda_sentinel.surface.reports import REPORTS
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
 from conda_sentinel.surface.views import PROVENANCE_HEADER
-from conda_sentinel.surface.views import TRUNCATION_HEADER
 from tests.factories import UserFactory
 
 if TYPE_CHECKING:
@@ -376,12 +376,18 @@ def test_the_export_carries_its_provenance_with_the_file() -> None:
 
 
 @pytest.mark.django_db
-def test_an_export_that_reached_the_cap_says_so(settings: object) -> None:
-    """`CPM-AD-9`: an export beyond the cap is a task, never a truncated file nobody knows is truncated.
+def test_an_export_beyond_the_cap_is_refused_rather_than_truncated(settings: object) -> None:
+    """`CPM-AD-9`, and this case changed with `CPM-APP-S08` rather than being deleted.
 
-    `CPM-APP-S08` moves the work out of the request. Until then the cap is honoured
-    and the response *says* it was reached -- silently handing somebody a partial file
-    is the worst of the three available behaviours.
+    This story shipped a *truncated* file with a header saying so, which was the best
+    of what was available before the work could leave the request. It is still the
+    wrong artifact: a CSV in somebody's downloads folder outlives the response header
+    that qualified it, and reads as complete the moment the header is forgotten.
+
+    So the synchronous path now refuses, and `tests/integration/django_apps/
+    test_background_exports.py` covers what happens instead. The case is kept here,
+    pointed at the new behaviour, because what it is really asserting is unchanged:
+    nobody is handed a partial report without being told.
 
     Args:
         settings: pytest-django's settings fixture, which restores the cap.
@@ -394,22 +400,25 @@ def test_an_export_that_reached_the_cap_says_so(settings: object) -> None:
 
     response = a_reader().get(export_url("unmapped-identities"))
 
-    assert len(exported(response)) == HEADER_AND_ONE_ROW
-    assert TRUNCATION_HEADER in response
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert "report page" in response.content.decode()
 
 
 @pytest.mark.django_db
-def test_an_export_under_the_cap_claims_no_truncation() -> None:
-    """The other direction, or the header above would be meaningless.
+def test_an_export_under_the_cap_is_still_produced_in_the_request() -> None:
+    """The other direction, or the refusal above would be a broken export.
 
-    A response that always claimed truncation would teach a reader to ignore it.
+    `CPM-AD-9` bounds what a request will *do*; it does not send every export away.
+    A product where the small case also required a round trip through a worker would
+    have taken the cost of the boundary everywhere to get its benefit somewhere.
     """
     run = a_run()
     a_rollup_row(run, "unidentified", confidence=IdentityConfidence.UNMAPPED)
 
     response = a_reader().get(export_url("unmapped-identities"))
 
-    assert TRUNCATION_HEADER not in response
+    assert response.status_code == HTTPStatus.OK
+    assert len(exported(response)) == HEADER_AND_ONE_ROW
 
 
 @pytest.mark.django_db

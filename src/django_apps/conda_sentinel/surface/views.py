@@ -35,21 +35,26 @@ decision; a decision from this product's own architecture spine always carries t
 
 from __future__ import annotations
 
-import csv
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Final
+from typing import cast
 
 from django.conf import settings
 from django.http import Http404
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.views import View
 from django.views.generic import DetailView
 from django.views.generic import ListView
 from django.views.generic import TemplateView
 
 from conda_sentinel.core.clock import SystemClock
+from conda_sentinel.core.jobs import JobState
+from conda_sentinel.core.jobs import request_job
+from conda_sentinel.core.models import BackgroundJob
 from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.core.pagination import DEFAULT_PAGE_SIZE
 from conda_sentinel.core.permissions import PRODUCT_ROLES
@@ -60,6 +65,10 @@ from conda_sentinel.surface.detail import identity_of
 from conda_sentinel.surface.detail import recent_runs
 from conda_sentinel.surface.detail import traces_for
 from conda_sentinel.surface.detail import work_on
+from conda_sentinel.surface.exports import EXPORT_JOB_KIND
+from conda_sentinel.surface.exports import REPORT_SLUG_PARAMETER
+from conda_sentinel.surface.exports import export_csv
+from conda_sentinel.surface.exports import over_the_cap
 from conda_sentinel.surface.filters import FACETS
 from conda_sentinel.surface.filters import applied_filters
 from conda_sentinel.surface.health import COLUMNS
@@ -80,11 +89,12 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from conda_sentinel.workflow.models import WorkflowItem
+    from django_service.users.models import User
 
 #: Re-exported: both names were declared here before `surface/listing.py` existed,
 #: and templates and tests reach for them at this path. The definitions live beside
 #: the queryset that uses them, which is what stops the API growing a second one.
-__all__ = ["DEFAULT_ORDERING", "ORDERINGS", "SORT_PARAM", "PackageHealthView"]
+__all__ = ["DEFAULT_ORDERING", "EXPORT_TOO_LARGE", "ORDERINGS", "SORT_PARAM", "PackageHealthView"]
 
 #: What a URL naming no declared queue is told.
 #:
@@ -108,11 +118,34 @@ REPORT_PAGE_ROWS: Final[int] = 200
 #: its cut-off and version; for the artifact that *leaves*, that has to travel with
 #: the file rather than live on the page it came from.
 PROVENANCE_HEADER: Final[str] = "X-Conda-Sentinel-Provenance"
-TRUNCATION_HEADER: Final[str] = "X-Conda-Sentinel-Truncated"
-TRUNCATED: Final[str] = (
-    "this export reached the {cap}-row cap and is incomplete; CPM-APP-S08 moves an export beyond the cap out "
-    "of the request"
+#: What a synchronous export of a too-large report is told.
+#:
+#: **A refusal rather than a truncated file**, which is what `CPM-APP-S06` shipped
+#: and `CPM-APP-S08` replaces. Handing somebody a partial CSV silently is the worst
+#: of the three available behaviours; saying so in a header was better and still left
+#: a file in a downloads folder that reads as complete the moment the header is
+#: forgotten. So this path refuses over the cap and names the one that does not.
+EXPORT_TOO_LARGE: Final[str] = (
+    "this report has more rows than the {cap} an export will produce inside a request (CPM-AD-9). Ask for it "
+    "from the report page instead: the work leaves the request and the page says when the file is ready."
 )
+
+#: How long a status page waits before asking again.
+#:
+#: Long enough that a page left open is not a request every second, short enough that
+#: somebody watching a small export does not conclude it is stuck. It stops entirely
+#: once the job is terminal, which is the part that matters.
+JOB_REFRESH_SECONDS: Final[int] = 5
+
+#: What a download of a job with no file is told.
+NO_ARTIFACT: Final[str] = "no finished export of yours has the id {pk!r}."
+
+#: Where a prepared export's provenance travels, since a job has no response headers.
+#:
+#: The job row carries it, and the download view puts it back on the response -- so
+#: a file produced in the background is as datable as one produced in a request,
+#: which is `CPM-APP-S06`'s AC 2 surviving the trip through a queue.
+PROVENANCE_PARAMETER: Final[str] = "provenance"
 
 
 # `ListView` is generic to django-stubs and a plain class at runtime, so the
@@ -464,7 +497,16 @@ class ReportView(RoleRequiredMixin, TemplateView):
         report = REPORTS_BY_SLUG.get(str(kwargs.get("slug", "")))
         if report is None:
             raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
-        context.update(page=report_page(report, limit=REPORT_PAGE_ROWS), reports=REPORTS)
+        context.update(
+            page=report_page(report, limit=REPORT_PAGE_ROWS),
+            reports=REPORTS,
+            # Which export control the page offers. Asked here rather than left to
+            # the template to infer from a row count, because the page shows at most
+            # `REPORT_PAGE_ROWS` and a template counting what it can see would offer
+            # the synchronous download for a report of four thousand rows.
+            too_large_to_export_here=over_the_cap(report),
+            export_cap=settings.CPM_SYNC_EXPORT_MAX_ROWS,
+        )
         return context
 
 
@@ -481,10 +523,18 @@ class ReportExportView(RoleRequiredMixin, View):
     `unknown` as a blank cell -- destroying the five states in the one artifact that
     leaves the system".
 
-    **The row cap is `CPM-APP-S08`'s**, and this view honours the constant rather
-    than choosing one. Beyond it the work leaves the request (`CPM-AD-9`); until that
-    story lands, an export at the cap is truncated and the response says so in a
-    header rather than silently handing somebody a partial file.
+    **The row cap is the boundary of a request, not a limit on the product.**
+    `CPM-AD-9` sends work beyond it out of the request, so this view does two things
+    and only two: under the cap it streams the file, and over the cap it refuses and
+    names the path that does not. It never truncates -- `CPM-APP-S06` shipped a
+    truncated file with a header saying so, and `CPM-APP-S08` replaces it, because a
+    CSV in somebody's downloads folder outlives the response header that qualified
+    it.
+
+    **`POST` is the asynchronous path**, and the split of methods is the point: a
+    `GET` that enqueued work would make a bookmark, a prefetch or a link checker
+    create jobs. Nothing here decides the cap for itself; `surface/exports.py` owns
+    the one comparison, which is AC 2.
     """
 
     required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
@@ -508,19 +558,155 @@ class ReportExportView(RoleRequiredMixin, View):
         if report is None:
             raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
 
-        page = report_page(report, limit=settings.CPM_SYNC_EXPORT_MAX_ROWS)
-        response = HttpResponse(content_type="text/csv")
+        if over_the_cap(report):
+            # Refused rather than truncated, and 409 rather than 400: the request is
+            # well-formed and the report is simply larger than a request will
+            # produce. The message names the path that will.
+            return HttpResponse(
+                EXPORT_TOO_LARGE.format(cap=settings.CPM_SYNC_EXPORT_MAX_ROWS),
+                content_type="text/plain",
+                status=HTTPStatus.CONFLICT,
+            )
+
+        content, _rows, provenance = export_csv(report, limit=settings.CPM_SYNC_EXPORT_MAX_ROWS)
+        response = HttpResponse(content, content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{report.slug}.csv"'
         # The provenance travels with the file, not only on the page it came from:
         # a CSV in somebody's downloads folder next week has to be datable, and a
         # spreadsheet is where a number outlives the context it was true in.
-        response[PROVENANCE_HEADER] = (
-            f"evidence_cutoff={page.evidence_cutoff or 'none'}; policy_versions={' '.join(page.policy_versions)}"
-        )
-        if len(page.rows) == settings.CPM_SYNC_EXPORT_MAX_ROWS:
-            response[TRUNCATION_HEADER] = TRUNCATED.format(cap=settings.CPM_SYNC_EXPORT_MAX_ROWS)
+        response[PROVENANCE_HEADER] = provenance
+        return response
 
-        writer = csv.writer(response)
-        writer.writerow([column.heading for column in page.columns])
-        writer.writerows(page.rows)
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Hand the export off and point at it.
+
+        `CPM-AD-9`'s AC 1: the work is enqueued and the request returns an
+        in-progress state. The in-progress state here is a redirect to the job's own
+        page, which is what makes the boundary something a person can cross and then
+        look back across -- a 202 with a body would leave a reader on a page that
+        never changes.
+
+        Args:
+            request: The request.
+            *args: Django's positional URL arguments.
+            **kwargs: Django's keyword URL arguments, carrying the slug.
+
+        Returns:
+            A redirect to the job page.
+
+        Raises:
+            Http404: When the URL names no declared report.
+
+        """
+        report = REPORTS_BY_SLUG.get(str(kwargs.get("slug", "")))
+        if report is None:
+            raise Http404(UNKNOWN_REPORT.format(slug=kwargs.get("slug"), known=sorted(REPORTS_BY_SLUG)))
+
+        job = request_job(
+            kind=EXPORT_JOB_KIND,
+            parameters={REPORT_SLUG_PARAMETER: report.slug},
+            requested_by=cast("User", request.user),
+            clock=SystemClock(),
+        )
+        # 303, so a refresh of the job page does not re-post the form and enqueue a
+        # second export -- the ordinary post/redirect/get, and the ordinary reason.
+        return redirect("conda_sentinel:export-job", pk=job.pk)
+
+
+class ExportJobView(RoleRequiredMixin, DetailView):  # type: ignore[type-arg]
+    """Where a request points after handing an export off.
+
+    `CPM-AD-9`'s AC 1 says the request returns an in-progress state; this is the
+    state, as a page somebody can keep open. It is the half of the boundary that is
+    easy to leave out and the half that makes it usable -- work that left a request
+    and cannot be looked at again has not been handed off, it has been dropped.
+
+    **Scoped to the person who asked.** A job is somebody's request, and a shared
+    list of everybody's downloads is not something anybody asked for. Scoping is by
+    queryset rather than by a check in the view, so a job that is not yours is a 404
+    and not a 403 -- which is the honest answer: you cannot be refused something
+    whose existence is not yours to know.
+
+    **It refreshes itself while the job is running and stops when it is not.** A page
+    that polls for ever is a page somebody leaves open on a second monitor and a
+    request every few seconds for a week.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+    model = BackgroundJob
+    template_name = "conda_sentinel/export_job.html"
+    context_object_name = "job"
+
+    def get_queryset(self) -> QuerySet[BackgroundJob]:
+        """Return the jobs this reader may look at.
+
+        Returns:
+            Their own. See the class docstring for why this is a queryset rather
+            than a check.
+
+        """
+        # Narrowed rather than checked: `RoleRequiredMixin` has already sent an
+        # anonymous visitor to the sign-in page, so by here there is a user.
+        return BackgroundJob.objects.filter(requested_by=cast("User", self.request.user))
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the job and how long the page should wait before asking again.
+
+        Args:
+            **kwargs: Django's context, carrying the job.
+
+        Returns:
+            The context.
+
+        """
+        context = super().get_context_data(**kwargs)
+        job: BackgroundJob = context["job"]
+        context.update(refresh_seconds=JOB_REFRESH_SECONDS if job.in_progress() else None)
+        return context
+
+
+class ExportJobDownloadView(RoleRequiredMixin, View):
+    """The file a finished export produced.
+
+    Separate from the job page rather than a mode of it, because a download and a
+    status page want different responses to the same question -- and because a
+    `Content-Disposition` on a page somebody is refreshing would download the file
+    on every poll.
+
+    **The provenance goes back on the response.** A job has no response headers to
+    carry it, so the row does, and this puts it back -- which is what keeps a file
+    produced in the background exactly as datable as one produced in a request.
+    """
+
+    required_roles: ClassVar[frozenset[str]] = frozenset(PRODUCT_ROLES)
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Return the artifact.
+
+        Args:
+            request: The request.
+            *args: Django's positional URL arguments.
+            **kwargs: Django's keyword URL arguments, carrying the job's id.
+
+        Returns:
+            The CSV.
+
+        Raises:
+            Http404: When the job is not this reader's, or has not finished. A 404
+                for an unfinished job rather than a redirect: there is no file, and
+                answering with the page would let a script that follows redirects
+                save an HTML document as a `.csv`.
+
+        """
+        job = BackgroundJob.objects.filter(
+            pk=int(kwargs["pk"]),
+            requested_by=cast("User", request.user),
+        ).first()
+        if job is None or job.state != JobState.SUCCEEDED.value:
+            raise Http404(NO_ARTIFACT.format(pk=kwargs["pk"]))
+
+        response = HttpResponse(job.artifact, content_type="text/csv")
+        slug = job.parameters.get(REPORT_SLUG_PARAMETER, "report")
+        response["Content-Disposition"] = f'attachment; filename="{slug}.csv"'
+        response[PROVENANCE_HEADER] = job.parameters.get(PROVENANCE_PARAMETER, "")
         return response

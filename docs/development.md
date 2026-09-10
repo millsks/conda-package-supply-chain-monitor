@@ -1269,6 +1269,125 @@ the acting user, the view, the path, the roles required and the roles held. That
 last field is what distinguishes a user whose groups were never mapped (`held` is
 empty) from somebody reaching for another role's queue.
 
+## The request boundary
+
+`CPM-AD-9` splits the product in two. A request may read derived state and evidence,
+and may write workflow state or an identity override. Four kinds of work leave it:
+
+- an outbound call
+- a collector
+- a policy pass
+- an export beyond `CPM_SYNC_EXPORT_MAX_ROWS`
+
+**Three of those four have no request path at all**, and the way it stays that way is
+`tests/unit/django_apps/test_request_boundary_audit.py` rather than habit. The audit
+walks the *import closure* of every registered view — a view importing
+`core/transport.py` would be caught in review, but a view importing a helper
+importing a service importing the client is three files apart with each edit
+reasonable on its own.
+
+The failure it prevents is a page that hangs, not a page that is wrong. An outbound
+call in a request is fine locally, fine in CI, and a thirty-second page the first
+time an upstream service is slow. Nothing goes red; the page just stops coming back.
+
+### Handing work off
+
+```python
+job = request_job(
+    kind=EXPORT_JOB_KIND,
+    parameters={REPORT_SLUG_PARAMETER: report.slug},
+    requested_by=request.user,
+    clock=SystemClock(),
+)
+return redirect("conda_sentinel:export-job", pk=job.pk)
+```
+
+The redirect *is* the in-progress state. A 202 with a body would leave a reader on a
+page that never changes — work handed off and, as far as they can tell, dropped. A
+boundary a request can cross but not point back across is one where work disappears.
+
+Two things `request_job` gets right that are invisible when they are wrong:
+
+**It publishes `on_commit`.** A task published inside the transaction that created
+the row reaches a worker that may read the database before the commit lands, and
+finds nothing. The symptom is a job queued for ever while a worker log says the id
+does not exist — on some requests and not others.
+
+**It publishes by name, never by importing the task.** `core/tasks.py` imports the
+policy-run orchestrator and, through it, the collectors, so `run_job.delay` would
+pull every one of them into the web process's import graph — which is the thing the
+audit refuses. `EXPORT_JOB_TASK_NAME` lives in `core/queues.py`, which is import-safe
+at settings time, and `send_task` needs nothing else.
+
+If the broker will not take it, the job is **failed with the reason on the row**, not
+raised. The row is already committed when `on_commit` fires, so raising produced a
+500 that told the reader nothing and a job nothing would ever pick up. The refusal is
+recorded where the reader is already being sent.
+
+### Adding a job kind
+
+`core` declares the seam; the app that owns the work fills it at `ready()` — the same
+inversion the pass registry and the after-run registry use, and for the same reason:
+`core` may not import `surface`.
+
+```python
+# surface/apps.py
+def ready(self) -> None:
+    from conda_sentinel.core.jobs import register_job_runner
+    from conda_sentinel.surface.exports import EXPORT_JOB_KIND, run_export_job
+
+    register_job_runner(EXPORT_JOB_KIND, run_export_job)
+```
+
+A runner takes `job` and `clock` and returns `(artifact, rows)`. It does **not** touch
+the job's state: `start_job` and `finish_job` own that, so every kind records its
+lifecycle the same way rather than each remembering to.
+
+`cpm.export.run` is generic — it runs whatever kind it is handed — but its *name* is
+not, because a name is a route. A job kind whose workload class differs gets its own
+task name under its own namespace calling the same dispatch.
+
+### The four states
+
+`queued`, `running`, `succeeded`, `failed`. **`failed` is a state, not an absence.** A
+job that broke has to be distinguishable from one still running, or the status page
+says "in progress" for ever — the same problem `CPM-FR-5` makes load-bearing
+everywhere else, arriving somewhere new. Two check constraints enforce it: a finished
+job has a finish stamp, and a failed job says why.
+
+`BackgroundJob` is the one table in `core` that is **not** append-only. `CPM-AD-2` is
+about evidence — what a source said at an instant, which cannot stop being true. A
+job is a piece of work with a lifecycle, and a row per state change would make "is
+this done" a query rather than a read.
+
+The artifact is a `TextField`. Production's `STORAGES` names `FileSystemStorage`: a
+worker writing to its own container's disk produces a file the web replica serving
+the download cannot see, and the failure is a 404 that reproduces on some requests
+and not others. Object storage would fix it and is not configured; a later story that
+configures it moves that one column.
+
+### The export cap
+
+`CPM_SYNC_EXPORT_MAX_ROWS` (PROVISIONAL, 5,000) is the boundary of a request, **not a
+limit on what the product will export**. A job's export is unbounded — work that left
+the request and then truncated itself would have taken the cost of the boundary
+without the benefit.
+
+`surface/exports.py`'s `over_the_cap()` is the only thing that compares anything
+against it, and the audit counts how many modules read the setting at all. Three
+paths each reading it are three chances to compare it slightly differently, and the
+result is a download that is simply short with nothing saying so.
+
+The synchronous `GET` **refuses** over the cap; it never truncates. `POST` hands the
+work off. The split of methods is the point: a `GET` that enqueued would let a
+bookmark, a prefetch or a link checker create jobs.
+
+### Local development
+
+The hand-off needs a reachable broker. Without one the job is created and immediately
+failed with the connection error on its own page — which is the intended behaviour,
+and also what you will see locally until Redis is running and authenticated.
+
 ## The API
 
 `CPM-FR-27` exposes the same reads over HTTP with a published schema. Everything is
@@ -1454,9 +1573,9 @@ deliberately below `CPM-NFR-1`'s ten thousand packages, so the cap genuinely bit
 and the asynchronous path `CPM-AD-9` requires is one this product takes rather than
 one that ships untested until the day it matters.
 
-An export at the cap is truncated and says so in `X-Conda-Sentinel-Truncated`.
-Handing somebody a silently partial file is the worst of the three available
-behaviours. `CPM-APP-S08` moves the work past the cap out of the request.
+`CPM-APP-S08` moved the work beyond it out of the request. The synchronous `GET`
+refuses over the cap and never truncates; `POST` hands the export to a worker. See
+**The request boundary** above.
 
 ## Protocols below the URL resolver
 

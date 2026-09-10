@@ -1820,7 +1820,7 @@ silently reusing the first.
 
 **It runs on the `verify` queue.** That follows from the task's declared name and
 from nothing else. The shipped `worker` process already drains it — its `-Q` names
-`celery,collect,policy,verify` — so nothing needs configuring for a trigger to be
+`celery,collect,policy,verify,export` — so nothing needs configuring for a trigger to be
 picked up. If you run a worker with a `-Q` of your own, keep `verify` in it: routing
 without consumption is inert, and the component would accept triggers and never run
 them. The whole reason the queue is separate is that a five-minute build must not
@@ -2104,7 +2104,7 @@ finishes.
 
 **The worker must drain the `collect` queue.** `cpm.collect.sweep` routes there
 along with the collections it enqueues, so a worker started without
-`-Q celery,collect,policy,verify` accepts the schedule tick and runs nothing —
+`-Q celery,collect,policy,verify,export` accepts the schedule tick and runs nothing —
 silently, because an unconsumed queue is not an error.
 
 ### Reading a partial sweep

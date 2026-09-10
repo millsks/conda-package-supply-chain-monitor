@@ -98,10 +98,15 @@ from typing import Final
 from typing import TypeVar
 from typing import override
 
+from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from conda_sentinel.core.clock import is_aware
+from conda_sentinel.core.jobs import IN_PROGRESS_STATES
+from conda_sentinel.core.jobs import KIND_LENGTH
+from conda_sentinel.core.jobs import STATE_LENGTH
+from conda_sentinel.core.jobs import JobState
 from conda_sentinel.core.runs import RunState
 from conda_sentinel.identity.confidence import IdentityConfidence
 from conda_sentinel.policies.outcomes import CURRENCY_STATE_LENGTH
@@ -129,6 +134,7 @@ __all__ = [
     "AppendOnlyManager",
     "AppendOnlyModel",
     "AppendOnlyQuerySet",
+    "BackgroundJob",
     "CollectionRun",
     "PackageHealth",
     "PolicyRun",
@@ -1217,3 +1223,139 @@ class PackageHealth(models.Model):
         scope = "no package" if self.package_id is None else f"package {self.package_id}"
         computed = "not computed" if self.computed_at is None else self.computed_at.isoformat()
         return f"health of {scope} at {computed}"
+
+
+class BackgroundJob(models.Model):
+    """One piece of work a request handed off. Table `background_jobs`.
+
+    `CPM-AD-9` splits the product at the request boundary and `CPM-APP-S08` adds what
+    the request returns instead of the work: an in-progress state, which has to be a
+    row somebody can point at. A boundary a request can cross but not point back
+    across is one where the work simply disappears.
+
+    **Not append-only, and it is the only table here that is not.** `CPM-AD-2` is
+    about evidence -- what a source said at an instant, which cannot stop being true.
+    A job is not evidence about anything; it is a piece of work with a lifecycle, and
+    a second row per state change would make "is this done" a query rather than a
+    read. What it keeps instead is its three timestamps, which is what an operator
+    asking why something took four minutes actually reads.
+
+    **The artifact is stored in the row rather than in a file, and that is a v1
+    decision with a reason rather than a shortcut.** `STORAGES` names
+    `FileSystemStorage` in production: a worker writing to its own container's disk
+    produces a file the web replica serving the download cannot see, and the failure
+    is a 404 that reproduces on some requests and not others. Object storage would
+    fix it and is not configured. Until it is, the database is the one place both
+    processes can reach -- and `CPM-NFR-1`'s ten thousand packages put the worst case
+    at a couple of megabytes of text, which Postgres stores out of line without being
+    asked. A later story that configures object storage moves this column and nothing
+    else.
+
+    **`kind` is a registry key, not a choice list.** `core` may not know that an
+    export exists -- `surface` owns reports and `core` may not import it -- so the
+    kinds are whatever the applications adopted at `ready()` have registered. See
+    `core/jobs.py`.
+    """
+
+    #: What kind of work this is, and therefore which registered runner runs it.
+    kind = models.CharField(_("kind"), max_length=KIND_LENGTH)
+
+    #: What it is work *on*. A mapping rather than columns, because `core` cannot
+    #: name a report slug without knowing what a report is -- and a job kind added
+    #: later would need its own columns here, which is a migration per kind.
+    parameters = models.JSONField(_("parameters"), default=dict, blank=True)
+
+    #: Where it has got to. Never blank: `queued` is the state a job is created in.
+    state = models.CharField(
+        _("state"),
+        max_length=STATE_LENGTH,
+        choices=JobState.choices,
+        default=JobState.QUEUED.value,
+    )
+
+    #: Who asked. `SET_NULL` so a job survives the account that requested it -- the
+    #: record of what ran is not the record of who is still employed -- and nullable
+    #: for exactly that reason rather than because a job may be anonymous. Nothing
+    #: creates one without an actor.
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="background_jobs",
+        verbose_name=_("requested by"),
+    )
+
+    #: The three stamps that are this row's history. `requested_at` is set when the
+    #: request hands off, the other two by the worker at each end of the work.
+    requested_at = models.DateTimeField(_("requested at"))
+    started_at = models.DateTimeField(_("started at"), null=True, blank=True)
+    finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+
+    #: What it produced. Empty until it succeeds, and empty for ever if it fails.
+    artifact = models.TextField(_("artifact"), blank=True)
+
+    #: How many rows the artifact covers, so a reader can tell a complete export from
+    #: one that a filter narrowed to nothing without opening the file.
+    row_count = models.PositiveIntegerField(_("row count"), default=0)
+
+    #: Why it failed. **The presence of this is what makes the state `failed`**, so a
+    #: failed job with nothing to read is not expressible -- which is the report an
+    #: operator can do nothing with.
+    detail = models.TextField(_("detail"), blank=True)
+
+    class Meta:
+        """Naming, ordering and the constraint that keeps a state honest."""
+
+        db_table = "background_jobs"
+        verbose_name = _("background job")
+        verbose_name_plural = _("background jobs")
+        # Newest first: a job list is read to find the one just requested.
+        ordering = ("-requested_at", "-id")
+        constraints = [
+            # A finished job has a finish stamp and an unfinished one does not. The
+            # failure this refuses is a page that says "running" about work that
+            # ended an hour ago, which is indistinguishable from work that hung.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(state__in=(JobState.QUEUED.value, JobState.RUNNING.value), finished_at__isnull=True)
+                    | models.Q(
+                        state__in=(JobState.SUCCEEDED.value, JobState.FAILED.value),
+                        finished_at__isnull=False,
+                    )
+                ),
+                name="job_finish_stamp_matches_its_state",
+            ),
+            # A failed job says why, and a succeeded one has nothing to explain.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(state=JobState.FAILED.value, detail__gt="")
+                    | ~models.Q(state=JobState.FAILED.value) & models.Q(detail="")
+                ),
+                name="a_failed_job_says_why",
+            ),
+        ]
+        indexes = [
+            # The one query a status page makes: this person's jobs, newest first.
+            models.Index(fields=["requested_by", "-requested_at"], name="background_jobs_by_requester"),
+        ]
+
+    def __str__(self) -> str:
+        """Return what this job is and where it has got to.
+
+        Returns:
+            A one-line summary. Reads `kind` and `state` only, both of which are
+            non-null with defaults, so this cannot raise on an unsaved instance --
+            the reason `Feedstock.__str__` reads an id rather than a relation.
+
+        """
+        return f"{self.kind} job ({self.state})"
+
+    def in_progress(self) -> bool:
+        """Report whether this job is still working.
+
+        Returns:
+            Whether the state is one a surface should keep polling.
+
+        """
+        return self.state in IN_PROGRESS_STATES

@@ -9,8 +9,25 @@
       <h2>{{ page.report.title }}</h2>
       <div class="sub">{{ page.report.asks }} &middot; {% translate "read" %} {{ page.report.cadence }}</div>
     </div>
+    {% comment %}
+      CPM-APP-S08 AC 1. Which control this is depends on the whole report rather than
+      on the page: a page shows at most REPORT_PAGE_ROWS, so a template counting what
+      it can see would offer the direct download for a report of four thousand rows.
+      `surface/exports.py` owns the one comparison against the cap.
+
+      Over the cap it is a form and not a link, because handing work off is a POST --
+      a GET that enqueued would let a bookmark, a prefetch or a link checker create
+      jobs.
+    {% endcomment %}
     <div class="btnrow">
-      <a class="btn" href="{% url 'conda_sentinel:report-export' page.report.slug %}">{% translate "Export CSV" %}</a>
+      {% if too_large_to_export_here %}
+        <form method="post" action="{% url 'conda_sentinel:report-export' page.report.slug %}">
+          {% csrf_token %}
+          <button class="btn" type="submit">{% translate "Prepare CSV export" %}</button>
+        </form>
+      {% else %}
+        <a class="btn" href="{% url 'conda_sentinel:report-export' page.report.slug %}">{% translate "Export CSV" %}</a>
+      {% endif %}
     </div>
   </div>
 
@@ -20,6 +37,17 @@
     a report cannot be produced without them -- and absent where there are no rows,
     which is honest: a report of nothing was produced from nothing.
   {% endcomment %}
+  {% if too_large_to_export_here %}
+    <div class="toast">
+      <div>
+        <b>{% translate "This export runs in the background" %}</b>
+        <p>
+          {% blocktranslate %}The report has more than {{ export_cap }} rows, which is more than an export will produce inside a request. Preparing it hands the work to a worker and gives you a page that says when the file is ready.{% endblocktranslate %}
+        </p>
+      </div>
+    </div>
+  {% endif %}
+
   <div class="freshbar">
     {% if page.evidence_cutoff %}
       <div><span class="lbl">{% translate "evidence cut-off" %}</span><b>{{ page.evidence_cutoff|date:"Y-m-d H:i" }}Z</b></div>
