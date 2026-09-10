@@ -94,7 +94,22 @@ EXPECTED_MODULES: Final[tuple[str, ...]] = (
 #: `tasks.py` and a `tasks/` package are the same surface to Django and to the
 #: audits that sweep for it, so an absence check that saw only the file would be
 #: satisfied by the directory.
-ABSENT_SURFACES: Final[tuple[str, ...]] = ("api", "admin", "serializers", "tasks", "urls", "views")
+ABSENT_SURFACES: Final[tuple[str, ...]] = ("admin", "serializers", "tasks", "urls", "views")
+
+#: The `api/` subpackage, and exactly what is in it.
+#:
+#: **`api` left `ABSENT_SURFACES` in `CPM-APP-S07`**, which gave `CPM-FR-27`'s v1 two
+#: writes -- and one of them is the identity override, which `CPM-AD-14` makes the
+#: product's single governed write path to reference data. It belongs beside the
+#: service that guards it rather than in the read layer.
+#:
+#: Spelled out rather than merely permitted, so the subpackage cannot quietly grow a
+#: second endpoint: a third write in this product is a change to its contract, and
+#: `tests/unit/django_apps/test_api_contract_audit.py` sweeps the resolver for one.
+#: `urls.py` is still absent and that is the rule rather than an omission -- routing
+#: is central (`CPM-AD-19`), in `config/api_router.py`.
+API_PACKAGE: Final[str] = "api"
+EXPECTED_API_MODULES: Final[tuple[str, ...]] = ("__init__.py", "serializers.py", "views.py")
 
 #: The one subpackage this application must have. `migrations/` is not optional:
 #: `tests/unit/django_apps/test_migration_completeness.py` compares the declared
@@ -266,13 +281,20 @@ def test_the_application_declares_no_urls_serializers_or_tasks() -> None:
     """The surface this story does not build, asserted rather than merely omitted.
 
     `CPM-AD-19` gives a domain application `urls.py`, an `api/` subpackage and
-    `tasks.py` when it has views or work to schedule. This one has neither:
-    resolution is a service its callers invoke rather than a task it schedules,
-    the override path is `CPM-IDENTITY-S05`'s and every read surface is
-    `CPM-EP-APP`'s. An empty `urls.py` added "for
-    later" would be routed by nothing and would still have to be reviewed, and a
-    `tasks.py` would be swept by `tests/unit/django_apps/test_task_routing_audit.py`
-    for a route it has no task to declare.
+    `tasks.py` when it has views or work to schedule. This one has an `api/` and
+    neither of the others.
+
+    **The `api/` arrived with `CPM-APP-S07`** and carries one endpoint: the identity
+    override, which `CPM-AD-14` makes the product's one governed write path to
+    reference data. It is here rather than in `surface` because `surface` is the read
+    layer, and a write there would make that framing false.
+
+    **`urls.py` is still absent, and that is the rule.** Routing is central. An empty
+    `urls.py` added "for later" would be routed by nothing and would still have to be
+    reviewed, and a `tasks.py` would be swept by
+    `tests/unit/django_apps/test_task_routing_audit.py` for a route it has no task to
+    declare -- resolution is a service its callers invoke, not work this app
+    schedules.
 
     **Both shapes of each surface.** A module comparison alone is satisfied by a
     `tasks/` package, which is the same surface with the same consequences and a
@@ -289,4 +311,8 @@ def test_the_application_declares_no_urls_serializers_or_tasks() -> None:
     assert present == [], f"this story builds none of these surfaces, but they are present: {present}"
 
     subpackages = sorted(path.name for path in package.iterdir() if path.is_dir() and not path.name.startswith("__"))
-    assert subpackages == [MIGRATIONS_PACKAGE]
+    assert subpackages == sorted([API_PACKAGE, MIGRATIONS_PACKAGE])
+
+    # Spelled out, so the one governed write cannot become two without a diff here.
+    api = sorted(path.name for path in (package / API_PACKAGE).glob("*.py"))
+    assert api == sorted(EXPECTED_API_MODULES), api
