@@ -156,7 +156,7 @@ development_status:
   epic-docs: backlog
   cpm-docs-s01-two-trees-and-every-reference-resolves: done
   cpm-docs-s02-the-site-wears-the-products-skin: done
-  cpm-docs-s03-what-it-does-and-how-it-was-built: ready-for-dev
+  cpm-docs-s03-what-it-does-and-how-it-was-built: done
   cpm-docs-s04-running-it-and-keeping-it-running: ready-for-dev
   epic-docs-retrospective: optional
 
