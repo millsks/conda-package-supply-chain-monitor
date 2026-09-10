@@ -75,6 +75,8 @@ from conda_sentinel.surface.filters import FACETS
 from conda_sentinel.surface.filters import applied_filters
 from conda_sentinel.surface.health import COLUMNS
 from conda_sentinel.surface.health import health_rows
+from conda_sentinel.surface.labels import queue_label
+from conda_sentinel.surface.labels import role_label
 from conda_sentinel.surface.listing import DEFAULT_ORDERING
 from conda_sentinel.surface.listing import ORDERINGS
 from conda_sentinel.surface.listing import SORT_PARAM
@@ -464,6 +466,12 @@ class QueueView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
         context.update(
             queue=queue,
             owner=QUEUE_OWNERS[queue],
+            # What a reader sees, beside what the URL and the logic use. `CPM-APP-S15`:
+            # the title, the heading and the "owned by" line all rendered the stored
+            # value, so this page announced itself as `identity_review` and said it was
+            # owned by `leadership`.
+            queue_label=queue_label(queue),
+            owner_label=role_label(QUEUE_OWNERS[queue]),
             rows=queue_rows(queue, context["page_obj"].object_list),
         )
         return context

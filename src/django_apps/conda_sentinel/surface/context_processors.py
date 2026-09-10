@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from conda_sentinel.surface.queues import ALL_QUEUES
+from conda_sentinel.surface.labels import labelled_queues
 from conda_sentinel.surface.reports import REPORTS
 from conda_sentinel.surface.theming import THEME_LABELS
 from conda_sentinel.surface.theming import THEMES
@@ -39,12 +39,17 @@ def navigation(request: HttpRequest) -> dict[str, object]:
             engine calls this with.
 
     Returns:
-        The queue names in the order `CPM-AD-22` declares them, and the report the
-        nav's single entry points at.
+        The queues in the order `CPM-AD-22` declares them, each with the value its URL
+        needs and the label a reader sees, and the report the nav's single entry
+        points at.
 
     """
     return {
-        "nav_queues": ALL_QUEUES,
+        # Value *and* label. `CPM-APP-S15`: the navigation rendered the stored value
+        # and read `identity_review`, because the label `Queue` already carried was
+        # never used. A pair rather than a label alone, because the URL needs the
+        # value and a template deriving one from the other is the thing that broke.
+        "nav_queues": labelled_queues(),
         # The nav points at *a* report rather than a list of six, because six entries
         # would crowd out the four surfaces a reader uses daily. The report page
         # carries its own sidebar of the rest.

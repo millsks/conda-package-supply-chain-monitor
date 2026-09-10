@@ -1,19 +1,19 @@
 {% extends "conda_sentinel/base.html" %}
 {% load i18n health %}
 
-{% block title %}{{ queue }}{% endblock title %}
+{% block title %}{{ queue_label }}{% endblock title %}
 
 {% block content %}
   <div class="app-h">
     <div>
-      <h2>{{ queue }}</h2>
+      <h2>{{ queue_label }}</h2>
       <div class="sub">
         {% blocktranslate count total=paginator.count trimmed %}
           {{ total }} open item
         {% plural %}
           {{ total }} open items
         {% endblocktranslate %}
-        &middot; {% translate "owned by" %} {{ owner }}
+        &middot; {% translate "owned by" %} {{ owner_label }}
       </div>
     </div>
   </div>

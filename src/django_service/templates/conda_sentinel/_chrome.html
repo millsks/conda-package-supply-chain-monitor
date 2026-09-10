@@ -28,18 +28,22 @@
       broken to whoever it was sent to.
     {% endcomment %}
     <nav class="app-nav">
-      <a href="{% url 'conda_sentinel:package-health' %}"
-         {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
-        {% translate "Packages" %}
-      </a>
       <a href="{% url 'conda_sentinel:home' %}"
          {% if request.resolver_match.url_name == 'home' %}class="on" aria-current="page"{% endif %}>
         {% translate "Home" %}
       </a>
+      <a href="{% url 'conda_sentinel:package-health' %}"
+         {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
+        {% translate "Packages" %}
+      </a>
+      {% comment %} The label, never the value. `CPM-APP-S15`: this rendered
+         `{{ queue }}` -- the stored string -- so a reviewer's navigation read
+         `identity_review`. The value is still what the URL is built from, which is
+         why the context processor hands over both. {% endcomment %}
       {% for queue in nav_queues %}
-        <a href="{% url 'conda_sentinel:queue' queue %}"
-           {% if request.resolver_match.kwargs.queue == queue %}class="on" aria-current="page"{% endif %}>
-          {{ queue }}
+        <a href="{% url 'conda_sentinel:queue' queue.value %}"
+           {% if request.resolver_match.kwargs.queue == queue.value %}class="on" aria-current="page"{% endif %}>
+          {{ queue.label }}
         </a>
       {% endfor %}
       <a href="{% url 'conda_sentinel:report' nav_first_report %}"

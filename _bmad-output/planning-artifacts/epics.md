@@ -2231,6 +2231,58 @@ route rather than for every call site. Adding the class later changes no path.
 `SCHEMA_PATH_PREFIX_TRIM` is deliberately off: a client generated from the document
 should reach the right URL without also being handed a base path to prepend.
 
+### CPM-APP-S15: The navigation reads the way a person reads
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner from the screen: why is Packages before Home, and why do the
+> queues read `identity_review`?
+
+Both were real. The order was never revisited -- Packages was the first screen built
+(`CPM-APP-S02`) and Home arrived eight stories later (`CPM-APP-S10`). The queue names
+were the *stored values*: `Queue` has carried labels since `CPM-APP-S04` and no
+surface had ever used one, which is also why they were lower case -- nothing was
+reading them to notice.
+
+It leaked in four places: the navigation, the queue page's title, its heading, and its
+"owned by" line, which showed a role slot.
+
+**The rule this settles is not "never render a raw value", and getting that wrong in
+either direction is a defect.** A derived status is emitted verbatim by `CPM-AD-24`
+precisely so the five states mean the same thing on a screen, in a CSV and in a JSON
+response; a well-meant "Unknown" on one surface takes that away. A queue name and a
+role name are storage nobody says aloud. So: **a value a person reads is a status this
+product asserts, or it has a label.**
+
+As any of the three roles,
+I want the screens to name things the way I would say them,
+So that I can read the product without translating its database columns.
+
+**Acceptance Criteria:**
+
+**Given** the navigation
+**When** it is rendered
+**Then** Home is its first entry
+
+**Given** a queue anywhere a person reads it
+**When** it is rendered
+**Then** it is the queue's label, never its stored value
+
+**Given** a role anywhere a person reads it
+**When** it is rendered
+**Then** it is the role's label, never its slot
+
+**Given** a derived status
+**When** it is rendered
+**Then** it is still emitted verbatim, and has acquired no label
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-24` — which this is careful *not* to break: the same story
+that gives queues labels asserts the statuses have none.
+**Constrained:** the labels are spelled out rather than derived from the slot.
+`leadership.title()` is "Leadership" and the role is called "Platform and engineering
+leadership"; a derived label is one nobody can correct without first replacing the
+mechanism.
+
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
