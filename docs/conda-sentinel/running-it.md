@@ -30,7 +30,7 @@ Then open **<http://localhost:8000/>** — it redirects to `/conda-sentinel/`.
 
 Authentication is delegated to an OIDC provider, and you do not have one locally. The
 local-dev sign-in gives you five personas instead, at
-**<http://localhost:8000/local-signin/>**:
+**<http://localhost:8000/_local/>**:
 
 | Persona | Holds | Can reach |
 |---|---|---|
@@ -39,6 +39,9 @@ local-dev sign-in gives you five personas instead, at
 | `engineer-persona` | packaging engineering | remediation |
 | `reader-persona` | no product role | nothing — the state the `IsAuthenticated` floor lets through |
 | `staff-persona` | Django staff | the admin |
+
+Each row has a **Sign in** button; one click and you are that persona. If the page
+lists none, run `pixi run -e dev seed-personas` first.
 
 `reader-persona` exists to be refused. Somebody signed in and holding no role is a
 real state — the zero-groups sign-in — and it is worth being able to see what they
