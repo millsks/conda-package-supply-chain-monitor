@@ -1966,6 +1966,102 @@ So that I do not act on a conclusion that stopped being true last week.
 mean inventing the product's central abstraction on a screen no requirement asks for.
 It is the natural content of this screen once `CPM-APP-S05` exists.
 
+### CPM-APP-S11: A reader chooses light, dark, or the machine's answer
+
+> **Added after the epic was written, and the acceptance criteria below were drafted
+> by the implementing agent rather than derived from the PRD.** No functional
+> requirement commissions a theme control. It closes a gap between what the design
+> spine shipped and what the product exposes: `static/css/conda-sentinel.css` has
+> carried three-state theming since the mockups landed — light tokens on bare
+> `:root`, a `prefers-color-scheme: dark` block, and a `:root[data-theme="dark"]`
+> block for an explicit choice — and nothing has ever set `data-theme`. Half of that
+> stylesheet is unreachable and the product cannot be told it is wrong about the
+> machine.
+
+As any of the three roles,
+I want to choose whether this product is light, dark, or follows my machine,
+So that I can read it on the screen I am actually sitting at.
+
+**Acceptance Criteria:**
+
+**Given** any page in the product
+**When** it is rendered
+**Then** the control is present and marks which of the three is in force
+
+**Given** a reader who has chosen nothing
+**When** a page is rendered
+**Then** it follows the operating system, and no explicit theme is asserted
+
+**Given** a reader who chooses light or dark
+**When** the next page is rendered
+**Then** the choice is honoured on the **first paint**, with no flash of the other
+
+**Given** a reader who chooses "auto" again
+**When** a page is rendered
+**Then** it returns to following the machine — auto is a choice, not the absence of one
+
+**Given** a stored preference
+**When** it is read
+**Then** a value outside the three is discarded rather than rendered
+
+**Satisfies:** nothing directly. Serves the design spine's own three-state palette.
+**Governed by:** `CPM-AD-24` (the tone vocabulary is unaffected by the theme — a
+status renders as its own value under every one).
+**Constrained:** the product ships no JavaScript, so the choice is a form post and a
+cookie rather than `localStorage`. That is what makes the first-paint criterion
+satisfiable at all: a client-side toggle cannot render the right theme before the
+document loads, and the flash it produces is the failure this criterion names.
+Deliberately **not** stored on `User`: a theme is a property of the screen somebody is
+looking at, not of who they are, and it has to work before anybody signs in — the
+sign-in page is a screen too.
+
+### CPM-APP-S12: Every page a person sees is this product's
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09` above, and
+> raised by the product owner rather than by a design gap. It finishes what
+> `CPM-RENAME-S02` started: that story put Conda-Sentinel on every operator-facing
+> surface the *product* owns, and left the inherited accelerator pages alone.
+
+Eleven templates still extend the accelerator's shell, and they are exactly the pages
+a person hits when they are **not** on one of this product's screens: the front page
+at `/`, `/about/`, sign-in and account management, and the 403, 404 and 500 pages.
+`base.html` still reads "Django 15-Factor Application Accelerator" in its `<title>`
+and its navbar brand. So a reviewer who mistypes a package name is shown an error page
+branded for a different product, which is the moment they are least able to tell
+whether they are in the right place.
+
+As any of the three roles,
+I want every page this deployment serves to be recognisably Conda-Sentinel,
+So that I can tell I am in the right product, especially when something has gone wrong.
+
+**Acceptance Criteria:**
+
+**Given** the root URL
+**When** it is opened
+**Then** it is this product's home, not the accelerator's landing page
+
+**Given** any page a person can reach without knowing a product URL — sign-in, account
+management, `/about/`, and the 403, 404 and 500 pages
+**When** it is rendered
+**Then** it carries this product's name and shell
+
+**Given** the product's shell
+**When** it is rendered for somebody who is not signed in
+**Then** it does not offer navigation they cannot use, and does not fail to render
+
+**Given** the accelerator's own routes
+**When** they are enumerated
+**Then** none of them serves a page naming a different product
+
+**Satisfies:** nothing directly. Completes `CPM-RENAME-S02`.
+**Governed by:** `CPM-AD-13` (the shell is shared; role scoping stays below the nav).
+**Constrained:** a path prefix was considered and rejected. Mounting the product's
+pages under `/conda-sentinel/` would move `/packages/` and its siblings while leaving
+`/`, `/about/`, `/accounts/` and every error page exactly where they are — the product
+would live in two places and the accelerator would still own the front door.
+`FORCE_SCRIPT_NAME` is the mechanism for a deployment that genuinely needs a prefix,
+and it moves every route together with no code change.
+
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was
