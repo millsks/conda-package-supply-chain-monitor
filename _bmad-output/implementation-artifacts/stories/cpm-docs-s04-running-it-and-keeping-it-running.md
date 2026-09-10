@@ -1,6 +1,6 @@
 # CPM-DOCS-S04: Running it, and keeping it running
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-DOCS` — Documentation that says which product it is about
 
@@ -35,9 +35,11 @@ so that my first day does not depend on somebody being available to explain it.
 
 ## Tasks / Subtasks
 
-- [ ] `docs/conda-sentinel/running-it.md` — start, sign in, seed, run a pass.
-- [ ] `docs/conda-sentinel/maintaining-it.md` — the gate, the audits, shipping a change.
-- [ ] The audit roster, each with the failure it prevents.
+- [x] `docs/conda-sentinel/running-it.md` — start, sign in, seed, run a pass.
+- [x] `docs/conda-sentinel/maintaining-it.md` — the gate, the audits, shipping a change.
+- [x] The audit roster, each with the failure it prevents.
+- [x] `mkdocs.yml` — both pages in reading order.
+- [x] `tests/unit/test_documentation_commands.py`.
 
 ## Dev Notes
 
@@ -81,3 +83,75 @@ learnable rather than a list of obstacles.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**Files added:** `docs/conda-sentinel/running-it.md`,
+`docs/conda-sentinel/maintaining-it.md`, `tests/unit/test_documentation_commands.py`.
+**Files changed:** `mkdocs.yml`.
+
+### Three wrong commands, caught by running them
+
+This is the story's own lesson and it happened while writing it. A first draft told a
+new maintainer to run:
+
+- `python manage.py run_policy_now` — **does not exist.** There is no management
+  command for a first run; the schedule owns it in production and the seeder does it
+  locally.
+- `pixi run cov` and `pixi run fmt` — the real names are **`test-cov`** and
+  **`format`**.
+
+None of the three would have failed anything in the suite. They would have failed *a
+person*, on their first day, on the two pages written to help them. `test_documentation_commands.py`
+now checks every `pixi run` in both pages against the parsed manifest, and every audit
+the roster names against the files that exist.
+
+### And one wrong claim about the seeder
+
+The draft said the seeder "writes evidence only" and that a separate policy run was
+needed. **It runs the pass itself** — through `execute_policy_run`, at the shipped
+policy version, producing ten rollup rows. Verified by running it and counting.
+
+The true and more interesting statement is the one now on the page: it writes no
+derived status *directly*, because `CPM-AD-10` gives the application layer no path to
+one, so it produces evidence and lets the passes that own each domain conclude from
+it. Its own comment says it best — *"every status they show is concluded here, by the
+passes that own it"* — and it goes through the real ledger, so the coverage screen
+reads the shape it would read in production.
+
+### `-e dev` is not optional on the seeder, and the refusal explains itself
+
+`pixi run seed-demo` refuses:
+
+> seed_demo_inventory writes inventory and evidence and must never run outside a local
+> run. Evidence is append-only (`CPM-AD-2`): a fictional observation cannot be
+> deleted, and every replayed policy run would read it.
+
+Only the dev environment declares `COMPONENT_RUNTIME=local`. That refusal is worth
+quoting in the documentation rather than paraphrasing: it is the product protecting an
+append-only log from a fixture, and a reader who meets it understands `CPM-AD-2`
+faster than any paragraph would manage.
+
+### The audit roster names failures, not rules
+
+AC 4, and it is what makes a dozen sweeps learnable rather than a list of obstacles.
+"prevents `core` importing a domain app's tables, inverting the registry" tells you
+what the audit is *for*; "enforces the layering rule" does not.
+
+The page also says what to do when one blocks you: read the message first — they are
+written to name the failure, so the message usually contains the argument for doing it
+the other way — and if it is genuinely wrong, add a **recorded exemption** with a
+companion case asserting it is still needed.
+
+### Two things a new maintainer otherwise learns the hard way
+
+Both are documented rather than left to be discovered:
+
+- **`pixi run ci` cannot complete on macOS.** The `docker build` child in
+  `tests/integration/test_image_payload.py` zombies, and it reproduces on unmodified
+  `main` — so somebody's first run of the gate looks like their change broke the
+  suite. The substitute procedure is on the page.
+- **The local gate cannot see the CI matrix.** With the path-separator example, which
+  is the defect this project makes most often and is invisible on macOS.

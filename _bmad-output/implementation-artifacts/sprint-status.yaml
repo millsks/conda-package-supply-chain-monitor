@@ -153,11 +153,11 @@ development_status:
   # Added after the epics were written and raised by the product owner. No functional
   # requirement commissions documentation; every story's acceptance criteria were
   # drafted by the implementing agent, and each story file leads with that caveat.
-  epic-docs: backlog
+  epic-docs: done
   cpm-docs-s01-two-trees-and-every-reference-resolves: done
   cpm-docs-s02-the-site-wears-the-products-skin: done
   cpm-docs-s03-what-it-does-and-how-it-was-built: done
-  cpm-docs-s04-running-it-and-keeping-it-running: ready-for-dev
+  cpm-docs-s04-running-it-and-keeping-it-running: done
   epic-docs-retrospective: optional
 
   # CPM-EP-NL: Governed natural-language investigation
