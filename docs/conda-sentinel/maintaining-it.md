@@ -40,6 +40,17 @@ pixi run docs      # mkdocs build --strict — a broken doc link is a failure
 pixi run format    # before staging, so pre-commit does not rewrite under you
 ```
 
+## Running the product while you change it
+
+`pixi run runserver` serves one process against SQLite with tasks running inline —
+the right loop for a template or a view.
+
+`pixi run local-stack` runs the product the way it actually runs: Redis and PostgreSQL
+in containers, and gunicorn, a worker, beat and flower together. Use it when the
+change touches the request boundary, a collector, a policy pass or an export — the
+inline default hides every consequence of `CPM-AD-9`. See
+[Running it](running-it.md#the-full-local-stack).
+
 !!! note "Stage before you gate"
 
     `pre-commit` only sees **tracked** files. A new file that is not `git add`ed is
@@ -83,6 +94,8 @@ prevents rather than the rule it applies:
 | `test_evidence_constraint_audit` | evidence that can be written without saying when it was observed |
 | `test_documentation_references` | a documentation pointer that silently stops resolving |
 | `test_stylesheet_overflow` | a wide table scrolling the page instead of itself |
+| `test_local_stack` | a local stack whose processes start and connect to nothing |
+| `test_documentation_commands` | a documented command that does not exist |
 
 Two more govern the suite itself:
 
