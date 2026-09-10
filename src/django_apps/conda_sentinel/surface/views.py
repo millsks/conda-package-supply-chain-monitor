@@ -42,13 +42,6 @@ from typing import ClassVar
 from typing import Final
 
 from django.conf import settings
-from django.core.exceptions import BadRequest
-from django.db.models import Case
-from django.db.models import IntegerField
-from django.db.models import OuterRef
-from django.db.models import Subquery
-from django.db.models import Value
-from django.db.models import When
 from django.http import Http404
 from django.http import HttpResponse
 from django.views import View
@@ -61,8 +54,6 @@ from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.core.pagination import DEFAULT_PAGE_SIZE
 from conda_sentinel.core.permissions import PRODUCT_ROLES
 from conda_sentinel.core.permissions import RoleRequiredMixin
-from conda_sentinel.policies.models import PackagePriority
-from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
 from conda_sentinel.surface.coverage import collector_health
 from conda_sentinel.surface.coverage import coverage_of
 from conda_sentinel.surface.detail import identity_of
@@ -70,11 +61,14 @@ from conda_sentinel.surface.detail import recent_runs
 from conda_sentinel.surface.detail import traces_for
 from conda_sentinel.surface.detail import work_on
 from conda_sentinel.surface.filters import FACETS
-from conda_sentinel.surface.filters import UnknownFacetValueError
 from conda_sentinel.surface.filters import applied_filters
-from conda_sentinel.surface.filters import filter_condition
 from conda_sentinel.surface.health import COLUMNS
 from conda_sentinel.surface.health import health_rows
+from conda_sentinel.surface.listing import DEFAULT_ORDERING
+from conda_sentinel.surface.listing import ORDERINGS
+from conda_sentinel.surface.listing import SORT_PARAM
+from conda_sentinel.surface.listing import health_queryset
+from conda_sentinel.surface.listing import ordering_key
 from conda_sentinel.surface.queues import queue_items
 from conda_sentinel.surface.queues import queue_rows
 from conda_sentinel.surface.reports import REPORTS
@@ -87,10 +81,10 @@ if TYPE_CHECKING:
 
     from conda_sentinel.workflow.models import WorkflowItem
 
-__all__ = ["ORDERINGS", "SORT_PARAM", "PackageHealthView"]
-
-#: The query-string parameter naming an ordering.
-SORT_PARAM: Final[str] = "sort"
+#: Re-exported: both names were declared here before `surface/listing.py` existed,
+#: and templates and tests reach for them at this path. The definitions live beside
+#: the queryset that uses them, which is what stops the API growing a second one.
+__all__ = ["DEFAULT_ORDERING", "ORDERINGS", "SORT_PARAM", "PackageHealthView"]
 
 #: What a URL naming no declared queue is told.
 #:
@@ -119,30 +113,6 @@ TRUNCATED: Final[str] = (
     "this export reached the {cap}-row cap and is incomplete; CPM-APP-S08 moves an export beyond the cap out "
     "of the request"
 )
-
-#: How the table may be ordered, and the first entry is the default.
-#:
-#: **By name first, and rank second, which is the opposite of what the mockup
-#: shows.** The mockup's screenshot is of a reviewer who arrived from their queue and
-#: has already chosen rank; a reader arriving at the URL with no opinion is usually
-#: looking *up* a package rather than being handed one, and an unranked default is
-#: also the cheap one -- `canonical_name` is uniquely indexed and rank is two
-#: annotations. `?sort=rank` is one click and the applied-filters bar says which is
-#: in force, so nothing is hidden.
-#:
-#: `package_id` terminates both orderings. `CPM-NFR-4`'s ten thousand rows are read a
-#: page at a time, and a non-deterministic ordering means a row can appear on two
-#: pages or on none -- the quietest paging bug there is, and one that only shows up
-#: at a size nobody tests by hand.
-ORDERINGS: Final[dict[str, tuple[str, ...]]] = {
-    "name": ("package__canonical_name", "package_id"),
-    "rank": ("bucket_rank", "-priority_score", "package_id"),
-}
-
-#: What an unrecognised `?sort=` falls back to. Silently, and unlike a bad facet
-#: value: an ordering cannot make a result set wrong, only differently sorted, so
-#: refusing a stale bookmark's sort key would cost a reader their page for nothing.
-DEFAULT_ORDERING: Final[str] = next(iter(ORDERINGS))
 
 
 # `ListView` is generic to django-stubs and a plain class at runtime, so the
@@ -174,49 +144,13 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
         """Return the rollup rows this request asked for.
 
         Returns:
-            The filtered, ordered queryset. `select_related("package")` is the one
-            join the list query needs -- the canonical name is on every row -- and
-            everything else is deferred to `core/health.py`'s bounded reads against
-            the settled page.
-
-        Raises:
-            BadRequest: When a filter value is outside its vocabulary. Rendered as a
-                400 rather than silently returning the whole inventory under a URL
-                that claims to be filtered.
+            Whatever `surface/listing.py` builds. Not built here: `CPM-APP-S07` adds
+            an API over the same rows, and a queryset written twice is `CPM-AD-24`'s
+            named failure -- the two surfaces agree on the day they are written and
+            disagree on the first day somebody changes one.
 
         """
-        try:
-            condition = filter_condition(applied_filters(dict(self.request.GET.lists())))
-        except UnknownFacetValueError as refusal:
-            raise BadRequest(str(refusal)) from refusal
-
-        return (
-            PackageHealth.objects.select_related("package")
-            .filter(condition)
-            .annotate(
-                # The priority pass's own order, reproduced rather than re-derived.
-                # `PRIORITY_BUCKETS` is worst-first, so its index *is* the rank and
-                # a bucket outside it -- the four sentinels, `unknown` among them --
-                # sorts after every real bucket rather than among them.
-                bucket_rank=Case(
-                    *(When(priority_status=bucket, then=Value(rank)) for rank, bucket in enumerate(PRIORITY_BUCKETS)),
-                    default=Value(len(PRIORITY_BUCKETS)),
-                    output_field=IntegerField(),
-                ),
-                # The score lives on `package_priority` and not on the rollup, by
-                # `CPM-PRIORITY-S01`'s argument that a contribution carries statuses
-                # and not numbers. A correlated subquery is what reads it without a
-                # join that would multiply rows and break the page count.
-                priority_score=Subquery(
-                    PackagePriority.objects.filter(
-                        package_id=OuterRef("package_id"),
-                        policy_run_id=OuterRef("policy_run_id"),
-                    ).values("score")[:1],
-                    output_field=IntegerField(),
-                ),
-            )
-            .order_by(*ORDERINGS[self.ordering_key()])
-        )
+        return health_queryset(dict(self.request.GET.lists()), sort=self.request.GET.get(SORT_PARAM, ""))
 
     def ordering_key(self) -> str:
         """Return which ordering this request asked for.
@@ -225,8 +159,7 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
             The requested key when it names one, otherwise `DEFAULT_ORDERING`.
 
         """
-        requested = self.request.GET.get(SORT_PARAM, "")
-        return requested if requested in ORDERINGS else DEFAULT_ORDERING
+        return ordering_key(self.request.GET.get(SORT_PARAM, ""))
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         """Return what the template renders.

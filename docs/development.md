@@ -1269,6 +1269,119 @@ the acting user, the view, the path, the roles required and the roles held. That
 last field is what distinguishes a user whose groups were never mapped (`held` is
 empty) from somebody reaching for another role's queue.
 
+## The API
+
+`CPM-FR-27` exposes the same reads over HTTP with a published schema. Everything is
+routed from one file — `src/config/api_router.py` — and that is deliberate: the
+API's shape has to be legible in one place, because one of its acceptance criteria is
+an *enumeration*.
+
+| Method | Path | What |
+|---|---|---|
+| GET | `/api/packages/` | Current health, filtered and ordered exactly as `/packages/` |
+| GET | `/api/packages/<name>/` | One package, every status traced to its evidence |
+| GET | `/api/queues/<queue>/` | One queue, ranked, scoped to the role that owns it |
+| GET | `/api/reports/` | The report roster |
+| GET | `/api/reports/<slug>/` | One report, paginated, with its provenance |
+| POST | `/api/packages/<id>/identity-override/` | **Write.** Correct an identity |
+| POST | `/api/workflow-items/<id>/transition/` | **Write.** Move a queue item |
+
+The schema is at `/api/schema/` and Swagger UI at `/api/docs/`, both admin-only.
+They are generated from the implementation — there is no hand-kept document.
+
+### The two writes
+
+v1 has exactly two, and `tests/unit/django_apps/test_api_contract_audit.py` walks the
+URL resolver to prove it. The failure it guards against is not somebody deliberately
+adding a third; it is somebody registering a `ModelViewSet`, which brings `POST`,
+`PUT`, `PATCH` and `DELETE` with it and looks like one line in a diff.
+
+Neither write implements anything. `identity/api/` hands a `Correction` to
+`override_identity` and `workflow/api/` hands a move to `apply_transition`; the
+permission check, the required reason, the row lock, the expected-state check and the
+audit row written in the same transaction all live in those services. A view that
+re-implemented any of it would be a second door into governed data, and
+`CPM-AD-14`'s guarantee is that there is one.
+
+**Refusals are typed, not matched on message.** `override_identity` raises
+`OverrideNotPermittedError` (403), `OverrideTargetMissingError` (404), or plain
+`OverrideError` (400); `apply_transition` raises `WorkflowError`, which becomes a
+**409**. That last split is the useful one: a body the API cannot read is the
+client's mistake, and a move the machine will not make on an item in the state it is
+actually in is a fact about the world that probably changed under the caller.
+
+### Adding a read endpoint
+
+Put it in the owning app's `api/` subpackage, route it in `api_router.py`, and
+**declare nothing about pagination** — `CPM-AD-12` puts the bound in
+`REST_FRAMEWORK` and a `ListAPIView` inherits it. The audit sweeps for a read that is
+not a generic view, because a hand-rolled `APIView` returning a list is how a global
+pagination setting stops reaching anything.
+
+Reads belong in `surface/`; writes belong in the app that owns the data. `surface` is
+the read layer and sits above the rest, so a write there would make that framing
+false — and `workflow` importing `surface.queues` would invert the layering
+`test_app_layering_audit.py` exists to fix.
+
+### Serialize the projection, never the model
+
+```python
+# yes -- the same dataclasses the templates render
+health_rows(page) -> HealthRowSerializer
+
+# no -- a second projection with no confidence gate and its own column list
+class Health(serializers.ModelSerializer):
+    class Meta:
+        model = PackageHealth
+```
+
+`CPM-AD-24` names the failure: a new derived status reaching the API but not the
+governed view. A `ModelSerializer` over the rollup skips `_gated()`, carries no
+evidence timestamps, and falls a column behind the screen the day a pass adds one.
+Reading the same dataclass means the API cannot be more or less than the screen,
+because there is nothing else for it to read.
+
+The list queryset is `surface/listing.py`'s, for the same reason — the screen and the
+API call `health_queryset` rather than each building one.
+
+### Statuses: `StatusField`, always
+
+```python
+from conda_sentinel.core.serializer_fields import StatusField
+
+class CellSerializer(serializers.Serializer):
+    status = StatusField()          # never null, never blank, never absent
+    note = serializers.CharField(allow_blank=True)   # a field with no value: blank is fine
+```
+
+`unknown` is one of `CPM-FR-5`'s five outcomes and it is the load-bearing one — it is
+how this product says *nobody established anything here*. Every ordinary
+serialization habit destroys it: `allow_null=True` makes it `null`, a `BooleanField`
+over "is this vulnerable" turns five states into two and loses the three that mean
+*we do not know*, and `required=False` drops the key so the client defaults it.
+
+`StatusField` refuses all three as a `TypeError` when the class is built, and
+**raises** rather than emitting a falsy value. Raising is the right severity: every
+status column here is non-null with a sentinel default, so a blank one is a defect
+upstream, and a silently empty status in a response is the failure somebody notices a
+quarter later as a package that looked fine.
+
+The audit asserts every status-named field in every serializer is one. A field that
+is genuinely not a derived status — `ItemState` on a workflow serializer is a
+position in a workflow, not a verdict about a package — goes in
+`RECORDED_NON_STATUSES`, spelled out and checked to still exist.
+
+### Two traps
+
+**`get_permissions` is called during schema generation**, with no URL kwargs. A
+`NotFound` raised there makes `/api/schema/` answer 404 for the entire document.
+Introspection is not a request: refuse in `initial()`, and let `get_permissions`
+return something that fails closed.
+
+**Django's `BadRequest` is not a DRF exception.** It reaches Django's handler, which
+renders an HTML debug page — with the correct status code, from a JSON API. Translate
+it to `ValidationError` at the API boundary.
+
 ## Reports and exports
 
 Six recurring reports live in `surface/reports.py`. They are not six views. A report

@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
+    from django.db.models import QuerySet
+
 
 __all__ = [
     "EMPTY",
@@ -57,13 +59,15 @@ __all__ = [
     "ReportColumn",
     "ReportPage",
     "report_page",
+    "report_rows",
+    "report_values",
 ]
 
 #: What a *field with no value* renders as, and what a status never renders as.
 #:
 #: `CPM-AD-24` reserves blank for the first and forbids it for the second. Declared so
-#: `tests/unit/django_apps/test_reports.py` can assert against it rather than against
-#: a literal written twice.
+#: `tests/unit/django_apps/test_report_projection.py` can assert against it rather than
+#: against a literal written twice.
 EMPTY: Final[str] = ""
 
 #: How often each report is meant to be read, as the schedule `CPM-FR-26` names.
@@ -257,6 +261,59 @@ class ReportPage:
     policy_versions: tuple[str, ...]
 
 
+def report_values(report: Report) -> QuerySet[PackageHealth, tuple[object, ...]]:
+    """Return one report's raw rows, ordered and unbounded, as a values queryset.
+
+    Split out from `report_page` by `CPM-APP-S07`, which paginates a report over
+    HTTP: a paginator needs something it can count and slice, and it must be the
+    *same* thing the page and the export read. A second queryset built for the API
+    is `CPM-AD-24`'s named failure with an extra step.
+
+    Args:
+        report: Which report.
+
+    Returns:
+        One tuple per row -- the report's columns in order, then the row's version
+        map. Not evaluated: the caller slices it.
+
+    """
+    columns = report.all_columns()
+    return (
+        PackageHealth.objects.filter(report.condition)
+        .order_by("package__canonical_name", "pk")
+        .values_list(*(column.source for column in columns), "policy_versions")
+        .distinct()
+    )
+
+
+def report_rows(report: Report, values: Sequence[tuple[object, ...]]) -> ReportPage:
+    """Project settled rows into the report the surfaces render.
+
+    Args:
+        report: Which report.
+        values: The rows, already sliced by a paginator or a cap. A sequence rather
+            than a queryset because it must not be re-evaluated -- the shape
+            `health_rows` takes, and for the same reason.
+
+    Returns:
+        The rendered rows and the provenance *of these rows*. Per page rather than
+        per report, which is the honest read when a caller is walking one: the
+        envelope says what the rows in this response were produced from, and every
+        row carries its own stamps besides.
+
+    """
+    columns = report.all_columns()
+    return ReportPage(
+        report=report,
+        columns=columns,
+        rows=tuple(
+            tuple(_rendered(value, column) for value, column in zip(row[:-1], columns, strict=True)) for row in values
+        ),
+        evidence_cutoff=_cutoff(values, columns),
+        policy_versions=_versions(values),
+    )
+
+
 def report_page(report: Report, *, limit: int | None = None) -> ReportPage:
     """Produce one report.
 
@@ -269,25 +326,8 @@ def report_page(report: Report, *, limit: int | None = None) -> ReportPage:
         The rows and the provenance.
 
     """
-    columns = report.all_columns()
-    matched = (
-        PackageHealth.objects.filter(report.condition)
-        .select_related("package")
-        .order_by("package__canonical_name", "pk")
-        .distinct()
-    )
-    limited = matched[:limit] if limit is not None else matched
-    values = list(limited.values_list(*(column.source for column in columns), "policy_versions"))
-
-    return ReportPage(
-        report=report,
-        columns=columns,
-        rows=tuple(
-            tuple(_rendered(value, column) for value, column in zip(row[:-1], columns, strict=True)) for row in values
-        ),
-        evidence_cutoff=_cutoff(values, columns),
-        policy_versions=_versions(values),
-    )
+    values = report_values(report)
+    return report_rows(report, list(values[:limit] if limit is not None else values))
 
 
 def _rendered(value: object, column: ReportColumn) -> str:

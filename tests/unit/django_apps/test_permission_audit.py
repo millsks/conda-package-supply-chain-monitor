@@ -281,6 +281,15 @@ def declares_a_role(view: type) -> bool:
     acceptance criterion asks for -- "the check is implemented once" is about where
     the comparison lives, not about how many kinds of view there are.
 
+    **Each shape has a seam for the surface whose roles depend on its URL**, and both
+    are recognised here: `roles_required` on a Django view, `get_permissions` on a
+    DRF one. `CPM-AD-22`'s queues need it -- which role owns a queue is a property of
+    the queue -- and `CPM-APP-S07` needed the DRF half for the same three queues over
+    HTTP. Recognising an override is all this static sweep can do; that the override
+    returns the *right* role for each queue is asserted by a named case in
+    `tests/unit/django_apps/test_api_contract_audit.py`, on the principle that a
+    proxy belongs in a sweep and the rule itself belongs in a case.
+
     Args:
         view: The registered view class.
 
@@ -295,6 +304,8 @@ def declares_a_role(view: type) -> bool:
         isinstance(entry, type) and issubclass(entry, RolePermission)
         for entry in getattr(view, "permission_classes", ())
     ):
+        return True
+    if "get_permissions" in vars(view):
         return True
     if not issubclass(view, RoleRequiredMixin):
         return False

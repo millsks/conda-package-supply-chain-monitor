@@ -1017,11 +1017,25 @@ CORS_URLS_REGEX = r"^/api/.*$"
 # Annotated because production.py adds a "SERVERS" list of dicts, which a
 # value-inferred dict type would reject.
 SPECTACULAR_SETTINGS: dict[str, Any] = {
-    "TITLE": "Django 15-Factor Application Accelerator API",
-    "DESCRIPTION": "Documentation of API endpoints of Django 15-Factor Application Accelerator",
+    # Named for the product rather than the accelerator it was built from.
+    # `CPM-RENAME-S02` put Conda-Sentinel on every operator-facing surface and the
+    # published contract is one: an integrator reading a document titled for a
+    # different product has no way to know it is the right one.
+    "TITLE": "Conda-Sentinel API",
+    "DESCRIPTION": (
+        "Current package health, per-package evidence, the recurring reports and the work queues. "
+        "Derived statuses are emitted verbatim as their outcome values -- `unknown` is a state this product "
+        "asserts, never an absence -- and the two writes are the package-identity override and the queue action."
+    ),
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "SCHEMA_PATH_PREFIX": "/api/",
+    # Two vocabularies over one choice set. `expected_state` and `to_state` are both
+    # `ItemState`, and without this drf-spectacular mints two enum components with
+    # the same members and warns that it had to guess a name. One named component is
+    # also what a generated client wants: two would give it two incompatible types
+    # for one thing.
+    "ENUM_NAME_OVERRIDES": {"WorkflowItemState": "conda_sentinel.workflow.states.ItemState.choices"},
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
