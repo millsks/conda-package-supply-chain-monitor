@@ -1,0 +1,21 @@
+{% load i18n %}
+{% comment %}
+  The package-name search control, declared once and included by the health table,
+  the three queues and the six reports. Three copies would drift -- and the drift
+  that matters is the `maxlength`, which is rendered from the same constant the
+  server applies: a box accepting more than `search_term` will keep turns a long
+  paste into "no search at all", under an input still showing the reader's text.
+
+  Just the field. Each surface wraps it in whatever form it already has: the health
+  table puts it inside the facet form so that applying a facet keeps the search and
+  clearing the search keeps the facets, and a queue or a report gives it one of its
+  own because they have no other.
+{% endcomment %}
+<input class="searchbox"
+       type="search"
+       name="{{ search_param }}"
+       value="{{ search }}"
+       maxlength="{{ search_max_length }}"
+       autocomplete="off"
+       placeholder="{% translate 'contains…' %}"
+       aria-label="{% translate 'Filter by package name' %}" />

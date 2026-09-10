@@ -56,6 +56,7 @@ from conda_sentinel.surface.exports import EXPORT_JOB_KIND
 from conda_sentinel.surface.exports import REPORT_SLUG_PARAMETER
 from conda_sentinel.surface.exports import over_the_cap
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
+from conda_sentinel.surface.search import SEARCH_PARAM
 from tests.factories import UserFactory
 
 if TYPE_CHECKING:
@@ -599,3 +600,76 @@ def test_an_ordinary_read_enqueues_nothing() -> None:
         assert client.get(reverse(name)).status_code == HTTPStatus.OK
 
     assert BackgroundJob.objects.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# CPM-APP-S18: a search travels with the work across the request boundary.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_a_job_carrying_a_search_exports_only_the_rows_it_names() -> None:
+    """The file a worker produces has to hold what the reader was looking at.
+
+    `ReportExportView`'s stated principle is that an export is the same rows as the
+    page with a different bound. Crossing `CPM-AD-9`'s boundary is the one place that
+    can quietly stop being true, because the work is done later, elsewhere, by
+    something that never saw the request.
+    """
+    two_unmapped_packages()
+    job = request_job(
+        kind=EXPORT_JOB_KIND,
+        parameters={REPORT_SLUG_PARAMETER: A_REPORT, SEARCH_PARAM: "first"},
+        requested_by=a_reader().handle,  # type: ignore[attr-defined]
+        clock=FixedClock(instant=NOW),
+    )
+
+    rows = run_job(job.pk)
+
+    job.refresh_from_db()
+    assert rows == 1
+    assert [row[0] for row in list(csv.reader(io.StringIO(job.artifact)))[1:]] == ["first"]
+
+
+@pytest.mark.django_db
+def test_a_job_carrying_no_search_still_exports_the_whole_report() -> None:
+    """The optional half, and it is also every job enqueued before this story.
+
+    `job_parameters` *refuses* a parameter that is missing, because a runner reading
+    `None` for the slug would produce an artifact for the wrong report. A search is
+    genuinely optional, so the runner reads it directly and absent means "all of it".
+    A runner that refused would fail every queued job the moment this shipped.
+    """
+    two_unmapped_packages()
+    job = request_job(
+        kind=EXPORT_JOB_KIND,
+        parameters={REPORT_SLUG_PARAMETER: A_REPORT},
+        requested_by=a_reader().handle,  # type: ignore[attr-defined]
+        clock=FixedClock(instant=NOW),
+    )
+
+    assert run_job(job.pk) == TWO_ROWS
+
+
+@pytest.mark.django_db
+def test_asking_for_a_large_export_from_a_searched_page_records_the_search(settings: Any) -> None:
+    """AC 4 across the boundary: what the form posts is what the job carries.
+
+    The view reads the fragment off the POST rather than the query string, because a
+    form does not inherit one -- so this is where a hidden field that was never
+    rendered, or a view reading the wrong side of the request, shows up.
+
+    Args:
+        settings: pytest-django's settings fixture, which restores the cap.
+
+    """
+    settings.CPM_SYNC_EXPORT_MAX_ROWS = A_TINY_CAP
+    two_unmapped_packages()
+
+    a_reader().post(reverse("conda_sentinel:report-export", kwargs={"slug": A_REPORT}), {SEARCH_PARAM: "  first  "})
+
+    job = BackgroundJob.objects.get()
+    assert job.parameters[REPORT_SLUG_PARAMETER] == A_REPORT
+    # Normalised on the way in, so the worker is not left doing it and the two cannot
+    # disagree about what was asked for.
+    assert job.parameters[SEARCH_PARAM] == "first"
