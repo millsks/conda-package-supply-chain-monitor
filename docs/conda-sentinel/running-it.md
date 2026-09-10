@@ -8,7 +8,7 @@ service running** — no Postgres, no Redis, no identity provider.
 ```bash
 pixi install                    # the environment
 pixi run migrate                # SQLite, locally
-pixi run -e dev seed-demo       # ten packages, their evidence, and a policy run
+pixi run -e dev seed-demo       # a hundred packages, their evidence, and a policy run
 pixi run runserver              # http://localhost:8000/
 ```
 
@@ -73,10 +73,10 @@ nothing.
 
 ## What the seeder does, and how
 
-It writes ten packages and **evidence** for them — release snapshots, advisories, a
+It writes a hundred packages and **evidence** for them — release snapshots, advisories, a
 KEV cross-reference, licence findings, readiness assessments, feedstock snapshots —
-and then **runs a real policy pass** over them. Ten rollup rows, at the shipped policy
-version.
+and then **runs a real policy pass** over them. A hundred rollup rows, at the shipped
+policy version, in about two seconds.
 
 The distinction that matters: **it writes no derived status directly.** `CPM-AD-10`
 gives the application layer no write path to one, so the seeder produces evidence and
@@ -92,10 +92,39 @@ It goes through the real ledger too, opening a collection run before the work an
 finalising it after, so the coverage screen reads the shape it would read in
 production.
 
-The ten packages are chosen to put something in every state — a KEV-listed advisory, a
-licence needing review, a package behind upstream, an absent feedstock, and one
-`internal-telemetry-sdk` that nothing can identify, so you can see what
-<span class="cs-state unknown">unknown</span> looks like across a whole row.
+### What the hundred are
+
+A mixture, on purpose: **web frameworks** (django, flask, fastapi, tornado, litestar),
+**data science** (numpy, pandas, scikit-learn, pytorch, hdbscan), the **utilities every
+environment carries** (setuptools, pytest, boto3, sqlalchemy, cattrs), and seven things
+conda-forge ships that are **not Python at all** (git, nodejs, cmake, ffmpeg, sqlite) —
+well known and less so, because a roster of household names would not show you what an
+unfamiliar package looks like on these screens.
+
+They are chosen to put something in every state: an advisory whose fix conda-forge
+already ships and one where no fix exists, a licence needing review, packages behind
+upstream, an inactive feedstock and an absent one, a package proven not to build on
+Python 3.14, a lookup that broke, and two internal packages nothing can identify, so
+you can see what <span class="cs-state unknown">unknown</span> looks like across a
+whole row.
+
+A hundred rather than ten so the screens are judged as screens: at ten rows nothing
+paginates, every table fits above the fold, sorting is instant on any design, and a
+queue holding two items looks like a queue.
+
+!!! tip "The advisories are real"
+
+    Every advisory identifier, severity and affected range in the roster comes from
+    **OSV.dev**, and the one KEV listing is a real entry in CISA's catalogue with the
+    date the catalogue states — `git` / `CVE-2025-48384`, added 2025-08-25. Look one
+    up and you will find it.
+
+    One KEV row out of twenty-eight advisories is not a thin demo. That catalogue
+    lists software known to be exploited in the wild, and almost nothing on PyPI is in
+    it.
+
+    Everything around them is a fixture: no collector ran, no build was performed, and
+    the versions on a package with no advisory are plausible rather than observed.
 
 !!! note "One column still comes out flat, deliberately"
 

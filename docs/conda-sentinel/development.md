@@ -27,10 +27,21 @@ authorization:
 pixi run -e dev seed-demo
 ```
 
-Ten packages with evidence behind them, and one real policy run over both. Without
-it the screens render `unknown` everywhere — correct, and useless for judging a
-design, because every cell then has the value it would also have if the projection
+A hundred packages with evidence behind them, and one real policy run over both.
+Without it the screens render `unknown` everywhere — correct, and useless for judging
+a design, because every cell then has the value it would also have if the projection
 were broken.
+
+A hundred rather than ten since `CPM-PLATFORM-S05`, and the number is the point: at
+ten rows nothing paginates, every table fits above the fold, and a queue holding two
+items looks like a queue — so a reviewer asking whether a screen is usable was being
+shown one that could not be unusable. The roster mixes web frameworks, data science
+packages and ordinary utilities, well known and less so, plus seven things conda-forge
+ships that are not Python at all, which is where `not_applicable` comes from.
+
+**The advisories are real**: identifier, severity and affected range come from
+OSV.dev, and the single KEV listing is a real CISA catalogue entry with its real date.
+Everything around them is a fixture.
 
 **It writes evidence, never a verdict.** Every status the seeded screens show was
 concluded by the pass that owns it, from the parameter file that ships. Identity
@@ -41,11 +52,12 @@ not a fixture imitating it.
 
 Two consequences worth expecting:
 
-- **Priority is `unknown` and licence is `manual_review` for every package.** The
-  shipped parameter file records `priority_rules = []` and `license_rules = []`
-  deliberately — both are open PRD questions — so those columns are inert until
-  someone records a rule set at a new version. The seeder says so in its output
-  rather than letting you conclude the columns are broken.
+- **Licence is `manual_review` for every package.** The shipped parameter file
+  records `license_rules = []` deliberately — PRD Open Question 4 — so that column is
+  inert until someone records a rule set at a new version. `priority_rules` was empty
+  the same way until `2026.09.4` recorded ten, so priority buckets are real from that
+  version on and seven of the ten fire on this roster. The seeder reads which
+  parameters are still empty off the version it ran, rather than saying it in prose.
 - **Running it twice appends.** Evidence is append-only (`CPM-AD-2`), so a second
   run adds a second observation of each fact rather than replacing the first. That
   is realistic, and it is what gives the package detail view's superseded-evidence
