@@ -59,9 +59,11 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Conda-Sentinel:
-      - Overview: conda-sentinel/index.md
-      - Developing: conda-sentinel/development.md
+      - What it does: conda-sentinel/index.md
+      - How it is built: conda-sentinel/architecture.md
+      - A policy run: conda-sentinel/the-policy-run.md
       - Operating: conda-sentinel/operations.md
+      - Developing: conda-sentinel/development.md
   - The platform:
       - Overview: accelerator/index.md
       - Developing: accelerator/development.md
