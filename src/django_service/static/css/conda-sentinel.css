@@ -129,6 +129,23 @@ body{margin:0}
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]) .brand .glyph{color:#08171c}
 }
+/* The theme control (CPM-APP-S11). Three buttons rather than a toggle, because
+ * `auto` is a real choice: somebody whose laptop switches at sunset wants the product
+ * to switch with it, and a two-state control can only record where they were when
+ * they last touched it. Sized down and set in the mono face so it reads as a control
+ * rather than as navigation -- it changes how the page looks, not where you are. */
+.themeset{display:flex;gap:0;flex:none;border:1px solid var(--line);border-radius:4px;
+  overflow:hidden;background:var(--surface)}
+.themeset button{appearance:none;border:0;background:transparent;cursor:pointer;
+  padding:4px 9px;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--muted);border-right:1px solid var(--line-2)}
+.themeset button:last-child{border-right:0}
+.themeset button:hover{color:var(--ink-2);background:var(--surface-2)}
+.themeset button.on{background:var(--accent);color:#fff;font-weight:600}
+:root[data-theme="dark"] .themeset button.on{color:#08171c}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .themeset button.on{color:#08171c}
+}
 .app-nav{display:flex;gap:2px;flex:1;align-items:center;height:100%}
 .app-nav a{padding:0 12px;height:100%;display:flex;align-items:center;text-decoration:none;
   color:var(--ink-2);font-size:12.5px;border-bottom:2px solid transparent}
