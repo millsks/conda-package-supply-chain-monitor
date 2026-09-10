@@ -129,16 +129,125 @@ The seeder exists so you do not have to do that to see the product work.
 ## Background work
 
 The export of a large report, and every collector and policy run, leave the request
-(`CPM-AD-9`). That needs a broker:
+(`CPM-AD-9`). Locally, tasks run **inline** by default — so those work with nothing
+running, and you never see a worker.
+
+To run them for real, use [the full local stack](#the-full-local-stack) below.
+
+Without a broker, a queued job is **failed with the reason on its own page** rather
+than disappearing — the row says the broker refused the connection. That is the
+intended behaviour, and it is what you would see if you turned eager mode off without
+starting one.
+
+## The full local stack
+
+The five commands above give you the product with tasks running **inline** — no
+broker, no worker. That is the right default for reading screens, and it is not the
+product's real shape: `CPM-AD-9` sends collectors, policy runs and large exports out
+of the request, and inline execution hides every consequence of that.
+
+For the real shape:
 
 ```bash
-pixi run worker      # drains celery,collect,policy,verify,export
-pixi run beat        # the schedule, which lives in the database
+pixi run local-stack
 ```
 
-Without one, a queued job is **failed with the reason on its own page** rather than
-disappearing — the row says the broker refused the connection. That is the intended
-behaviour and also what you will see locally until Redis is running and authenticated.
+One command. It brings up Redis and PostgreSQL in containers, waits for both to be
+healthy, then runs four processes together under
+[honcho](https://github.com/nickstenning/honcho):
+
+| Process | Is |
+|---|---|
+| `web` | **gunicorn**, the deployed command, on <http://localhost:8000/> |
+| `worker` | drains `celery,collect,policy,verify,export` |
+| `beat` | the scheduler, reading its cadences from the database |
+| `flower` | the Celery monitor, on <http://127.0.0.1:5555> |
+
+`Ctrl-C` stops all four. The containers keep running — `pixi run docker-down` stops
+them, `pixi run docker-down-v` also discards their data.
+
+### It uses its own containers, on its own ports
+
+| Service | Container port | Published on |
+|---|---|---|
+| Redis | 6379 | **6380** |
+| PostgreSQL | 5432 | **5433** |
+
+Not the defaults, and that is a safety property rather than a preference. A developer
+machine very often already has a Redis on 6379 — and this product calls
+`cache.clear()`, which flushes an **entire Redis database**. A stack that talked to
+whatever was already listening would be one bad afternoon from flushing another
+project's cache.
+
+So `local-stack` points at `localhost:6380` and `localhost:5433` explicitly. It will
+not use your existing Redis or PostgreSQL, and it does not need you to stop them.
+
+!!! warning "The stack's database is a different database"
+
+    It is the PostgreSQL container, not the SQLite file the five commands above use.
+    Its first run needs its own migrate and seed:
+
+    ```bash
+    pixi run docker-up
+    export DATABASE_URL="postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel"
+    pixi run -e dev python manage.py migrate
+    pixi run -e dev seed-demo
+    ```
+
+    That is also the more production-shaped place to work: SQLite serialises writes
+    behind one lock, and a worker, beat and a web process writing at once is exactly
+    where that shows.
+
+### Docker on its own
+
+| Task | Does |
+|---|---|
+| `pixi run docker-up` | start both, wait until healthy |
+| `pixi run docker-down` | stop them, keep the data |
+| `pixi run docker-down-v` | stop them, discard the data |
+| `pixi run docker-ps` | what is running |
+| `pixi run docker-logs` | follow both logs |
+| `pixi run docker-psql` | a `psql` shell in the container |
+| `pixi run docker-redis` | a `redis-cli` shell in the container |
+
+**`compose.yaml` brings up infrastructure only.** The application runs from the pixi
+environment, because that environment *is* the runtime — putting the app in a
+container as well would mean a rebuild on every edit and a second, slower way to run
+what pixi already runs. `Dockerfile` is what builds the deployable image.
+
+### Two things that make it work, and fail quietly without
+
+**Every `Procfile` line runs `pixi run -e dev …`.** `COMPONENT_RUNTIME=local` comes
+from `[feature.dev.activation.env]` and nowhere else — a task may not declare it, and
+`tests/unit/test_locality_declaration.py` fails the gate on any that tries. A bare
+`pixi run worker` therefore resolves in `default`, reads *deployed* settings, finds no
+broker and falls back to Celery's built-in `amqp://guest@localhost:5672`. The worker
+then starts, prints a banner listing the right queue names, and consumes nothing.
+
+**`local-stack` sets `CELERY_TASK_ALWAYS_EAGER=0`.** Local settings run tasks inline by
+default, which is right for `runserver` alone and would leave the worker, beat and
+flower idle here while the web process quietly did their work.
+
+Both failures look like a working stack. That is why
+`tests/unit/test_local_stack.py` asserts them.
+
+### The web process is the deployed one
+
+`local-stack` runs `pixi run web` — gunicorn with `config.workers.DrainingUvicornWorker`,
+the same line the `Dockerfile` runs. That is the point of the stack: it serves the
+product through the path production serves it through, so ASGI behaviour, worker
+lifecycle and shutdown draining are things you can see rather than things you assume.
+
+Two costs, both real:
+
+**No autoreload.** `--reload` is not on the deployed command and does not belong
+there, so an edit needs a restart. For working on a template or a view, run
+`pixi run runserver` on its own instead — the stack is for seeing the product's real
+shape, not for a tight edit loop.
+
+**Gunicorn is Unix-only.** The stack's `web` line does not run on Windows;
+`pixi run -e dev runserver` remains the cross-platform way to serve one process, and
+the worker, beat and flower lines are unaffected.
 
 ## Reading the screens
 

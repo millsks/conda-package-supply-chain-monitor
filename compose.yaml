@@ -1,0 +1,76 @@
+# The infrastructure a local stack needs, and nothing else.
+#
+# **The application does not run here.** `pixi run local-stack` runs the web process,
+# the worker, beat and flower from the pixi environment; this file brings up the two
+# services they talk to. Putting the application in a container as well would mean a
+# rebuild on every edit and a second, slower way to run what `pixi` already runs —
+# and the whole point of the pixi environment is that it is the one runtime.
+#
+# **Local only.** No secrets, no TLS, ports published on the host. `Dockerfile` is what
+# builds the deployable image; this is a development convenience and says so in every
+# password below.
+#
+# `version:` is deliberately absent — the Compose Specification dropped it, and a file
+# that carries one gets a deprecation warning from every modern client.
+
+name: conda-sentinel
+
+services:
+  redis:
+    # The broker, the result backend and the cache. Pinned to a minor: an unpinned
+    # `redis:8` would move under the project and the day it did would be the day
+    # something subtle changed about eviction or persistence.
+    image: redis:8.2-alpine
+    container_name: conda-sentinel-redis
+    # **Not 6379.** A developer machine very often already has a Redis there, and
+    # publishing onto it either fails to bind or -- worse -- succeeds while the stack
+    # quietly talks to whatever was already running. This product calls
+    # `cache.clear()`, which flushes an entire Redis database, so "whatever was
+    # already running" is not a risk worth taking for the convenience of a default
+    # port. `local-stack` points at this one explicitly.
+    ports:
+      - "6380:6379"
+    # `--save ""` turns persistence off. A local broker's contents are messages in
+    # flight, and keeping them across a restart means yesterday's queued sweep running
+    # against today's database — which is a confusing failure rather than a useful
+    # one. The named volume below is for the *cache*, which is safe to lose.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      # `local-stack` waits on this. Without it the worker starts first, fails to
+      # reach a broker that is still booting, and retries with backoff — which works
+      # and looks alarming.
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 2s
+
+  postgres:
+    # 17, matching the server the gate runs against and the client `pixi.toml` pins.
+    # A local stack on a different major is a local stack that disagrees with CI about
+    # what a query plan or a constraint does.
+    image: postgres:17-alpine
+    container_name: conda-sentinel-postgres
+    # Not 5432, for the same reason: a local PostgreSQL is common, and a stack that
+    # silently migrated somebody's existing database would be a bad afternoon.
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: conda_sentinel
+      POSTGRES_USER: conda_sentinel
+      # Local only. Written in the open on purpose: a placeholder that looks like a
+      # secret is one somebody eventually reuses, and this file is not where a real
+      # credential goes.
+      POSTGRES_PASSWORD: local-development-only
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conda_sentinel -d conda_sentinel"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+
+volumes:
+  postgres-data:
+    name: conda-sentinel-postgres-data

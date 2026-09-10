@@ -219,6 +219,14 @@ pytest-sugar = ">=1.1,<2"
 pyyaml = ">=6.0,<7"
 mkdocs = ">=1.6,<2"
 mkdocs-material = ">=9.7,<10"
+# The local stack (`CPM-PLATFORM-S03`). Both are development-only and neither is
+# imported by anything under `src/` -- honcho runs the processes `Procfile` names and
+# flower watches the broker, so a deployment that ships neither loses nothing.
+#
+# Held to a major each: honcho's process supervision and flower's API are the surface
+# this depends on, and both have moved across majors before.
+honcho = ">=2,<3"
+flower = ">=2,<3"
 ruff = ">=0.16,<0.17"
 watchdog = "*"          # werkzeug[watchdog]
 watchfiles = ">=1.2,<2"
@@ -625,7 +633,47 @@ ruff-report = { cmd = "ruff check . --output-format json --output-file ruff-repo
 # environment rather than fetching them from PyPI into a throwaway build env.
 build = { cmd = "python -m build --no-isolation", default-environment = "dev", description = "Build the wheel and sdist" }
 docs = { cmd = "mkdocs build --strict", default-environment = "dev", description = "Build the documentation" }
-docs-serve = { cmd = "mkdocs serve", default-environment = "dev", description = "Serve the documentation with live reload" }
+# ---------------------------------------------------------------------------
+# The local stack (`CPM-PLATFORM-S03`).
+#
+# **None of these declares `COMPONENT_PROCESS`, and that is the point.** A task that
+# does is a member of the deployment's process group, and
+# `tests/unit/test_process_model.py` reconciles that group against `component.toml`
+# in both directions. These are development conveniences: `local-stack` is not a
+# process type this component deploys, and flower is a monitor rather than one of
+# `[[admin_processes]]` -- that table requires a Django management command, which
+# flower is not.
+#
+# `tests/unit/test_local_stack.py` asserts the exclusion is deliberate, so nobody
+# later "fixes" the omission by declaring them.
+# ---------------------------------------------------------------------------
+
+# --- Docker Compose convenience wrappers (compose file at repo root) ---
+#
+# Named to match the sibling `django-python-generate-sbom` repository, so the same
+# muscle memory works in both. Three of that repository's eight do **not** carry over,
+# and the reason is a deliberate difference: its compose file runs the application, so
+# it has `docker-build`, `docker-migrate` and `docker-shell` reaching a `web` service
+# through `docker compose exec`. This one brings up infrastructure only -- the
+# application runs from the pixi environment, which is the one runtime -- so those
+# three would name a service that does not exist. `docker-psql` and `docker-redis`
+# below are the equivalents that do make sense here.
+docker-up = { cmd = "docker compose up -d --wait", default-environment = "dev", description = "Start Redis and PostgreSQL (waits until both are healthy)" }
+docker-down = { cmd = "docker compose down", default-environment = "dev", description = "Stop the infrastructure, keeping its data" }
+docker-down-v = { cmd = "docker compose down --volumes", default-environment = "dev", description = "Stop the infrastructure and discard its data" }
+docker-logs = { cmd = "docker compose logs -f", default-environment = "dev", description = "Follow the infrastructure logs" }
+docker-ps = { cmd = "docker compose ps", default-environment = "dev", description = "Show what the local infrastructure is running" }
+docker-psql = { cmd = "docker compose exec postgres psql -U conda_sentinel -d conda_sentinel", default-environment = "dev", description = "A psql shell in the local PostgreSQL" }
+docker-redis = { cmd = "docker compose exec redis redis-cli", default-environment = "dev", description = "A redis-cli shell in the local Redis" }
+
+# The Celery monitor. Bound to localhost rather than 0.0.0.0: it exposes queue
+# contents and task arguments, and a monitor listening on every interface is one
+# somebody on the same network can read.
+flower = { cmd = "celery -A config.celery_app flower --address=127.0.0.1 --port=5555", default-environment = "dev", description = "Celery monitor at http://127.0.0.1:5555" }
+
+local-stack = { cmd = "honcho start", default-environment = "dev", env = { CELERY_TASK_ALWAYS_EAGER = "0", REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["docker-up"], description = "Redis, PostgreSQL, web, worker, beat and flower" }
+
+docs-serve = { cmd = "mkdocs serve --dev-addr 0.0.0.0:8888", default-environment = "dev", description = "Serve the documentation with live reload" }
 changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
 precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
 

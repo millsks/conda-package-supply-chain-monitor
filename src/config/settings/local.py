@@ -102,8 +102,20 @@ if DEBUG_APPS:
 # Deployed, the same absence is a conditional refusal (FR-14, Epic 4): a
 # component that selected background task processing and came up with no broker
 # is misconfigured, not conveniently eager.
+# **Overridable, since `CPM-PLATFORM-S03`.** The default is unchanged and is still
+# what `runserver` on its own wants: nothing has to be running, because the task body
+# executes in the calling process.
+#
+# `pixi run local-stack` sets it to `0`. That stack brings up a real broker and runs a
+# real worker, beat and flower, and eager mode would leave all three idle while the
+# web process quietly did their work inline -- a stack that looks like it is running
+# and is not, which is worse than one that fails to start.
+#
+# Read through the environment rather than a second settings module because the
+# difference is one boolean, and a `local_stack.py` beside this file would be a fourth
+# settings module differing from a third in one line.
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-always-eager
-CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 # Eager on its own captures a raised exception into the result object, where a
 # caller that never inspects `.result` will not see it -- so a task body that
 # fails locally would look like one that passed. Propagating is what re-raises it

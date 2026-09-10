@@ -467,6 +467,70 @@ So that a person's access follows from what the provider asserts, with no manual
 **Governed by:** inherited `AD-10`, `R-2`, `CG-3`
 **Note:** authentication itself, the probes (`CPM-FR-28`) and trace correlation (`CPM-FR-39`) are inherited and already working; this story adds only the product's role groups.
 
+### CPM-PLATFORM-S03: One command brings up the whole local stack
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> asked for by the product owner — who named the task `local-stack` and pointed at the
+> sibling `django-python-generate-sbom` repository, whose honcho/`Procfile` arrangement
+> this follows.
+
+Locally, Celery runs **eagerly**: tasks execute inline in the calling process, so the
+product works with nothing running. That is the right default for reading screens and
+it hides every consequence of `CPM-AD-9` — a developer never sees a worker, never sees
+a queue, and never sees what a job looks like while it is still queued.
+
+As a maintainer,
+I want one command that runs the product the way it actually runs,
+So that I can see the request boundary work rather than take it on trust.
+
+**Acceptance Criteria:**
+
+**Given** a checkout with Docker available
+**When** `pixi run local-stack` is run
+**Then** Redis and PostgreSQL come up, and the web process, a worker, beat and a
+monitor run together
+
+**Given** the containers
+**When** they publish their ports
+**Then** they do not take a port a developer's own services commonly hold
+
+**Given** any process in the stack
+**When** it starts
+**Then** it resolves local settings and reaches the broker the stack started — not a
+default it was never pointed at
+
+**Given** the tasks the stack adds
+**When** the deployment's process group is reconciled
+**Then** none of them is in it
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-9` (the boundary the stack exists to make visible),
+`CPM-AD-20` (the queues the worker drains), and the process-model contract in
+`component.toml`.
+**Constrained:** the compose file brings up **infrastructure only**. The application
+runs from the pixi environment, which is the runtime; a `web` service in compose would
+mean a rebuild on every edit and a second, slower way to run what pixi already runs.
+`Dockerfile` remains what builds the deployable image.
+
+The stack's web process is the **deployed** one — `pixi run web`, gunicorn with the
+draining uvicorn worker, the same line `Dockerfile` runs — at the product owner's
+direction and against the implementing agent's first draft, which used `runserver`
+because the sibling repository does.
+
+The decision is the more coherent one and is recorded as such: a stack whose purpose
+is to run the product the way it actually runs should serve it the way production
+serves it, and `runserver` hides ASGI behaviour, the worker class and shutdown
+draining. The costs are accepted rather than overlooked — no autoreload, since
+`--reload` does not belong on a deployed command, and gunicorn is Unix-only, so that
+one line does not run on Windows while the rest of the stack does.
+
+A database broker was considered at the product owner's suggestion and rejected on
+inspection: kombu still ships a `sqla` transport, but it needs SQLAlchemy — a second
+ORM beside Django's, against the same database — it polls rather than being pushed to,
+and SQLite serialises writes behind one lock while the full-inventory sweep enqueues
+one task per package against `CPM-NFR-1`'s ten thousand.
+
+
 ## CPM-EP-EVIDENCE: An evidence log that cannot lie
 
 Delivers the shared kernel every later epic builds on. Nothing here is user-facing, and
