@@ -143,8 +143,12 @@ queue holding two items looks like a queue.
 
 ## Running a policy pass yourself
 
-There is no management command for a first run — the schedule owns it in production
-(`cpm.policy.run`), and the seeder does it locally. To run one by hand:
+There is no management command for a first run, **and nothing schedules one**. The
+task `cpm.policy.run` is registered and routable, but no beat entry fires it and no
+sweep chains it — so a deployed component collects evidence and never computes a
+verdict from it until an operator arranges the run. See
+[Asynchronous work](asynchronous-work.md#two-tasks-nothing-fires) for what to do about
+that; locally the seeder executes a run inline, and you can run one by hand:
 
 ```python
 # pixi run -e dev python manage.py shell

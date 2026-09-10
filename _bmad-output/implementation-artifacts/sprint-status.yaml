@@ -163,6 +163,7 @@ development_status:
   cpm-docs-s02-the-site-wears-the-products-skin: done
   cpm-docs-s03-what-it-does-and-how-it-was-built: done
   cpm-docs-s04-running-it-and-keeping-it-running: done
+  cpm-docs-s05-the-three-subsystems-with-no-page: done
   epic-docs-retrospective: optional
 
   # CPM-EP-NL: Governed natural-language investigation
