@@ -143,6 +143,7 @@ development_status:
   cpm-app-s11-theme-choice: done
   cpm-app-s12-every-page-is-this-products: done
   cpm-app-s13-mounted-under-its-own-name: done
+  cpm-app-s14-api-under-its-own-name: done
   epic-app-retrospective: optional
 
   # CPM-EP-DOCS: Documentation that says which product it is about

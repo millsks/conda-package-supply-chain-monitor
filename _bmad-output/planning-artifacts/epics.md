@@ -2167,6 +2167,70 @@ a prefix on *everything*, including the API and the accounts flows. This story i
 that and does not replace it: it names the application within a service, where
 `FORCE_SCRIPT_NAME` names the service within a host. A deployment can use both.
 
+### CPM-APP-S14: The API is under the application's name, and carries a version
+
+> **Added after the epic was written**, on the same terms as `CPM-APP-S09`, and raised
+> by the product owner as a direct question: if the pages moved, should the API move
+> too, and where does a version go?
+
+`CPM-APP-S13` moved this application's HTML surfaces under its own name and left the
+API at `/api/`, which put the application in two places again — the exact shape S13
+was written against. This finishes it.
+
+**The version is the other half, and it was free to add for one more day.**
+`CPM-APP-S07` published the contract and its own acceptance criteria call it "the API
+in v1", yet no version appeared in any path. A published contract with no version has
+nowhere to put a breaking change. Nobody holds these URLs yet, so the cost of adding
+it now is nothing and the cost of adding it later is every integrator's client.
+
+**Two roots also remove a wart rather than adding one.** While this application's API
+and the platform's user endpoint shared `/api/`, they shared a schema document — and
+`tests/unit/django_apps/test_api_contract_audit.py` had to record the platform's
+`UserViewSet` as a named exemption to answer "what does this API write" honestly. Two
+roots, two contracts, and an integrator reading this application's schema is no longer
+reading half of somebody's platform.
+
+As an integrator,
+I want this product's API under the product's own name and behind a version,
+So that I can tell whose contract I am calling, and so a change to it has somewhere to
+go that does not break what I already wrote.
+
+**Acceptance Criteria:**
+
+**Given** any endpoint this application publishes
+**When** its URL is resolved
+**Then** it is under `/conda-sentinel/api/v1/`
+
+**Given** a request for a version this API does not serve
+**When** it is answered
+**Then** it says which versions exist, rather than answering as though the endpoint
+were missing
+
+**Given** the platform's own API
+**When** the move is made
+**Then** it is unmoved, and is not described by this application's contract
+
+**Given** this application's published schema
+**When** it is read
+**Then** it describes this application's endpoints and no others
+
+**Given** a browser-based caller of either API
+**When** its preflight is evaluated
+**Then** the CORS rule covers both roots
+
+**Satisfies:** nothing directly. Completes `CPM-FR-27`'s addressing.
+**Governed by:** `CPM-AD-19` — routing is central, which is why both rosters are
+declared in `config/api_router.py` even though they are mounted apart.
+**Constrained:** versioning is a path segment and a refusal, **not** DRF's
+`URLPathVersioning`. That class reads the version from a URL keyword argument, which
+would mean `<str:version>` in every mounted pattern and a `version` argument in every
+one of the thirty-odd `reverse()` calls that name these routes. Nothing branches on
+`request.version`; the refusal is the only behaviour wanted, and it is bought for one
+route rather than for every call site. Adding the class later changes no path.
+
+`SCHEMA_PATH_PREFIX_TRIM` is deliberately off: a client generated from the document
+should reach the right URL without also being handed a base path to prepend.
+
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was

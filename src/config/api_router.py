@@ -6,6 +6,19 @@ here -- so the API's shape is legible in one file rather than assembled from wha
 each app decided to mount. Entry-point discovery is forbidden (inherited `AD-8`), and
 a router that discovered its own endpoints would be exactly that.
 
+**Two rosters since `CPM-APP-S14`, mounted at two roots.** The platform's own user
+endpoint stays at `/api/`, and this application's move under `/conda-sentinel/api/v1/`
+-- the same boundary `CPM-APP-S13` drew for the HTML surfaces, and for the same
+reason: a namespace prevents a name collision and not a path one. They are declared
+together in this file because routing is central; they are *mounted* apart because
+they belong to different things.
+
+That split also removes a wart. While the two shared a root they shared a schema
+document, and `tests/unit/django_apps/test_api_contract_audit.py` had to record the
+platform's `UserViewSet` as a named exemption in order to answer "what does this API
+write" honestly. Two roots, two contracts, and an integrator reading this
+application's schema is no longer reading half of somebody's platform.
+
 **This file is where AC 3 is enumerable.** `CPM-APP-S07` gives v1 two writes -- the
 package-identity override and the queue action -- and the enumeration is only worth
 anything if there is one list to read. There is, below, and
@@ -35,12 +48,19 @@ from conda_sentinel.surface.api.views import ReportRosterAPIView
 from conda_sentinel.workflow.api.views import WorkflowItemTransitionAPIView
 from django_service.users.api.views import UserViewSet
 
+#: The platform's own API, which this application does not own and does not move.
+#:
+#: `/api/users/` is the accelerator's: it lets somebody edit their own name. Putting
+#: it under this application's prefix would say something untrue about who owns it --
+#: the same reasoning `CPM-APP-S13` applied to `/accounts/` and `/users/`.
 router = DefaultRouter() if settings.DEBUG else SimpleRouter()
 
 router.register("users", UserViewSet)
 
-
-app_name = "api"
+#: What the platform's API is reversed by. It keeps `api:` because it is the thing
+#: mounted at `/api/`, and a namespace that reversed to a path under a *different*
+#: root would read as a lie every time somebody followed it.
+platform_urlpatterns = router.urls
 
 #: The reads. Every one is a `GET`, every collection is paginated by the global bound
 #: `CPM-AD-12` installs, and every one projects through the same functions the HTML
@@ -83,4 +103,11 @@ write_urls = [
     ),
 ]
 
-urlpatterns = [*router.urls, *read_urls, *write_urls]
+#: This application's API, reversed by `conda_sentinel_api:` and mounted under
+#: `/conda-sentinel/api/v1/`.
+#:
+#: Named for what it is rather than sharing `api:` with the platform's, because after
+#: `CPM-APP-S14` the two live at different roots -- and a namespace whose name says
+#: `api` while reversing to somebody else's prefix is the kind of small untruth that
+#: costs an afternoon.
+product_urlpatterns = [*read_urls, *write_urls]
