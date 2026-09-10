@@ -29,7 +29,7 @@ Then open **<http://localhost:8000/>** — it redirects to `/conda-sentinel/`.
 ## Signing in without an identity provider
 
 Authentication is delegated to an OIDC provider, and you do not have one locally. The
-local-dev sign-in gives you five personas instead, at
+local-dev sign-in gives you six personas instead, at
 **<http://localhost:8000/_local/>**:
 
 | Persona | Holds | Can reach |
@@ -39,6 +39,12 @@ local-dev sign-in gives you five personas instead, at
 | `engineer-persona` | packaging engineering | remediation |
 | `reader-persona` | no product role | nothing — the state the `IsAuthenticated` floor lets through |
 | `staff-persona` | Django staff | the admin |
+| `operations-persona` | all three roles, and Django staff | every screen, and the admin |
+
+The three role personas reach Home, Packages, Reports and Coverage as well: those
+four are open to anybody holding *a* product role, and the queues are where the roles
+diverge. `reader-persona` and `staff-persona` hold no product role, so neither opens
+any of them.
 
 Each row has a **Sign in** button; one click and you are that persona. If the page
 lists none, run `pixi run -e dev seed-personas` first.
@@ -46,6 +52,19 @@ lists none, run `pixi run -e dev seed-personas` first.
 `reader-persona` exists to be refused. Somebody signed in and holding no role is a
 real state — the zero-groups sign-in — and it is worth being able to see what they
 see.
+
+`operations-persona` is the opposite: it stands for somebody running the platform
+rather than working one of its queues, so it is the one sign-in that opens the whole
+navigation bar. Reach for it when you want to see every screen; reach for one of the
+three single-role personas when the question is whether a screen refuses the wrong
+person, because signed in as operations every screen lets you in and that proves
+nothing.
+
+!!! warning "It is a local persona, not a fourth role"
+
+    The product declares three roles and this persona holds all three of them. There
+    is no operations role to provision, no fourth environment variable, and nothing
+    here reaches a deployment — the local sign-in fixture is the only place it exists.
 
 !!! note "Groups granted by hand will not survive"
 

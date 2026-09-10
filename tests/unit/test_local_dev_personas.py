@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 
 import pytest
 from django.core.exceptions import ImproperlyConfigured
@@ -94,6 +95,13 @@ def _configured(settings: SettingsWrapper) -> None:
     settings.CLAIMS_CONTRACT = _contract()
 
 
+#: The one persona permitted to hold every product role.
+#:
+#: `CPM-PLATFORM-S04`. Spelled once here so the three cases that except it cannot
+#: drift apart, and so a second exception is a visible edit rather than a quiet one.
+MULTI_ROLE_PERSONA: Final[str] = "operations"
+
+
 def test_at_least_two_personas_are_declared() -> None:
     """AC #1: the declarations exist and there are enough of them to differ."""
     assert len(PERSONAS) >= MINIMUM_PERSONAS
@@ -125,12 +133,23 @@ def test_every_product_role_has_a_persona_that_holds_it() -> None:
     assert held >= ROLE_SENTINELS, sorted(ROLE_SENTINELS - held)
 
 
-def test_no_persona_holds_more_than_one_product_role() -> None:
-    """Three personas rather than one holding all three, and the reason is scoping.
+def test_only_the_operations_persona_holds_more_than_one_product_role() -> None:
+    """One persona per role, and exactly one deliberate exception.
 
     `CPM-FR-31` scopes queues per role and `CPM-APP-S05` builds three of them. A
-    persona holding every role would reach all three and prove nothing about the
-    scoping -- separate personas are how a developer sees a queue refuse them.
+    persona holding every role reaches all three and proves nothing about the
+    scoping -- separate personas are how a developer sees a queue refuse them, and
+    that is still the only way to see it.
+
+    **`CPM-PLATFORM-S04` added `operations` as the one exception**, for somebody
+    running the service rather than working one of its queues: one sign-in, every
+    screen. The rule is narrowed rather than dropped, because what it protects is
+    unchanged -- a developer checking a role-scoped surface while signed in as
+    `operations` proves nothing about it, and the three single-role personas are what
+    keep that mistake recoverable.
+
+    A *second* multi-role persona is what this now catches, and it is the one that
+    would quietly leave nobody testing the scoping.
     """
     overloaded = {
         persona.key: sorted(ROLE_SENTINELS & frozenset(persona.groups))
@@ -138,33 +157,76 @@ def test_no_persona_holds_more_than_one_product_role() -> None:
         if len(ROLE_SENTINELS & frozenset(persona.groups)) > 1
     }
 
-    assert overloaded == {}, overloaded
+    assert sorted(overloaded) == [MULTI_ROLE_PERSONA], overloaded
+    assert overloaded[MULTI_ROLE_PERSONA] == sorted(ROLE_SENTINELS), (
+        "the operations persona exists to reach every screen, so it holds every product role or it is not "
+        "doing the one job it was added for."
+    )
 
 
-def test_no_product_role_persona_also_reaches_the_admin() -> None:
+def test_no_single_role_persona_also_reaches_the_admin() -> None:
     """A product role is not administrative access, and conflating them hides a bug.
 
     A reviewer persona that was also staff would reach a scoped surface either way,
     so a surface that checked the wrong thing would still admit them.
+
+    `operations` is exempt and is the reason the rule is worth keeping for the rest:
+    it holds both deliberately, because the person it stands for runs the platform
+    *and* reads its screens. Every other persona holding a product role must not, or
+    there is nobody left who would notice the surface checking the wrong thing.
     """
     both = [
         persona.key
         for persona in PERSONAS
-        if ROLE_SENTINELS & frozenset(persona.groups)
+        if persona.key != MULTI_ROLE_PERSONA
+        and ROLE_SENTINELS & frozenset(persona.groups)
         and {DESIGNATED_STAFF, DESIGNATED_SUPERUSER} & frozenset(persona.groups)
     ]
 
     assert both == [], both
 
 
-def test_exactly_one_persona_carries_the_designated_staff_sentinel() -> None:
-    """AC #1: one persona carries the designated staff group, and only one.
+def test_exactly_one_persona_carries_staff_and_nothing_else() -> None:
+    """One persona is administrative access *alone*, and only one.
 
-    One, because a second would make the read-only persona's refusal in Story
-    3.4 depend on which persona the test happened to pick.
+    The original rule was "one persona carries the designated staff group"; `operations`
+    now carries it too. What that rule was protecting is the persona which is staff and
+    **nothing else** -- it is what makes "administrative access does not imply a product
+    role" observable, and it is `staff`.
+
+    Narrowed rather than dropped: a second staff-only persona would make the read-only
+    refusal depend on which one a test happened to pick, which is the failure the case
+    was written for.
     """
-    carriers = [persona.key for persona in PERSONAS if DESIGNATED_STAFF in persona.groups]
-    assert carriers == ["staff"]
+    staff_only = [
+        persona.key
+        for persona in PERSONAS
+        if DESIGNATED_STAFF in persona.groups and not ROLE_SENTINELS & frozenset(persona.groups)
+    ]
+
+    assert staff_only == ["staff"]
+
+
+def test_the_operations_persona_reaches_the_admin_as_well() -> None:
+    """It stands for somebody running the service, not working one of its queues.
+
+    Product roles get it the screens; the staff group gets it the admin. Both, or it
+    is not the persona that was asked for -- and the point of it is that there is one
+    sign-in which needs no second.
+    """
+    operations = next(persona for persona in PERSONAS if persona.key == MULTI_ROLE_PERSONA)
+
+    assert DESIGNATED_STAFF in operations.groups
+    assert frozenset(operations.groups) >= ROLE_SENTINELS
+
+
+def test_the_operations_persona_is_declared_last() -> None:
+    """So the sign-in page lists the single-role personas first.
+
+    The persona that reaches everything is the one somebody reaches for by accident,
+    and the page renders these in declaration order.
+    """
+    assert PERSONAS[-1].key == MULTI_ROLE_PERSONA, [persona.key for persona in PERSONAS]
 
 
 def test_one_persona_carries_neither_sentinel() -> None:

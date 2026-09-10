@@ -188,8 +188,14 @@ def test_seeding_surfaces_missing_groups_rather_than_creating_them(
     assert staff.is_staff is False
     assert _group_names(staff.idp_subject) == set()
 
+    # The *set*, not the list. Every persona carrying the unprovisioned group reports
+    # it once, so the count is a fact about how many personas hold it rather than
+    # about the mapper -- and `CPM-PLATFORM-S04` made that two by giving `operations`
+    # administrative access alongside its product roles. What this case is for is
+    # which group went unresolved and that nothing created it.
     ignored = _events(captured, "authorization.unknown_group_claim")
-    assert [event["group"] for event in ignored] == [UNPROVISIONED_STAFF_GROUP]
+    assert {event["group"] for event in ignored} == {UNPROVISIONED_STAFF_GROUP}
+    assert ignored, "the mapper reported no unknown group at all, so nothing was surfaced"
 
 
 def test_seeding_is_idempotent(db: None) -> None:

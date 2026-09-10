@@ -177,9 +177,21 @@ PERSONAS: Final[tuple[Persona, ...]] = (
     # persona holding every role would reach all three and prove nothing about the
     # scoping. Separate personas are how a developer sees a queue refuse them.
     #
-    # None of these carries `DESIGNATED_STAFF`: a product role is not administrative
-    # access, and conflating them locally is how a surface comes to be tested only by
-    # somebody who could reach it either way.
+    # **`operations` below does hold all three, and this paragraph is why that is not
+    # a contradiction.** The argument above is against *replacing* these three, and
+    # they are still here: seeing a queue refuse you is still one sign-in away, and it
+    # is still the only way to see it. What the argument does not cover is the case
+    # `CPM-PLATFORM-S04` added -- somebody operating the platform, who needs one way
+    # in to every screen and is not testing the scoping at all.
+    #
+    # The cost is real and is stated rather than hidden: a developer who checks a
+    # role-scoped surface while signed in as `operations` proves nothing about it.
+    # `tests/unit/test_local_dev_personas.py` keeps these three single-roled so that mistake
+    # stays recoverable.
+    #
+    # None of these three carries `DESIGNATED_STAFF`: a product role is not
+    # administrative access, and conflating them locally is how a surface comes to be
+    # tested only by somebody who could reach it either way.
     Persona(
         key="reviewer",
         subject="local-dev:persona:reviewer",
@@ -203,6 +215,33 @@ PERSONAS: Final[tuple[Persona, ...]] = (
         email="leader-persona@localhost.invalid",
         name="Leadership Persona",
         groups=(DESIGNATED_LEADERSHIP,),
+    ),
+    # Platform operations: every product role *and* administrative access, because
+    # the person this stands for runs the service rather than working one of its
+    # queues. One sign-in, every screen.
+    #
+    # **It is a local persona, not a fourth product role.** `core/roles.py` declares
+    # three, each backed by its own entry in `ROLE_ENVIRONMENT_VARIABLES` and
+    # provisioned by the deployment from an identity-provider claim; a real operations
+    # role would be a change to that contract and to whoever provisions the groups.
+    # This holds the three that exist. Nothing about deployment changes, and
+    # `tests/unit/django_apps/test_permission_audit.py` still pins the contract at
+    # three.
+    #
+    # Deliberately last, so the sign-in page lists the single-role personas first: the
+    # one that reaches everything is the one somebody reaches for by accident.
+    Persona(
+        key="operations",
+        subject="local-dev:persona:operations",
+        username="operations-persona",
+        email="operations-persona@localhost.invalid",
+        name="Platform Operations Persona",
+        groups=(
+            DESIGNATED_STAFF,
+            DESIGNATED_SECURITY_REVIEWER,
+            DESIGNATED_PACKAGING_ENGINEER,
+            DESIGNATED_LEADERSHIP,
+        ),
     ),
 )
 

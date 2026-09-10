@@ -9,7 +9,7 @@ the harness — see [developing on the platform](../accelerator/development.md).
 
 The fourth substitution is the identity provider. There is none locally, so
 identities are **declared as configuration** in `src/config/local_dev/personas.py`
-and materialized by a task. Two are declared, with deliberately different
+and materialized by a task. Six are declared, with deliberately different
 authorization:
 
 | Persona | Identity key (`idp_subject`) | Groups | Reaches |
@@ -19,6 +19,7 @@ authorization:
 | `reviewer` | `local-dev:persona:reviewer` | the **security reviewer** role group | the product's read surfaces |
 | `engineer` | `local-dev:persona:engineer` | the **packaging engineer** role group | the product's read surfaces |
 | `leader` | `local-dev:persona:leader` | the **leadership** role group | the product's read surfaces |
+| `operations` | `local-dev:persona:operations` | all three role groups **and** the designated staff group | every screen the product has, and the Django admin |
 
 ### Seeding something to look at
 
@@ -63,16 +64,25 @@ signing in got you refused by every screen the product has, with no way forward:
 by hand in the admin or the shell is erased at the next sign-in.
 
 One role each, deliberately. `CPM-FR-31` scopes queues per role and `CPM-APP-S05`
-builds three of them; a persona holding all three would reach every queue and prove
-nothing about the scoping. None of them is also staff, for the same reason.
+builds three of them; a persona holding all three reaches every queue and proves
+nothing about the scoping. None of the three is also staff, for the same reason.
+
+`operations` is the one exception and `CPM-PLATFORM-S04` added it knowingly: it holds
+all three roles and the staff group, for somebody running the platform rather than
+working one of its queues — one sign-in, every screen. It does not replace the three,
+because what they are for is unchanged: signed in as `operations` every surface admits
+you, so a surface checking the wrong thing looks exactly like one checking the right
+thing. It is also **not a fourth product role** — `core/roles.py` still declares three
+slots, there is no new environment variable, and a deployment provisions nothing new.
 
 No persona names a group. A declaration lists the sentinel `DESIGNATED_STAFF` or
 `DESIGNATED_SUPERUSER`, and the *configured* name — `COMPONENT_STAFF_GROUP`,
 `COMPONENT_SUPERUSER_GROUP` — is substituted when the claims are built, so the
-personas are correct in a component pointed at any IdP's taxonomy. Neither
-persona carries `DESIGNATED_SUPERUSER`: a superuser bypasses every permission
-check, so a superuser persona would make every local authorization check pass
-and prove nothing.
+personas are correct in a component pointed at any IdP's taxonomy. No persona
+carries `DESIGNATED_SUPERUSER`, `operations` included: a superuser bypasses every
+permission check, so a superuser persona would make every local authorization check
+pass and prove nothing — which is the difference between it and `operations`, whose
+access is granted by groups the surfaces genuinely check.
 
 Seed them with:
 

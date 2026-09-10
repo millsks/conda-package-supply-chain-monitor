@@ -52,6 +52,7 @@ development_status:
   cpm-platform-s01-second-import-root-domain-applications: done
   cpm-platform-s02-group-claims-resolve-three-product: done
   cpm-platform-s03-one-command-local-stack: done
+  cpm-platform-s04-one-persona-reaches-every-screen: done
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie
