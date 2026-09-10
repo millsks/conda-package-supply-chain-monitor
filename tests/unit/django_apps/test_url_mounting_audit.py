@@ -45,10 +45,18 @@ THE_PREFIX: Final[str] = "/conda-sentinel/"
 #: belong to the platform rather than to this application, and a health probe carries
 #: no credential and is deliberately unprefixed.
 UNMOVED: Final[dict[str, str]] = {
-    "/api/": "a versioned contract CPM-APP-S07 published; an integrator may already hold these paths",
+    "/api/": "the platform's own API, not this application's -- CPM-APP-S14 moved this one and left that one",
     "/accounts/": "the platform's sign-in flows, not this application's",
     "/users/": "the platform's account pages, not this application's",
 }
+
+#: Where this application's *API* lives, which is a second thing under its name.
+#:
+#: `CPM-APP-S13` moved the HTML surfaces and `CPM-APP-S14` the API. They are separate
+#: entries because they are separate mounts: a change that moved one and not the other
+#: would split the application across two prefixes, which is the failure both stories
+#: were written against.
+THE_API_PREFIX: Final[str] = "/conda-sentinel/api/"
 
 #: The two trees that may not write one of this product's paths.
 SEARCHED: Final[tuple[Path, ...]] = (
@@ -151,6 +159,20 @@ def test_the_sweep_has_routes_to_sweep() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_this_applications_api_is_under_its_name_too() -> None:
+    """`CPM-APP-S14`, and it is a separate assertion from the HTML surfaces.
+
+    They are separate mounts. A change that moved one and left the other would split
+    the application across two prefixes, which is the failure both this story and
+    `CPM-APP-S13` were written against -- and it would look correct from whichever
+    half somebody happened to open.
+    """
+    resolved = reverse("conda_sentinel_api:package-health")
+
+    assert resolved.startswith(THE_API_PREFIX), resolved
+    assert reverse("conda-sentinel-api-schema").startswith(THE_API_PREFIX)
+
+
 def test_the_root_resolves_to_a_redirect_into_this_application() -> None:
     """AC 2. The front door still works, and it is a redirect rather than a mount.
 
@@ -219,7 +241,7 @@ def test_the_platforms_own_routes_are_unmoved(path: str, reason: str) -> None:
 
     """
     named = {
-        "/api/": "api:package-health",
+        "/api/": "api:user-me",
         "/accounts/": "account_login",
         "/users/": "users:redirect",
     }[path]

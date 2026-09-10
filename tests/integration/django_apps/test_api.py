@@ -257,7 +257,7 @@ def test_current_health_is_available_and_carries_every_column_the_screen_shows()
     run = a_run()
     a_rollup(run, a_package("numpy"))
 
-    answer = a_reader().get(reverse("api:package-health"))
+    answer = a_reader().get(reverse("conda_sentinel_api:package-health"))
 
     assert answer.status_code == HTTPStatus.OK
     row = body(answer)["results"][0]
@@ -278,7 +278,8 @@ def test_package_detail_traces_every_status_to_its_evidence() -> None:
     run = a_run()
     package = a_kev_package(run, "aiohttp")
 
-    answer = a_reader().get(reverse("api:package-detail", kwargs={"canonical_name": package.canonical_name}))
+    detail = reverse("conda_sentinel_api:package-detail", kwargs={"canonical_name": package.canonical_name})
+    answer = a_reader().get(detail)
 
     assert answer.status_code == HTTPStatus.OK
     detail = body(answer)
@@ -295,7 +296,7 @@ def test_the_report_roster_names_every_report_the_application_has() -> None:
     A seventh report appears here the moment `REPORTS` grows one, which is what lets
     an integrator discover it without a client release.
     """
-    answer = a_reader().get(reverse("api:report-roster"))
+    answer = a_reader().get(reverse("conda_sentinel_api:report-roster"))
 
     assert answer.status_code == HTTPStatus.OK
     assert [entry["slug"] for entry in body(answer)["results"]] == [report.slug for report in REPORTS]
@@ -311,7 +312,7 @@ def test_a_report_states_the_cut_off_and_the_policy_versions_it_came_from() -> N
     run = a_run()
     a_kev_package(run, "aiohttp")
 
-    answer = a_reader().get(reverse("api:report", kwargs={"slug": "kev"}))
+    answer = a_reader().get(reverse("conda_sentinel_api:report", kwargs={"slug": "kev"}))
 
     assert answer.status_code == HTTPStatus.OK
     page = body(answer)
@@ -327,7 +328,7 @@ def test_an_empty_report_says_it_was_produced_from_nothing() -> None:
     A report of nothing was produced from nothing, and inventing a cut-off for it
     would be the one lie an empty report is able to tell.
     """
-    answer = a_reader().get(reverse("api:report", kwargs={"slug": "kev"}))
+    answer = a_reader().get(reverse("conda_sentinel_api:report", kwargs={"slug": "kev"}))
 
     page = body(answer)
     assert page["results"] == []
@@ -338,7 +339,7 @@ def test_an_empty_report_says_it_was_produced_from_nothing() -> None:
 @pytest.mark.django_db
 def test_a_url_naming_no_report_is_refused_and_told_which_exist() -> None:
     """404 rather than an empty report, which would read as "nothing matched"."""
-    answer = a_reader().get(reverse("api:report", kwargs={"slug": "not-a-report"}))
+    answer = a_reader().get(reverse("conda_sentinel_api:report", kwargs={"slug": "not-a-report"}))
 
     assert answer.status_code == HTTPStatus.NOT_FOUND
     assert "kev" in body(answer)["detail"]
@@ -350,14 +351,41 @@ def test_the_schema_is_generated_from_the_implementation(admin_client: Any) -> N
 
     Asserted by finding this story's own paths in the published document. A schema
     kept by hand passes every test that only checks it parses.
+
+    **Read from this application's own contract since `CPM-APP-S14`**, which is the
+    point of that story: the document at `/conda-sentinel/api/v1/schema/` describes
+    this product and nothing else.
+
+    Paths carry the full prefix rather than being trimmed to it. `SCHEMA_PATH_PREFIX`
+    drives tag and operation-id derivation; trimming is `SCHEMA_PATH_PREFIX_TRIM` and
+    is deliberately off, because a client generated from this document should reach
+    the right URL without also being handed a base path to prepend.
     """
-    answer = admin_client.get(reverse("api-schema"), headers={"accept": "application/json"})
+    answer = admin_client.get(reverse("conda-sentinel-api-schema"), headers={"accept": "application/json"})
 
     assert answer.status_code == HTTPStatus.OK
+    document = json.loads(answer.content)
+    paths = document["paths"]
+    assert document["info"]["title"] == "Conda-Sentinel API"
+    assert "/conda-sentinel/api/v1/packages/" in paths
+    assert "/conda-sentinel/api/v1/reports/{slug}/" in paths
+    assert "post" in paths["/conda-sentinel/api/v1/workflow-items/{item_id}/transition/"]
+
+
+@pytest.mark.django_db
+def test_this_applications_contract_describes_only_this_application(admin_client: Any) -> None:
+    """`CPM-APP-S14`'s reason for a second schema, asserted rather than described.
+
+    While the two APIs shared a root they shared a document, and an integrator
+    reading it got this product plus the accelerator's user endpoint. It is also why
+    `tests/unit/django_apps/test_api_contract_audit.py` had to record somebody else's
+    write as an exemption in order to answer "what does this API write".
+    """
+    answer = admin_client.get(reverse("conda-sentinel-api-schema"), headers={"accept": "application/json"})
+
     paths = json.loads(answer.content)["paths"]
-    assert "/api/packages/" in paths
-    assert "/api/reports/{slug}/" in paths
-    assert "post" in paths["/api/workflow-items/{item_id}/transition/"]
+
+    assert not any("users" in path for path in paths), sorted(paths)
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +406,7 @@ def test_the_api_and_the_screen_report_the_same_statuses_for_the_same_package() 
     a_kev_package(run, "aiohttp")
     client = a_reader()
 
-    api = body(client.get(reverse("api:package-health")))["results"][0]
+    api = body(client.get(reverse("conda_sentinel_api:package-health")))["results"][0]
     screen = client.get(reverse("conda_sentinel:package-health")).context["rows"][0]
 
     assert api["canonical_name"] == screen.canonical_name
@@ -398,7 +426,7 @@ def test_a_report_over_http_and_the_same_report_as_csv_carry_the_same_rows() -> 
     a_kev_package(run, "aiohttp")
     client = a_reader()
 
-    api = body(client.get(reverse("api:report", kwargs={"slug": "kev"})))
+    api = body(client.get(reverse("conda_sentinel_api:report", kwargs={"slug": "kev"})))
     export = client.get(reverse("conda_sentinel:report-export", kwargs={"slug": "kev"}))
     rows = list(csv.reader(io.StringIO(export.content.decode())))
 
@@ -427,7 +455,7 @@ def test_an_unknown_status_is_emitted_as_unknown_and_not_as_null() -> None:
     run = a_run()
     a_rollup(run, a_package("orphan", confidence=IdentityConfidence.UNMAPPED))
 
-    row = body(a_reader().get(reverse("api:package-health")))["results"][0]
+    row = body(a_reader().get(reverse("conda_sentinel_api:package-health")))["results"][0]
 
     assert row["confidence"] == IdentityConfidence.UNMAPPED
     assert all(cell["status"] == OutcomeState.UNKNOWN.value for cell in row["cells"])
@@ -448,7 +476,7 @@ def test_no_status_anywhere_in_a_report_response_is_blank() -> None:
     client = a_reader()
 
     for report in REPORTS:
-        page = body(client.get(reverse("api:report", kwargs={"slug": report.slug})))
+        page = body(client.get(reverse("conda_sentinel_api:report", kwargs={"slug": report.slug})))
         assert page["columns"], report.slug
         for row in page["results"]:
             assert all(value is not None for value in row), (report.slug, row)
@@ -472,8 +500,8 @@ def test_a_collection_is_paginated_and_a_client_cannot_ask_for_more() -> None:
         a_rollup(run, a_package(f"package-{index:03d}"))
     client = a_reader()
 
-    first = body(client.get(reverse("api:package-health")))
-    greedy = body(client.get(reverse("api:package-health"), {"page_size": AN_UNREASONABLE_PAGE_SIZE}))
+    first = body(client.get(reverse("conda_sentinel_api:package-health")))
+    greedy = body(client.get(reverse("conda_sentinel_api:package-health"), {"page_size": AN_UNREASONABLE_PAGE_SIZE}))
 
     assert first["count"] == OVER_ONE_PAGE
     assert len(first["results"]) == DEFAULT_PAGE_SIZE
@@ -490,7 +518,7 @@ def test_a_filter_value_outside_its_vocabulary_is_refused_as_json() -> None:
     was never wrong, which is exactly why no assertion about the status would have
     caught it.
     """
-    answer = a_reader().get(reverse("api:package-health"), {"vuln": "nonsense"})
+    answer = a_reader().get(reverse("conda_sentinel_api:package-health"), {"vuln": "nonsense"})
 
     assert answer.status_code == HTTPStatus.BAD_REQUEST
     assert answer["Content-Type"].startswith("application/json")
@@ -516,8 +544,9 @@ def test_a_queue_that_is_not_yours_is_refused_and_never_returned_empty() -> None
     finding = VulnerabilityFinding.objects.filter(package=package).first()
     open_item(evidence=finding, package=package, queue=Queue.REMEDIATION.value, clock=FixedClock(instant=NOW))
 
-    owner = a_client(PACKAGING_ENGINEER).get(reverse("api:queue", kwargs={"queue": Queue.REMEDIATION.value}))
-    stranger = a_client(SECURITY_REVIEWER).get(reverse("api:queue", kwargs={"queue": Queue.REMEDIATION.value}))
+    listing = reverse("conda_sentinel_api:queue", kwargs={"queue": Queue.REMEDIATION.value})
+    owner = a_client(PACKAGING_ENGINEER).get(listing)
+    stranger = a_client(SECURITY_REVIEWER).get(listing)
 
     assert owner.status_code == HTTPStatus.OK
     assert len(body(owner)["results"]) == 1
@@ -532,7 +561,7 @@ def test_a_url_naming_no_queue_is_a_404_even_for_somebody_who_owns_none() -> Non
     unreachable -- and tells a caller who mistyped a real queue's name that a queue
     exists which does not.
     """
-    answer = a_client(SECURITY_REVIEWER).get(reverse("api:queue", kwargs={"queue": "not-a-queue"}))
+    answer = a_client(SECURITY_REVIEWER).get(reverse("conda_sentinel_api:queue", kwargs={"queue": "not-a-queue"}))
 
     assert answer.status_code == HTTPStatus.NOT_FOUND
     assert Queue.REMEDIATION.value in body(answer)["detail"]
@@ -550,7 +579,7 @@ def test_a_reader_holding_no_product_role_is_refused_every_read() -> None:
     a_rollup(run, a_package("numpy"))
     client = a_client()
 
-    for name in ("api:package-health", "api:report-roster"):
+    for name in ("conda_sentinel_api:package-health", "conda_sentinel_api:report-roster"):
         assert client.get(reverse(name)).status_code == HTTPStatus.FORBIDDEN
 
 
@@ -570,7 +599,7 @@ def test_the_identity_override_records_who_corrected_what_and_why() -> None:
     package = a_package("nummpy")
 
     answer = a_client(LEADERSHIP).post(
-        reverse("api:package-identity-override", kwargs={"package_id": package.pk}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": package.pk}),
         data={"reason": A_REASON, "canonical_name": "numpy"},
         format="json",
     )
@@ -596,7 +625,7 @@ def test_an_override_without_the_role_is_refused_and_writes_nothing() -> None:
     package = a_package("numpy")
 
     answer = a_client(SECURITY_REVIEWER).post(
-        reverse("api:package-identity-override", kwargs={"package_id": package.pk}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": package.pk}),
         data={"reason": A_REASON, "canonical_name": "renamed"},
         format="json",
     )
@@ -618,7 +647,7 @@ def test_an_override_with_no_reason_is_refused() -> None:
     package = a_package("numpy")
 
     answer = a_client(LEADERSHIP).post(
-        reverse("api:package-identity-override", kwargs={"package_id": package.pk}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": package.pk}),
         data={"canonical_name": "renamed"},
         format="json",
     )
@@ -639,7 +668,7 @@ def test_an_override_of_a_package_that_does_not_exist_is_a_404() -> None:
     wrong.
     """
     answer = a_client(LEADERSHIP).post(
-        reverse("api:package-identity-override", kwargs={"package_id": 999_999}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": 999_999}),
         data={"reason": A_REASON},
         format="json",
     )
@@ -660,7 +689,7 @@ def test_a_correction_onto_a_name_another_package_holds_is_refused() -> None:
     duplicate = a_package("nummpy")
 
     answer = a_client(LEADERSHIP).post(
-        reverse("api:package-identity-override", kwargs={"package_id": duplicate.pk}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": duplicate.pk}),
         data={"reason": A_REASON, "canonical_name": "numpy"},
         format="json",
     )
@@ -690,7 +719,7 @@ def test_the_service_refuses_an_actor_the_declared_role_let_through() -> None:
     group.permissions.clear()
 
     answer = client.post(
-        reverse("api:package-identity-override", kwargs={"package_id": package.pk}),
+        reverse("conda_sentinel_api:package-identity-override", kwargs={"package_id": package.pk}),
         data={"reason": A_REASON, "canonical_name": "renamed"},
         format="json",
     )
@@ -725,7 +754,7 @@ def test_a_queue_action_moves_an_item_and_records_the_move() -> None:
     ).item
 
     client = a_client(PACKAGING_ENGINEER)
-    move = reverse("api:workflow-item-transition", kwargs={"item_id": item.pk})
+    move = reverse("conda_sentinel_api:workflow-item-transition", kwargs={"item_id": item.pk})
 
     triaged = client.post(
         move,
@@ -768,7 +797,7 @@ def test_a_move_against_a_state_the_item_is_no_longer_in_is_a_conflict() -> None
     ).item
 
     answer = a_client(PACKAGING_ENGINEER).post(
-        reverse("api:workflow-item-transition", kwargs={"item_id": item.pk}),
+        reverse("conda_sentinel_api:workflow-item-transition", kwargs={"item_id": item.pk}),
         data={"expected_state": ItemState.RESOLVED.value, "to_state": ItemState.TRIAGED.value},
         format="json",
     )
@@ -796,7 +825,7 @@ def test_a_state_outside_the_vocabulary_is_a_400_rather_than_a_conflict() -> Non
     ).item
 
     answer = a_client(PACKAGING_ENGINEER).post(
-        reverse("api:workflow-item-transition", kwargs={"item_id": item.pk}),
+        reverse("conda_sentinel_api:workflow-item-transition", kwargs={"item_id": item.pk}),
         data={"expected_state": item.state, "to_state": "not-a-state"},
         format="json",
     )
@@ -823,7 +852,7 @@ def test_a_move_on_a_queue_that_is_not_yours_is_refused() -> None:
     ).item
 
     answer = a_client(SECURITY_REVIEWER).post(
-        reverse("api:workflow-item-transition", kwargs={"item_id": item.pk}),
+        reverse("conda_sentinel_api:workflow-item-transition", kwargs={"item_id": item.pk}),
         data={"expected_state": item.state, "to_state": ItemState.TRIAGED.value},
         format="json",
     )
@@ -842,7 +871,7 @@ def test_a_move_on_an_item_that_does_not_exist_is_a_404() -> None:
     nothing is not a permission problem.
     """
     answer = a_client(PACKAGING_ENGINEER).post(
-        reverse("api:workflow-item-transition", kwargs={"item_id": 999_999}),
+        reverse("conda_sentinel_api:workflow-item-transition", kwargs={"item_id": 999_999}),
         data={"expected_state": ItemState.OPEN.value, "to_state": ItemState.TRIAGED.value},
         format="json",
     )
@@ -859,6 +888,6 @@ def test_a_read_endpoint_refuses_a_post() -> None:
     proves the deployment answers accordingly, which is what an integrator would
     discover.
     """
-    answer = a_reader().post(reverse("api:package-health"), data={}, format="json")
+    answer = a_reader().post(reverse("conda_sentinel_api:package-health"), data={}, format="json")
 
     assert answer.status_code == HTTPStatus.METHOD_NOT_ALLOWED

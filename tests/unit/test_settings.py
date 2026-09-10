@@ -888,7 +888,11 @@ def test_the_rest_framework_block_keeps_everything_else_it_declared():
 
     assert base.REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"] == ("rest_framework.permissions.IsAuthenticated",)
     assert base.REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"] == "drf_spectacular.openapi.AutoSchema"
-    assert base.CORS_URLS_REGEX == r"^/api/.*$"
+    # Both API roots since `CPM-APP-S14`: the platform's at `/api/` and this
+    # application's at `/conda-sentinel/api/<version>/`. A rule naming only the first
+    # would leave every browser-based caller of this product's API failing preflight,
+    # and silently -- a CORS rule that matches nothing raises nothing.
+    assert base.CORS_URLS_REGEX == r"^(/conda-sentinel)?/api/.*$"
 
 
 @pytest.mark.usefixtures("no_database_env", "no_oidc_env")

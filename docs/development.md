@@ -1459,18 +1459,86 @@ routed from one file — `src/config/api_router.py` — and that is deliberate: 
 API's shape has to be legible in one place, because one of its acceptance criteria is
 an *enumeration*.
 
+Every path below is under `/conda-sentinel/api/v1/` — see **Addressing and versions**.
+
 | Method | Path | What |
 |---|---|---|
-| GET | `/api/packages/` | Current health, filtered and ordered exactly as `/packages/` |
-| GET | `/api/packages/<name>/` | One package, every status traced to its evidence |
-| GET | `/api/queues/<queue>/` | One queue, ranked, scoped to the role that owns it |
-| GET | `/api/reports/` | The report roster |
-| GET | `/api/reports/<slug>/` | One report, paginated, with its provenance |
-| POST | `/api/packages/<id>/identity-override/` | **Write.** Correct an identity |
-| POST | `/api/workflow-items/<id>/transition/` | **Write.** Move a queue item |
+| GET | `…/packages/` | Current health, filtered and ordered exactly as the screen |
+| GET | `…/packages/<name>/` | One package, every status traced to its evidence |
+| GET | `…/queues/<queue>/` | One queue, ranked, scoped to the role that owns it |
+| GET | `…/reports/` | The report roster |
+| GET | `…/reports/<slug>/` | One report, paginated, with its provenance |
+| POST | `…/packages/<id>/identity-override/` | **Write.** Correct an identity |
+| POST | `…/workflow-items/<id>/transition/` | **Write.** Move a queue item |
 
-The schema is at `/api/schema/` and Swagger UI at `/api/docs/`, both admin-only.
-They are generated from the implementation — there is no hand-kept document.
+The schema is at `/conda-sentinel/api/v1/schema/` and Swagger UI at
+`/conda-sentinel/api/v1/docs/`, both admin-only. They are generated from the
+implementation — there is no hand-kept document.
+
+### Addressing and versions
+
+Two API roots, and the split is the same boundary the pages use:
+
+| Root | Whose | Contract |
+|---|---|---|
+| `/conda-sentinel/api/v1/` | this application | `/conda-sentinel/api/v1/schema/` |
+| `/api/` | the platform (the accelerator's user endpoint) | `/api/schema/` |
+
+`/api/schema/` describes the whole service; `/conda-sentinel/api/v1/schema/` describes
+**only this application**. An integrator wants the second — the first is this product
+plus half of somebody's platform.
+
+Both rosters are declared in `config/api_router.py`, because `CPM-AD-19` makes routing
+central. They are *mounted* apart, from `config/urls.py`, because they belong to
+different things.
+
+**Namespaces follow the mount.** This application's endpoints reverse through
+`conda_sentinel_api:`, the platform's through `api:`. A namespace whose name says
+`api` while reversing to somebody else's prefix is the kind of small untruth that
+costs an afternoon.
+
+```python
+reverse("conda_sentinel_api:package-health")   # /conda-sentinel/api/v1/packages/
+reverse("api:user-me")                          # /api/users/me/
+```
+
+### An unknown version says so
+
+```
+GET /conda-sentinel/api/v2/packages/
+404 {"detail": "this API serves v1; 'v2' is not a version of it. …"}
+```
+
+A bare 404 is indistinguishable from a missing endpoint, and the two send an
+integrator looking in different places — "this endpoint does not exist" sends them to
+the schema, "this *version* does not exist" sends them to change one segment.
+
+`config/api_versions.py` holds the roster. **Every verb answers the same way**: a
+caller who posts to a version that does not exist should not be told the method is
+wrong, because their verb is the one thing about the request that was fine.
+
+### Adding a version
+
+Add it to `SERVED_VERSIONS`, mount the new roster beside the old, and publish its
+schema at `/conda-sentinel/api/<version>/schema/`. The refusal message names both
+without being rewritten.
+
+Versioning is a **path segment plus a refusal**, not DRF's `URLPathVersioning`. That
+class reads the version from a URL keyword argument, which would mean `<str:version>`
+in every mounted pattern and a `version` argument in every one of the thirty-odd
+`reverse()` calls naming these routes. Nothing branches on `request.version` yet.
+Adopting the class later changes no path — which is what makes this the cheap order.
+
+### Two settings that must move with the mount
+
+`CORS_URLS_REGEX` covers **both** roots. A rule naming only one leaves every
+browser-based caller of the other failing preflight — silently, because a CORS rule
+that matches nothing raises nothing.
+
+`SCHEMA_PATH_PREFIX` drives tag and operation-id derivation. It does **not** trim the
+prefix from paths; that is `SCHEMA_PATH_PREFIX_TRIM`, deliberately off, so a client
+generated from the document reaches the right URL without also being handed a base
+path to prepend.
 
 ### The two writes
 

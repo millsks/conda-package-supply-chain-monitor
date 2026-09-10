@@ -62,19 +62,41 @@ if TYPE_CHECKING:
 #: The package every module under audit lives in.
 IMPORT_ROOT: Final[str] = "conda_sentinel"
 
-#: Where the API is mounted. `config/urls.py` puts it here and nowhere else.
-API_PREFIX: Final[str] = "api/"
-
-#: The platform's own user endpoint, which writes and is not this product's.
+#: Where **this application's** API is mounted.
 #:
-#: **Recorded rather than swept under the product filter**, because an audit that
-#: simply ignored every view it did not own would be answering an easier question
-#: than the one AC 3 asks. `django_service.users` comes from the accelerator this
-#: component was built from; it lets somebody edit their own name, writes the
-#: platform's user table, and touches no evidence and no derived status -- which is
-#: the half of AC 3 that is actually about this product's data, and is asserted
-#: below rather than assumed.
-PLATFORM_WRITES: Final[frozenset[str]] = frozenset({"django_service.users.api.views.UserViewSet"})
+#: `CPM-APP-S14` moved it under the application's own name. Before that it shared
+#: `/api/` with the platform's user endpoint, which is why the roster below used to
+#: carry a recorded exemption for that endpoint: the two shared a root and a schema
+#: document, so "what does this API write" could not be answered without naming
+#: somebody else's view. Two roots, and the question answers itself.
+API_PREFIX: Final[str] = "conda-sentinel/api/"
+
+#: Where the platform's own API lives, which is not under this application's root.
+#:
+#: Asserted rather than assumed by `test_the_platforms_api_is_not_under_this_ones`,
+#: because the failure it guards is silent: a prefix that swept `/api/` along with the
+#: application's pages would break a contract `CPM-APP-S07` published, and every one
+#: of this product's own cases would still pass.
+PLATFORM_API_PREFIX: Final[str] = "api/"
+
+#: Views under this application's API root that are not part of its contract.
+#:
+#: They *serve* the contract rather than being in it: the schema document, the browser
+#: for it, and the refusal for a version this API does not have. None answers a
+#: question about a package, and none belongs in the roster of endpoints AC 3
+#: enumerates -- but all three have to live under the root they describe, because a
+#: contract published somewhere else is one a caller has to be told about separately.
+#:
+#: Spelled exactly and spent exactly: `test_every_contract_service_is_still_mounted`
+#: fails on an entry that has stopped being real, so this cannot go on licensing an
+#: endpoint that quietly became one.
+CONTRACT_SERVICES: Final[frozenset[str]] = frozenset(
+    {
+        "config.api_versions.UnknownApiVersion",
+        "drf_spectacular.views.SpectacularAPIView",
+        "drf_spectacular.views.SpectacularSwaggerView",
+    },
+)
 
 #: The HTTP methods that change something.
 WRITE_METHODS: Final[frozenset[str]] = frozenset({"post", "put", "patch", "delete"})
@@ -300,35 +322,68 @@ def test_every_read_endpoint_answers_get_and_nothing_else() -> None:
     assert reading, "no read endpoint was found, so the write sweep above is asserting nothing."
 
 
-def test_the_only_other_write_under_api_is_the_platforms_and_touches_no_product_data() -> None:
-    """The write this product does not own, named rather than filtered away.
+def test_the_platforms_api_is_not_under_this_ones() -> None:
+    """AC 3's boundary, checked from the direction that fails silently.
 
-    `/api/users/{username}/` answers `PUT` and `PATCH`. It is the accelerator's, it
-    edits somebody's own name, and it is not a `CPM-FR-27` endpoint -- but an audit
-    that simply skipped every view outside `conda_sentinel.` would be answering "does
-    this product write twice" when AC 3 asks "what does this API write". So it is
-    listed, and what matters about it is asserted: it reaches no evidence table and
-    no derived table.
+    While the two shared `/api/` this case was an *exemption* -- the platform's
+    `UserViewSet` writes, it is not this product's, and an audit that simply ignored
+    every view it did not own would have been answering an easier question than AC 3
+    asks. `CPM-APP-S14` split the roots, and the honest version of the question is now
+    the boundary itself.
+
+    The failure it guards is silent in both directions: a prefix that swept `/api/`
+    along would break a contract `CPM-APP-S07` published, and a platform endpoint that
+    drifted under this application's root would appear in this application's schema as
+    though this product owned it.
     """
-    foreign = {
+    under_ours = {
         route.name()
         for route in registered_routes()
         if route.pattern.startswith(API_PREFIX)
-        and route.writes()
         and not route.view.__module__.startswith(f"{IMPORT_ROOT}.")
+        and route.name() not in CONTRACT_SERVICES
     }
 
-    assert foreign == PLATFORM_WRITES, (
-        f"an endpoint outside this product writes under /api/: {sorted(foreign - PLATFORM_WRITES)}. Every write "
-        f"the API exposes is part of its contract, whoever wrote the view."
+    assert under_ours == set(), (
+        f"these are not this application's and are mounted under its API root: {sorted(under_ours)}. Two roots is "
+        f"what lets this product publish a contract that is its own."
     )
-    for name in sorted(foreign):
-        module_name, _, class_name = name.rpartition(".")
-        view = getattr(importlib.import_module(module_name), class_name)
-        model = getattr(getattr(view, "serializer_class", None), "Meta", None)
-        assert not getattr(model, "model", type).__module__.startswith(f"{IMPORT_ROOT}."), (
-            f"{name} serializes one of this product's models, so it is a write to product data."
-        )
+
+    platform = {
+        route.name()
+        for route in registered_routes()
+        if route.pattern.startswith(PLATFORM_API_PREFIX) and not route.pattern.startswith(API_PREFIX)
+    }
+    assert platform, "the platform's API was not found at its own root, so the boundary above asserts nothing."
+
+
+def test_every_contract_service_is_still_mounted() -> None:
+    """An exemption that has stopped being real is one licensing something else.
+
+    The three below are permitted under this application's API root because they serve
+    its contract rather than being part of it. If one is unmounted the entry should go
+    with it -- otherwise the next view that happens to share its name inherits a
+    licence nobody granted it.
+    """
+    mounted = {route.name() for route in registered_routes() if route.pattern.startswith(API_PREFIX)}
+    stale = sorted(CONTRACT_SERVICES - mounted)
+
+    assert stale == [], f"these are exempted under {API_PREFIX} and are not mounted there: {stale}."
+
+
+def test_the_contract_is_published_under_the_version_it_describes() -> None:
+    """A schema at a different address from the endpoints it documents is one nobody finds.
+
+    And a schema that documented *two* applications is what this product had until
+    `CPM-APP-S14` -- which is why the audit needed an exemption for somebody else's
+    write in order to answer "what does this API write".
+    """
+    from django.urls import reverse  # noqa: PLC0415 - read beside the claim
+
+    schema = reverse("conda-sentinel-api-schema")
+
+    assert schema.startswith(f"/{API_PREFIX}")
+    assert reverse("conda_sentinel_api:package-health").startswith(f"/{API_PREFIX}")
 
 
 def test_every_product_api_view_lives_in_an_api_subpackage() -> None:

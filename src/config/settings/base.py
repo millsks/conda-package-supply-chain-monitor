@@ -1016,7 +1016,13 @@ REST_FRAMEWORK = {
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup
-CORS_URLS_REGEX = r"^/api/.*$"
+#
+# **Both API roots since `CPM-APP-S14`.** The platform's is at `/api/` and this
+# application's at `/conda-sentinel/api/<version>/`, and a regex naming only the first
+# would leave every browser-based caller of this product's API failing preflight --
+# silently, because a CORS rule that matches nothing raises nothing. The optional
+# group is what keeps one rule covering both rather than two rules drifting apart.
+CORS_URLS_REGEX = r"^(/conda-sentinel)?/api/.*$"
 
 # By Default swagger ui is available only to admin user(s). You can change permission classes to change that
 # See more configuration options at https://drf-spectacular.readthedocs.io/en/latest/settings.html#settings
