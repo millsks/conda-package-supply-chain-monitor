@@ -62,7 +62,7 @@ pixi install         # runtime environment
 pixi install -e dev  # development toolchain
 pixi run bootstrap   # install the git hooks
 pixi run migrate     # apply migrations (sqlite by default)
-pixi run runserver   # http://127.0.0.1:8000/
+pixi run runserver   # http://127.0.0.1:8000/ -- one process, tasks run inline
 ```
 
 ## Development
@@ -73,6 +73,13 @@ pixi run test-integration  # integration tests
 pixi run test-cov          # full suite, 90% coverage floor
 pixi run ci                # the full gate -- must pass before any change is done
 pixi run docs-serve        # documentation with live reload
+
+# The product the way it actually runs: Redis and PostgreSQL in containers, plus
+# gunicorn, a worker, beat and the Celery monitor together. Its containers publish
+# on 6380 and 5433, so they coexist with anything you already have running.
+pixi run local-stack       # the whole stack, under honcho
+pixi run docker-up         # just the infrastructure
+pixi run docker-down       # stop it, keeping the data
 ```
 
 `pixi run ci` is the gate, and it is the same sequence locally and in CI:

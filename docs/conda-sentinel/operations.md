@@ -2575,7 +2575,7 @@ tables', above: there is no retention path, deleting old runs would have to dele
 these rows first, and no story currently claims it. Size the database accordingly,
 or run the policy less often than you collect.
 
-## The priority policy: nothing is prioritised, and that is the shipped answer
+## The priority policy: nothing was prioritised until `2026.09.4`
 
 `CPM-PRIORITY-S01` adds the seventh policy pass, and the first that reads what the
 others concluded. It runs inside the orchestrating policy run, makes no outbound
@@ -2584,15 +2584,27 @@ inventory's usage signals at the run's cut-off. It answers `CPM-FR-20`: which
 priority bucket a package is in, why it is there, and how it scores within the
 bucket.
 
-**No rule set ships, so no package gets a bucket.** PRD Open Question 8 asks what
-seeds the priority rules and the score function and answers that both encode an
-organizational risk posture that does not exist yet. So
-`policies/data/policy-parameters.toml` records an empty rule set and an empty score
-function, every package reaches `unknown`, and every row says so in `detail`.
+**A rule set ships from `2026.09.4`, and not before it.** PRD Open Question 8 asked
+what seeds the priority rules and the score function, and the answer for a long time
+was that both encode an organizational risk posture that did not exist yet — so
+`2026.09` through `2026.09.3` record an empty rule set and an empty score function,
+every package reaches <span class="cs-state unknown">unknown</span>, and every row
+says so in `detail`.
 
-**Nothing reaches `p10` by default, and this is the sentence to read twice.** A
-default bucket is a claim about a package's importance that nobody made, and `p10`
-is the one that would look harmless — "lowest priority" reads as a considered answer
+`2026.09.4` records **ten rules** and a score function. A run at that version produces
+real buckets and scores; a run at an older one still produces
+<span class="cs-state unknown">unknown</span>, unchanged, because the rules are
+versioned data rather than code. That is the whole point of `CPM-AD-8` — the two
+answers coexist, each attributable to the version that produced it, and a replay of an
+old run still reproduces what that run concluded.
+
+**A deployment that wants the older behaviour pins the older version.** Nothing here
+is retroactive: rows already written keep the version map they were written with.
+
+**Nothing reaches `p10` by *default*, and this is the sentence to read twice.** It is
+as true at `2026.09.4` as before it: a bucket is assigned by a rule that matched, or
+not at all. A default bucket is a claim about a package's importance that nobody made,
+and `p10` is the one that would look harmless — "lowest priority" reads as a considered answer
 rather than as an absence. A package this product has not prioritised is
 `unknown`, and if you build a queue over this table, do not sort `unknown` beside
 `p10`.
@@ -2711,9 +2723,11 @@ silent. That independence is made structural rather than promised: the work-type
 pass is registered *first*, so there is no priority row for the run when it
 executes.
 
-This matters more than it sounds, because the shipped priority rule set is empty —
-**every** package is `unknown` for priority. If the two were coupled at all, nothing
-would ever be recommended. They are not, so the queue is useful today.
+This mattered more than it sounded while the shipped rule set was empty and **every**
+package was <span class="cs-state unknown">unknown</span> for priority: if the two
+were coupled at all, nothing would ever have been recommended. They are not, so the
+queue was useful before any priority rule existed — and still is at a pinned older
+version.
 
 **The eight, and when each is recommended:**
 
