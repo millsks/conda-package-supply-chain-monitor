@@ -145,6 +145,7 @@ development_status:
   cpm-app-s13-mounted-under-its-own-name: done
   cpm-app-s14-api-under-its-own-name: done
   cpm-app-s15-navigation-reads-the-way-a-person-reads: done
+  cpm-app-s16-wide-content-scrolls-itself: done
   epic-app-retrospective: optional
 
   # CPM-EP-DOCS: Documentation that says which product it is about
