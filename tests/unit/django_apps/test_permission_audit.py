@@ -285,9 +285,10 @@ def declares_a_role(view: type) -> bool:
         view: The registered view class.
 
     Returns:
-        True when it declares through either mechanism, and names somebody through
-        it -- a `RoleRequiredMixin` with an empty `required_roles` is checked
-        against the base's own empty default, which no surface may keep.
+        True when it declares through any of the three mechanisms, and names somebody
+        through it -- a `RoleRequiredMixin` that declares no roles *and* overrides
+        nothing keeps the base's empty default, which refuses everybody and is what
+        this audit exists to catch.
 
     """
     if any(
@@ -295,7 +296,16 @@ def declares_a_role(view: type) -> bool:
         for entry in getattr(view, "permission_classes", ())
     ):
         return True
-    return issubclass(view, RoleRequiredMixin) and bool(view.required_roles)
+    if not issubclass(view, RoleRequiredMixin):
+        return False
+    # Either a declared set, or an override of the seam that computes one. The second
+    # exists for `CPM-AD-22`'s queues: which role owns a queue is a property of the
+    # queue, so the answer depends on the URL. A view that overrides `roles_required`
+    # has said where its answer comes from, which is what this audit is asking; a
+    # view that overrides nothing and declares nothing has said nothing, and inherits
+    # the mixin's empty default, which refuses everybody.
+    overrides_the_seam = "roles_required" in vars(view)
+    return bool(view.required_roles) or overrides_the_seam
 
 
 def test_every_registered_view_declares_a_product_permission() -> None:

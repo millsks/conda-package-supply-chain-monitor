@@ -126,7 +126,7 @@ development_status:
   cpm-app-s02-current-package-health-view: done
   cpm-app-s03-package-detail-traced-evidence: done
   cpm-app-s04-workflow-table-keyed-stable-finding: done
-  cpm-app-s05-three-role-scoped-queues-over: ready-for-dev
+  cpm-app-s05-three-role-scoped-queues-over: done
   cpm-app-s06-recurring-operational-reports: ready-for-dev
   cpm-app-s07-governed-documented-api: ready-for-dev
   cpm-app-s08-long-work-leaves-request: ready-for-dev

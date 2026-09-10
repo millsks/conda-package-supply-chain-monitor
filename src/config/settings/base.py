@@ -471,6 +471,11 @@ TEMPLATES = [
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
                 "django_service.users.context_processors.allauth_settings",
+                # The product's own navigation (`CPM-APP-S05`). On the base template
+                # rather than in each view: a view that forgot would render a page
+                # with a queue missing from its nav, and a reader would conclude the
+                # queue did not exist rather than that the page was wrong.
+                "conda_sentinel.surface.context_processors.navigation",
             ],
         },
     },

@@ -47,6 +47,7 @@ from django.db.models import OuterRef
 from django.db.models import Subquery
 from django.db.models import Value
 from django.db.models import When
+from django.http import Http404
 from django.views.generic import DetailView
 from django.views.generic import ListView
 from django.views.generic import TemplateView
@@ -63,20 +64,32 @@ from conda_sentinel.surface.coverage import coverage_of
 from conda_sentinel.surface.detail import identity_of
 from conda_sentinel.surface.detail import recent_runs
 from conda_sentinel.surface.detail import traces_for
+from conda_sentinel.surface.detail import work_on
 from conda_sentinel.surface.filters import FACETS
 from conda_sentinel.surface.filters import UnknownFacetValueError
 from conda_sentinel.surface.filters import applied_filters
 from conda_sentinel.surface.filters import filter_condition
 from conda_sentinel.surface.health import COLUMNS
 from conda_sentinel.surface.health import health_rows
+from conda_sentinel.surface.queues import queue_items
+from conda_sentinel.surface.queues import queue_rows
+from conda_sentinel.workflow.states import QUEUE_OWNERS
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
+
+    from conda_sentinel.workflow.models import WorkflowItem
 
 __all__ = ["ORDERINGS", "SORT_PARAM", "PackageHealthView"]
 
 #: The query-string parameter naming an ordering.
 SORT_PARAM: Final[str] = "sort"
+
+#: What a URL naming no declared queue is told.
+#:
+#: A 404 rather than a refusal: a queue that does not exist is not one somebody lacks
+#: a role for, and answering 403 would tell a reader a queue exists that does not.
+UNKNOWN_QUEUE: Final[str] = "no queue is called {queue!r}. The queues are {known}."
 
 #: How the table may be ordered, and the first entry is the default.
 #:
@@ -283,6 +296,7 @@ class PackageDetailView(RoleRequiredMixin, DetailView):  # type: ignore[type-arg
             traces=traces_for(row),
             identity=identity_of(row.package),
             runs=recent_runs(row.package),
+            work=work_on(row.package),
         )
         return context
 
@@ -355,5 +369,100 @@ class HomeView(RoleRequiredMixin, TemplateView):
         context.update(
             coverage=coverage_of(),
             collectors=collector_health(now=SystemClock().now()),
+        )
+        return context
+
+
+class QueueView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
+    """One of `CPM-AD-22`'s three queues, scoped to the role that owns it.
+
+    **The role is read from the URL, not declared on the class**, and this is the one
+    surface in the product where that is true. Every other names its roles as a class
+    attribute because every other wants the same roles whoever opens it; a queue does
+    not, because which role may read it is a property of the *queue*.
+    `workflow/states.py`'s `QUEUE_OWNERS` is where that is declared, and
+    `roles_required()` is the seam `RoleRequiredMixin` offers for it -- a method
+    rather than a per-request assignment to a class attribute, which two requests
+    could race on.
+
+    It stays narrow: the answer comes from a closed table keyed on a URL segment, and
+    a segment naming no queue yields *no* roles, so the refusal happens before
+    anything else.
+
+    **A queue that is not yours is refused, never rendered empty.** The UX contract
+    is explicit -- "a queue that is not yours is refused, never rendered empty" -- and
+    the difference matters: an empty queue says there is no work, and a reviewer who
+    reads that goes away satisfied. `RoleRequiredMixin` logs the refusal with the
+    acting user identity, which is `CPM-APP-S05`'s AC 3.
+    """
+
+    template_name = "conda_sentinel/queue.html"
+    context_object_name = "items"
+    paginate_by = DEFAULT_PAGE_SIZE
+
+    def dispatch(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Refuse a URL naming no queue before anything asks about roles.
+
+        **Order matters and an earlier version had it backwards.** Checking the role
+        first made the 404 below unreachable: an unknown queue owns no role, so
+        everybody was refused -- including a reader who owns a real queue and
+        mistyped its URL, who was then told a queue exists that does not.
+
+        There is nothing for that ordering to protect. The nav lists all three queue
+        names to every role (`CPM-AD-13`: scoping happens below the nav), so which
+        queues exist is not a secret and 404 leaks nothing.
+
+        Args:
+            request: The request.
+            *args: Django's positional URL arguments.
+            **kwargs: Django's keyword URL arguments, carrying the queue.
+
+        Returns:
+            Whatever the view returns.
+
+        Raises:
+            Http404: When the URL names no declared queue.
+
+        """
+        queue = str(kwargs.get("queue", ""))
+        if queue not in QUEUE_OWNERS:
+            raise Http404(UNKNOWN_QUEUE.format(queue=queue, known=sorted(QUEUE_OWNERS)))
+        return super().dispatch(request, *args, **kwargs)
+
+    def roles_required(self) -> frozenset[str]:
+        """Return the role that owns the queue this URL names.
+
+        Returns:
+            The owner's slot. `dispatch` has already refused a URL naming no queue,
+            so the lookup below always finds one.
+
+        """
+        return frozenset({QUEUE_OWNERS[str(self.kwargs["queue"])]})
+
+    def get_queryset(self) -> QuerySet[WorkflowItem]:
+        """Return the queue named in the URL.
+
+        Returns:
+            The ranked, open items. `dispatch` has already refused an unknown queue.
+
+        """
+        return queue_items(str(self.kwargs["queue"]))
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the rows and what the heading says.
+
+        Args:
+            **kwargs: Django's context, carrying the page.
+
+        Returns:
+            The context.
+
+        """
+        context = super().get_context_data(**kwargs)
+        queue = str(self.kwargs["queue"])
+        context.update(
+            queue=queue,
+            owner=QUEUE_OWNERS[queue],
+            rows=queue_rows(queue, context["page_obj"].object_list),
         )
         return context

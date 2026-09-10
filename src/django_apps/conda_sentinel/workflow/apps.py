@@ -25,3 +25,21 @@ class WorkflowConfig(AppConfig):
 
     name = "conda_sentinel.workflow"
     verbose_name = _("Workflow")
+
+    def ready(self) -> None:
+        """Register the step that opens queue items after a policy run.
+
+        Registration is a side effect of *adoption* rather than of import, exactly as
+        `policies/apps.py` adopts its passes: nothing self-registers and nothing is
+        discovered by entry point or module walk, so a component that has not adopted
+        this application opens no items and `core` is none the wiser.
+
+        The import is here rather than at module scope because `apps.py` is imported
+        during `django.setup()` *before* the app registry is populated, and
+        `workflow/opening.py` reads models.
+        """
+        from conda_sentinel.core.after_run import register_after_run_step  # noqa: PLC0415 - see above
+        from conda_sentinel.workflow.opening import OPENING_STEP_NAME  # noqa: PLC0415 - see above
+        from conda_sentinel.workflow.opening import open_queue_items  # noqa: PLC0415 - see above
+
+        register_after_run_step(OPENING_STEP_NAME, open_queue_items)

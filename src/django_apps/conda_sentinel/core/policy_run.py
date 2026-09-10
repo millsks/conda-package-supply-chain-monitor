@@ -79,6 +79,7 @@ import structlog
 from django.db import models
 from django.db import transaction
 
+from conda_sentinel.core.after_run import run_after_run_steps
 from conda_sentinel.core.ledger import policy_run
 from conda_sentinel.core.models import FINISHED_AT_FIELD
 from conda_sentinel.core.models import CollectionRun
@@ -176,6 +177,7 @@ class PolicyRunSummary:
         policy_run: The ledger row this run was recorded on.
         evidence_cutoff: The instant every pass read evidence as of.
         rollup_rows: How many rollup rows were written.
+        after_run: What each registered after-run step reported, by name.
         failed_packages: The primary keys of the packages that could not be
             computed, in the order they were met -- the pass phase's failures
             first, then the compose phase's. Empty for a run that finalized
@@ -187,6 +189,12 @@ class PolicyRunSummary:
     evidence_cutoff: datetime
     rollup_rows: int
     failed_packages: tuple[int, ...] = field(default=())
+
+    #: What each registered after-run step reported, by name. Empty in a component
+    #: that has adopted no application registering one, which is a legitimate state
+    #: and not a failure -- `core` declares the seam and does not require it to be
+    #: filled.
+    after_run: dict[str, int] = field(default_factory=dict)
 
 
 def choose_evidence_cutoff() -> datetime:
@@ -332,6 +340,15 @@ def execute_policy_run(
             skipped=failed,
         )
         failed.extend(unwritten)
+        # After the rollup, because a step reads what the run concluded. Inside the
+        # ledger's `with`, because a step that fails has to fail the run: a run that
+        # reported success with the queues it was meant to fill still empty is nobody
+        # looking at work nobody knows exists.
+        #
+        # What the steps *are* is not this module's business -- `core/after_run.py`
+        # declares the seam and an adopted application fills it, exactly as the pass
+        # registry works. This orchestrator has never heard of a queue.
+        after_run = run_after_run_steps(run=run, clock=clock)
         if failed:
             _declare_ending(handle, failed=len(failed), total=len(packages))
 
@@ -340,6 +357,7 @@ def execute_policy_run(
         evidence_cutoff=evidence_cutoff,
         rollup_rows=rollup_rows,
         failed_packages=tuple(failed),
+        after_run=after_run,
     )
 
 

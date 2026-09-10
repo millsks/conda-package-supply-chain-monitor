@@ -50,6 +50,7 @@ from conda_sentinel.core.roles import SECURITY_REVIEWER
 __all__ = [
     "ANY_PRODUCT_ROLE",
     "QUEUE_LENGTH",
+    "QUEUE_OWNERS",
     "STATE_LENGTH",
     "TERMINAL_STATES",
     "TRANSITIONS",
@@ -103,6 +104,28 @@ class Queue(models.TextChoices):
     REMEDIATION = "remediation", _("remediation")
     COMPLIANCE_REVIEW = "compliance_review", _("compliance review")
 
+
+#: Which role may open which queue.
+#:
+#: `CPM-FR-31` scopes queues per role and `CPM-APP-S05`'s AC 3 turns that into a
+#: refusal. Declared as data beside the machine rather than checked in each view, for
+#: the reason `CPM-AD-13` gives: a per-view role check is right eight times and wrong
+#: once, and the once is a queue another role can read.
+#:
+#: **Identity review belongs to leadership, which is the surprising one.** The UX
+#: contract states it directly -- the refusal screen says "the package-identity queue
+#: belongs to platform and engineering leadership" -- and it follows from
+#: `CPM-IDENTITY-S05`: the audited identity override is the product's one governed
+#: human write, and `ROLE_GROUP_PERMISSIONS` grants its permission to leadership
+#: alone. The queue is where that permission is exercised, so it belongs to whoever
+#: holds it. A reviewer still *reads* every package's identity and provenance --
+#: `CPM-AD-13` grants read access to evidence to all three roles -- and acting on
+#: identity review is a different grant.
+QUEUE_OWNERS: Final[dict[str, str]] = {
+    Queue.IDENTITY_REVIEW.value: LEADERSHIP,
+    Queue.REMEDIATION.value: PACKAGING_ENGINEER,
+    Queue.COMPLIANCE_REVIEW.value: SECURITY_REVIEWER,
+}
 
 #: Column widths, sized from the vocabularies rather than guessed.
 STATE_LENGTH: Final[int] = max(len(value) for value in ItemState.values)

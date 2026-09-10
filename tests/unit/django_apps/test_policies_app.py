@@ -62,6 +62,7 @@ from conda_sentinel.policies.remediation import RemediationPass
 from conda_sentinel.policies.vulnerability import POLICY_NAME as VULNERABILITY_POLICY_NAME
 from conda_sentinel.policies.vulnerability import VulnerabilityPass
 from tests.passes import ADOPTED_PASS_NAMES
+from tests.source_scan import SRC_ROOT
 
 #: This repository's root, four levels up from `tests/unit/django_apps/`.
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
@@ -102,6 +103,14 @@ STAGE_TWO_OWNER_NAME: Final[str] = "django_service.users"
 #: survives: nothing that registers a pass may be declared after this application,
 #: and `test_nothing_after_this_application_registers_a_pass` is what holds it.
 APPLICATIONS_AFTER: Final[tuple[str, ...]] = ("conda_sentinel.workflow", "conda_sentinel.surface")
+
+#: The call that adopts a pass, swept for as text.
+#:
+#: Text rather than an import graph, because what matters is whether the call is
+#: *there* -- an application that imported the function and never called it registers
+#: nothing, and one that called it through an alias is doing something worth failing
+#: on anyway.
+REGISTER_PASS_CALL: Final[str] = "register_pass("  # noqa: S105 - a function call, not a credential
 
 #: Every module this application declares today. `CPM-AD-19` gives a domain
 #: application `urls.py`, `tasks.py` and an `api/` subpackage when it has views or
@@ -272,14 +281,33 @@ def test_nothing_after_this_application_registers_a_pass() -> None:
 
     `CPM-AD-21` keeps the registry in declaration order so a later pass can read an
     earlier pass's derived rows. What that forbids is an application registering a
-    pass *after* this one, not an application existing after it -- and
-    `conda_sentinel.surface` is the second kind: a read surface with no `ready()`,
-    which is asserted here rather than assumed.
-    """
-    for name in APPLICATIONS_AFTER:
-        config = type(apps.get_app_config(name.rsplit(".", 1)[-1]))
+    **pass** after this one -- not an application existing after it, and not an
+    application having a `ready()`.
 
-        assert "ready" not in vars(config), f"{name} declares ready() and is installed after {APPLICATION_NAME}"
+    **The earlier version of this case asserted the second thing**, which was a
+    proxy: `conda_sentinel.surface` had no `ready()` at all, so "declares no
+    `ready()`" happened to hold. `CPM-APP-S05` gave `conda_sentinel.workflow` one --
+    it registers an *after-run step*, which is a different registry and runs after
+    every pass has finished -- and the proxy failed while the rule it stood for was
+    untouched. So the rule is now checked directly, by sweeping for the call.
+    """
+    offenders = {name: sorted(calls) for name in APPLICATIONS_AFTER if (calls := _pass_registrations_in(name))}
+
+    assert offenders == {}, f"these applications register a pass after {APPLICATION_NAME}: {offenders}"
+
+
+def _pass_registrations_in(dotted: str) -> set[str]:
+    """Return every module of an application that calls `register_pass`.
+
+    Args:
+        dotted: The application's dotted name.
+
+    Returns:
+        The offending modules, by file name.
+
+    """
+    package = SRC_ROOT / "django_apps" / dotted.replace(".", "/")
+    return {path.name for path in package.rglob("*.py") if REGISTER_PASS_CALL in path.read_text(encoding="utf-8")}
 
 
 def test_the_ready_hook_adopted_this_applications_passes() -> None:
