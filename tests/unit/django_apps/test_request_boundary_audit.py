@@ -346,8 +346,12 @@ def test_only_the_declared_modules_read_the_export_cap() -> None:
     The failure is not visible: two paths comparing the same setting slightly
     differently produce a download that is simply short, and nothing says so.
     """
+    # `as_posix()` rather than `str()`: `Path` renders with the host separator, so
+    # this compared `surface\exports.py` against `surface/exports.py` and failed on
+    # the Windows runner alone. The recorded set is written with forward slashes
+    # because a path in prose is, and the comparison has to meet it there.
     readers = sorted(
-        str(path.relative_to(SRC_ROOT))
+        path.relative_to(SRC_ROOT).as_posix()
         for name, path in MODULE_PATHS.items()
         if CAP_SETTING in path.read_text(encoding="utf-8")
     )
