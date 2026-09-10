@@ -33,7 +33,6 @@ urlpatterns = [
     # See config/health/urls.py for why the paths carry no trailing slash and are
     # not part of the FR-17 authentication surface.
     path("", include("config.health.urls")),
-    path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
     path(
         "about/",
         TemplateView.as_view(template_name="pages/about.html"),
@@ -44,13 +43,17 @@ urlpatterns = [
     # User management
     path("users/", include("django_service.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
-    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`.
+    # This product's own HTML surfaces (`CPM-AD-19`), namespaced `conda_sentinel:`,
+    # **and the root is one of them** since `CPM-APP-S12`.
+    #
+    # It was not. The accelerator's own landing page held `""` and this include sat
+    # below it, so a visitor to the server's root met a page describing the template
+    # this component was built from. That route is gone and `conda_sentinel:home` has
+    # taken the root; there is no unprefixed `home` left for a product route to
+    # collide with, which is what the note here used to be about.
     #
     # Mounted here rather than discovered: `AD-8` forbids entry-point discovery, and
-    # a domain app that mounted its own routes would be exactly that. Below the
-    # platform's probes and above nothing that depends on order -- the namespace is
-    # what keeps a product route called `home` from colliding with the unprefixed
-    # `home` above.
+    # a domain app that mounted its own routes would be exactly that.
     path("", include("conda_sentinel.surface.urls")),
     # Media files
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),

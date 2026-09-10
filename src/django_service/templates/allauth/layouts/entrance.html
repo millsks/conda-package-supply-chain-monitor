@@ -8,7 +8,17 @@
     {% trans "Sign In" %}
   {% endblock head_title %}
 {% endblock title %}
+{% comment %} CPM-APP-S12. This layout overrides `body` wholesale -- it is a centred
+   card on an empty page -- so the shell's chrome does not reach it and has to be
+   included here. That is worth doing rather than working around: the sign-in page is
+   where somebody meets this product, and it was the last page still able to leave
+   them unsure which one they were signing in to.
+
+   The chrome renders with no navigation for an anonymous reader (`CPM-APP-S12` AC 3)
+   and still carries the theme control, which is the reason `CPM-APP-S11` left that
+   control ungated. {% endcomment %}
 {% block body %}
+  {% include "conda_sentinel/_chrome.html" %}
   <div class="d-flex justify-content-center h-100 py-4">
     <div class="col-md-4 py-4 my-4 px-4">
       {% if messages %}
