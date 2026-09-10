@@ -116,6 +116,9 @@ projection — so a number in a dashboard and a number on a screen cannot disagr
 
 ## Where to go next
 
+- **[Onboarding](onboarding.md) — start here.** The guided path: a sequence to work
+  through over your first week, with something to run at each step. Every page below
+  is a reference you dip into; that one is a curriculum.
 - [How it is built](architecture.md) — the domain model and the decisions a
   maintainer has to know
 - [A policy run, end to end](the-policy-run.md) — from an upstream request to a

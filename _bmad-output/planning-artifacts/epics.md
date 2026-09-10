@@ -2890,6 +2890,63 @@ because somebody plans around it.
 **Constrained:** these pages **distil and link**; they do not restate. `operations.md`
 remains the per-collector reference and is not duplicated.
 
+### CPM-DOCS-S06: A path through it, not a pile of it
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> the second half of the product owner's request: a primer that takes somebody from
+> novice to professional, as though they were onboarding to maintain both the code and
+> the running system.
+
+After `CPM-DOCS-S05` there are eleven pages about this product, and they are good
+pages. What there is no such thing as is an **order to read them in**. A new
+maintainer meets a navigation menu and has to guess whether the architecture or the
+operations reference comes first, and the honest answer — that they should run it
+before reading either — is written nowhere.
+
+The failure is specific and it is not "there are no docs". It is that every page is a
+reference, references assume you know what you are looking for, and somebody in their
+first week does not.
+
+As a maintainer in my first week,
+I want a sequence to work through with a terminal open,
+So that I learn this product by using it rather than by reading about it.
+
+**Acceptance Criteria:**
+
+**Given** somebody who has never seen this codebase
+**When** they follow the primer from the top
+**Then** each part ends with something to run and a result to compare against
+
+**Given** the primer
+**When** it covers a subsystem
+**Then** it distils enough to act on and links to the page that holds the detail,
+rather than restating it
+
+**Given** every other page about this product
+**When** the primer is read
+**Then** it links to all of them, so none is reachable only by scrolling a menu
+
+**Given** the tables the primer carries
+**When** the code they describe changes
+**Then** a test fails
+
+**Given** a reader who finishes it
+**When** they check themselves against its closing list
+**Then** the list is about what they can *do*, not what they have read
+
+**Satisfies:** nothing directly.
+**Governed by:** nothing new.
+
+**Constrained: it is a curriculum, not a twelfth reference.** The temptation with a
+page like this is to make it complete, at which point it is the site again with a
+different table of contents. It stays a *path*: what to run, what to look at, what the
+thing you are looking at means, and where the full answer lives.
+
+**Constrained:** the primer joins the pages whose commands and URLs are swept. It is
+the page a person reads with a terminal open, which makes it the page where a wrong
+command costs the most — and the sweep had been covering two pages out of seven that
+give commands.
+
 ## CPM-EP-NL: Governed natural-language investigation
 
 **BLOCKED.** Only the spike is written. The remaining stories are deliberately not authored

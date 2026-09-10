@@ -60,6 +60,7 @@ nav:
   - Home: index.md
   - Conda-Sentinel:
       - What it does: conda-sentinel/index.md
+      - Onboarding — start here: conda-sentinel/onboarding.md
       - How it is built: conda-sentinel/architecture.md
       - A policy run: conda-sentinel/the-policy-run.md
       - Running it: conda-sentinel/running-it.md
