@@ -1,6 +1,6 @@
 # CPM-DOCS-S02: The site wears the product's own skin
 
-Status: ready-for-dev
+Status: done
 
 Epic: `CPM-EP-DOCS` — Documentation that says which product it is about
 
@@ -35,10 +35,11 @@ so that I can tell at a glance which system I am reading about.
 
 ## Tasks / Subtasks
 
-- [ ] `docs/stylesheets/conda-sentinel.css` — the palette, mapped onto Material's.
-- [ ] `mkdocs.yml` — `extra_css`, the fonts, the palette toggle in both schemes.
-- [ ] `docs/index.md` — rewritten for this product.
-- [ ] A state vocabulary usable in prose.
+- [x] `docs/stylesheets/conda-sentinel.css` — the palette, mapped onto Material's.
+- [x] `mkdocs.yml` — `extra_css`, the fonts, `attr_list`, both palette entries.
+- [x] `docs/index.md` — rewritten for this product.
+- [x] `.cs-state` — the five states, usable in prose.
+- [x] `tests/unit/test_documentation_branding.py`.
 
 ## Dev Notes
 
@@ -85,3 +86,70 @@ documentation reads the way it reads on a screen.
 ### Completion Notes List
 
 ### File List
+
+## Dev Agent Record
+
+### Completion Notes
+
+**The front page opened with another product's name.** *"Django 15-Factor Base — A
+Django application accelerator template"*, on a site titled Conda-Sentinel. That is
+the most confusing thing a documentation site can do: a reader concludes they are in
+the wrong place and leaves.
+
+**Files added:** `docs/stylesheets/conda-sentinel.css`,
+`tests/unit/test_documentation_branding.py`.
+**Files changed:** `mkdocs.yml`, `docs/index.md`.
+
+### Mapped, not restyled
+
+Every value is assigned to one of Material's own `--md-*` variables. A stylesheet that
+restyled `.md-nav__link` directly would work today and break on Material's next minor
+release — and a broken documentation site is one nobody notices, because nobody has it
+open when they deploy.
+
+The palette is the third copy: `docs/ux/ui-mockups.html` is the contract,
+`static/css/conda-sentinel.css` serves the application, this serves the site. Three
+exist because they serve three runtimes. What keeps them honest is that this one maps
+rather than redefines.
+
+### `unknown` reads as a state
+
+`.cs-state` gives the five outcomes the same treatment in prose that they have on a
+screen. Documentation that set `unknown` as an ordinary word would make, in prose,
+exactly the mistake `CPM-AD-24` forbids in an export — and prose is where somebody
+*first* learns what the five mean, so getting it wrong here costs more than getting it
+wrong once on a screen.
+
+Four classes for five states: `not_found` and `not_applicable` share `unknown`'s
+treatment, because all three are the product declining to assert a verdict and a
+reader distinguishing them by colour would be reading a distinction the palette cannot
+carry. The word distinguishes them, which is the point.
+
+### The front page leads with the idea rather than the features
+
+Most monitoring tools have two answers — a problem, or silence — and silence is the
+dangerous one because it looks like health and is usually absence. This product has
+five and says which it means. Everything else in the documentation follows from that,
+so it is the first thing on the page, shown as chips rather than described.
+
+### Two decisions
+
+*The scheme attributes are not reconciled.* Material owns `[data-md-color-scheme]`,
+the application owns `[data-theme]` (`CPM-APP-S11`). The documentation is read in a
+tab beside the product, not inside it, and a reader who wants one dark and the other
+light is not confused about anything.
+
+*Both schemes are asserted separately.* The failure a single check misses is partial —
+a palette defined once looks right in one scheme and reverts to indigo in the other,
+and whoever wrote it only ever looked at the one their machine was in.
+
+### One correction
+
+The first version read the **built** site, `site/index.html`, and skipped when it was
+absent. `tests/unit/test_suite_policy.py` bans a skip in a test body — a skipped case
+reads in a report as a gate that ran. It was also the wrong split of labour:
+`pixi run docs` is `mkdocs build --strict` and is already in the gate, so *that* it
+renders is proven there. What is proven here is that the declarations exist to render.
+
+Verified by hand against the built site before that change: five chips, a real
+`div.grid.cards`, the stylesheet linked, and no occurrence of the accelerator's name.
