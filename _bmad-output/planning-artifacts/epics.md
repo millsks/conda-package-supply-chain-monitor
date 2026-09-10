@@ -229,8 +229,9 @@ The PRD's epic table assigned only six of thirteen. The remaining seven are plac
 
 ## Epic List
 
-Nine epics, on the non-positional keys the PRD fixed. They are not renumbered here, and
-adding one later never renumbers another.
+Ten epics, on the non-positional keys the PRD fixed. They are not renumbered here, and
+adding one later never renumbers another -- which `CPM-EP-DOCS` is the first exercise of:
+it was added after the other nine and took the next key rather than a position.
 
 Build order is a dependency graph, not the list order below.
 
@@ -368,6 +369,20 @@ settled independently of the spike's outcome.
 **BLOCKED.** Not plannable until a fitness spike establishes LangChain's conda-forge
 availability and its transitive resolution against Python 3.14. Only the spike story is
 written; the rest waits on its outcome.
+
+### `CPM-EP-DOCS`: Documentation that says which product it is about
+
+Splits the accelerator's documentation from this product's, brands the site, and writes
+the product documentation that has never existed -- the domain model, the five outcome
+states, the policy run, the roles and their queues, and the architecture spine distilled
+for a reader rather than for a reviewer.
+
+**User outcome:** a new maintainer can understand and run the system without reading the
+planning artifacts.
+
+**FRs covered:** none. Raised by the product owner; every acceptance criterion in it was
+drafted by the implementing agent.
+**Depends on:** nothing.
 
 ### Build order
 
@@ -2069,6 +2084,161 @@ and it moves every route together with no code change.
   inventory — is the aggregate of `CPM-FR-5`, and `CPM-FR-5` is written per package.
   Either the FR is widened or a new one is added; this is recorded rather than
   decided.
+
+## CPM-EP-DOCS: Documentation that says which product it is about
+
+> **Added after the epics were written, and raised by the product owner.** No
+> functional requirement commissions documentation. The acceptance criteria in every
+> story below were drafted by the implementing agent, on the terms `CPM-APP-S09`
+> established.
+
+`mkdocs` has been configured since `CPM-PLATFORM-S01` and the site builds. What it
+serves is the accelerator's documentation with this product's name on the tab:
+`docs/index.md` opens *"Django 15-Factor Base — A Django application accelerator
+template"*, and all six pages describe the platform — the stack, the development
+workflow, observability, authentication, deployment. **Nothing on the site explains
+what Conda-Sentinel does.** The domain model, the five outcome states, the policy
+run, the three roles and their queues, and the twenty-six architecture decisions
+exist only in `_bmad-output/planning-artifacts/`, which is not served and is not
+written for a reader.
+
+The two are also mixed inside single files. `docs/development.md` has eighteen
+sections: thirteen are the platform's and three are this product's. So the split this
+epic performs is a content separation rather than a file move, and it has a cost that
+has to be paid rather than deferred — **237 references** in source comments, tests and
+planning artifacts cite `docs/development.md` and `docs/deployment.md` by path.
+
+**Depends on:** nothing. Every story here is documentation and configuration.
+
+### CPM-DOCS-S01: Two trees, and every reference still resolves
+
+As a maintainer,
+I want the platform's documentation and this product's kept apart,
+So that a reader asking how Conda-Sentinel works is not handed a chapter on
+15-factor process models.
+
+**Acceptance Criteria:**
+
+**Given** the documentation tree
+**When** it is listed
+**Then** every page lives under `docs/accelerator/` or `docs/conda-sentinel/`, and
+the navigation reflects the same split
+
+**Given** a section of a page that describes the other side
+**When** the split is performed
+**Then** it moves rather than being duplicated, and no content is lost
+
+**Given** any reference to a documentation path in source, tests or planning
+artifacts
+**When** the move is complete
+**Then** it names a file that exists
+
+**Given** a later change that moves or renames a documentation page
+**When** the suite runs
+**Then** a reference naming a file that no longer exists fails a test
+
+**Satisfies:** nothing directly.
+**Constrained:** the reference sweep is the expensive half and is not optional — 237
+citations exist today, and a stale pointer in a module docstring is worse than the
+mixture it replaced, because a reader who follows it concludes the documentation was
+deleted rather than moved. The audit in AC 4 is what stops the count growing back.
+
+### CPM-DOCS-S02: The site wears the product's own skin
+
+As any reader,
+I want the documentation to look like the product it documents,
+So that I can tell at a glance which system I am reading about.
+
+**Acceptance Criteria:**
+
+**Given** the documentation site
+**When** any page is rendered
+**Then** it uses the product's palette, type and brand mark
+
+**Given** the site's front page
+**When** it is opened
+**Then** it describes Conda-Sentinel and not the accelerator this component was
+built from
+
+**Given** a reader's light or dark preference
+**When** a page is rendered
+**Then** the site honours it, in both schemes
+
+**Given** an outcome state named in prose
+**When** it is rendered
+**Then** it is distinguishable as a state rather than set as ordinary words
+
+**Satisfies:** nothing directly. Serves `CPM-FR-5` in prose: a page that wrote
+`unknown` as an ordinary word would make, in documentation, the mistake `CPM-AD-24`
+forbids in an export.
+**Constrained:** the palette is *mapped* onto Material's own `--md-*` variables
+rather than restated, so the theme keeps working and only the colours are this
+product's. The site's scheme attribute is Material's `[data-md-color-scheme]` and is
+deliberately **not** reconciled with the application's `[data-theme]`: the docs are
+read in a tab beside the product, not inside it.
+
+### CPM-DOCS-S03: What Conda-Sentinel does, and how it was built
+
+As a new maintainer,
+I want the product explained on the documentation site,
+So that I do not have to read the planning artifacts to understand the system.
+
+**Acceptance Criteria:**
+
+**Given** the product documentation
+**When** it is read start to finish
+**Then** it explains what the product concludes about a package and from what
+evidence
+
+**Given** the five outcome states
+**When** they are documented
+**Then** each is named, and it is explained why `unknown` is a finding rather than an
+absence
+
+**Given** the architecture spine
+**When** it is presented on the site
+**Then** the decisions a maintainer has to know are explained in prose, with the
+identifiers preserved so the spine remains findable
+
+**Given** the flow from a collector to a screen
+**When** it is documented
+**Then** each stage names the table it writes and the rule that governs it
+
+**Satisfies:** nothing directly.
+**Constrained:** a distillation, never a copy. `_bmad-output/planning-artifacts/`
+stays the record; a second full copy of the spine would be a second thing to keep
+true, and the one that drifts is always the copy.
+
+### CPM-DOCS-S04: Running it, and keeping it running
+
+As a maintainer,
+I want to be able to start the product, put data in it, and change it safely,
+So that my first day does not depend on somebody being available to explain it.
+
+**Acceptance Criteria:**
+
+**Given** a fresh checkout
+**When** the documentation is followed
+**Then** the application can be started and signed into with no external service
+running
+
+**Given** the demo seeder
+**When** it is documented
+**Then** it is explained what it writes and, more importantly, what it does not
+
+**Given** a change to the product
+**When** the documentation describes how to ship it
+**Then** it names the gate, the audits a change has to satisfy, and why each exists
+
+**Given** the audits the suite enforces
+**When** they are listed
+**Then** each names the failure it prevents rather than only the rule it applies
+
+**Satisfies:** nothing directly.
+**Constrained:** `pixi run ci` cannot complete on macOS — the `docker build` child in
+`tests/integration/test_image_payload.py` zombies, which reproduces on unmodified
+`main`. That is documented as the substitute procedure rather than hidden, because a
+maintainer who does not know it concludes their change broke the suite.
 
 ## CPM-EP-NL: Governed natural-language investigation
 

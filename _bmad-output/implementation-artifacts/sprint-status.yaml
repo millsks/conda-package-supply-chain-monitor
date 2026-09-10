@@ -144,6 +144,18 @@ development_status:
   cpm-app-s12-every-page-is-this-products: ready-for-dev
   epic-app-retrospective: optional
 
+  # CPM-EP-DOCS: Documentation that says which product it is about
+  #
+  # Added after the epics were written and raised by the product owner. No functional
+  # requirement commissions documentation; every story's acceptance criteria were
+  # drafted by the implementing agent, and each story file leads with that caveat.
+  epic-docs: backlog
+  cpm-docs-s01-two-trees-and-every-reference-resolves: ready-for-dev
+  cpm-docs-s02-the-site-wears-the-products-skin: ready-for-dev
+  cpm-docs-s03-what-it-does-and-how-it-was-built: ready-for-dev
+  cpm-docs-s04-running-it-and-keeping-it-running: ready-for-dev
+  epic-docs-retrospective: optional
+
   # CPM-EP-NL: Governed natural-language investigation
   epic-nl: backlog
   cpm-nl-s01-prove-analytics-stack-fits-before: ready-for-dev
