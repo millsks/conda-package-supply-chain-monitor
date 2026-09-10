@@ -159,7 +159,7 @@ QUERIES_PER_MATCHED_PACKAGE: Final[int] = 11
 
 #: What one `evaluate` costs for a package with no advisory evidence at all: the
 #: read for the sweep's instant, which finds none and short-circuits, and the
-#: insert. `docs/deployment.md` said three.
+#: insert. `docs/conda-sentinel/operations.md` said three.
 QUERIES_PER_PACKAGE_WITH_NO_ADVISORY_EVIDENCE: Final[int] = 2
 
 #: What it costs for a package with no matched advisory: the advisory instant, the
@@ -1025,7 +1025,7 @@ def test_a_package_with_no_advisory_evidence_at_all_is_unknown_and_costs_two_que
 ) -> None:
     """The matrix's "no advisory evidence": `unknown`, never `not_applicable`, never `blocked`.
 
-    Also the query floor, which `docs/deployment.md` had wrong at three:
+    Also the query floor, which `docs/conda-sentinel/operations.md` had wrong at three:
     `current_findings` short-circuits after the first query when there is no sweep,
     so the whole evaluation is that query plus the insert.
     """

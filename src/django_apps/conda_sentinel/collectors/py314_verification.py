@@ -214,7 +214,7 @@ PYTHON_SERIES: Final[Series] = (3, 14)
 #: publishes new releases, an interpreter takes patch releases, a build toolchain
 #: moves -- rather than measured, because measuring it needs a backend and no
 #: backend ships. The first operator to declare one is where it is revisited, and
-#: `docs/deployment.md` says so to them.
+#: `docs/conda-sentinel/operations.md` says so to them.
 #:
 #: **The alternative reading was available and is deliberately not taken.** The PRD
 #: offers a second: treat a verification as durable evidence about an immutable
@@ -269,7 +269,7 @@ VERIFICATION_RETRIES: Final[int] = 0
 #: not do.
 #:
 #: **What actually bounds a backend is the inherited soft time limit**, which
-#: `CPM-AD-9` fixes in settings and forbids raising. `docs/deployment.md` and
+#: `CPM-AD-9` fixes in settings and forbids raising. `docs/conda-sentinel/operations.md` and
 #: `collectors/verification.py` both say so to an operator, and
 #: `CPM-PY314-S02` records it as deferred work: a backend whose `fetch` blocks for
 #: the length of a real build meets that limit and the task is killed with no row

@@ -654,7 +654,7 @@ def _declared(values: object, *, setting: str, field: str, what: str) -> tuple[s
             f"It ships empty on purpose: which conda channels and platforms this product watches is PRD Open "
             f"Question 4 and is an operator's decision, and a component that picked one would record evidence "
             f"about a surface nobody chose -- permanently, in a log nothing may correct. Declare {setting} in "
-            f"config/settings/base.py and this collector starts observing (docs/deployment.md)."
+            f"config/settings/base.py and this collector starts observing (docs/conda-sentinel/operations.md)."
         )
         raise CondaChannelError(message)
 
@@ -1310,7 +1310,7 @@ class CondaPackageCollector(Collector):
         settings rather than from any mistake an operator made. So an undeclared
         component selects nothing, the dispatch records one `succeeded` row saying
         the selection was empty, and the component says the same thing once a day
-        instead of ten thousand times. `docs/deployment.md` tells an operator that
+        instead of ten thousand times. `docs/conda-sentinel/operations.md` tells an operator that
         this is what an undeclared component looks like.
 
         The check is `declaration_fault` -- the collector's own rule, the one

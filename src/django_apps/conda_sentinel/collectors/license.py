@@ -320,7 +320,7 @@ MAX_MONITORED_CHANNELS: Final[int] = 4
 #: is one request every two seconds, which at the `1 + retries` = 2 the base charges
 #: is **fifteen packages a minute** -- and it is charged **separately** from
 #: `CPM-CURRENCY-S04`'s allowance against the same host, because an allowance is
-#: per collector (`CPM-AD-20`). `docs/deployment.md` says so to an operator, and
+#: per collector (`CPM-AD-20`). `docs/conda-sentinel/operations.md` says so to an operator, and
 #: `LICENSE_DISPATCH_OFFSET` is what keeps the two sweeps from spending them at one
 #: instant.
 #:
@@ -702,7 +702,7 @@ def monitored_channels(channels: object) -> tuple[str, ...]:
             f"Open Question 4 and is an operator's decision, and a component that picked one would record facts "
             f"about a surface nobody chose -- permanently, in a log nothing may correct. Declare "
             f"{CHANNELS_SETTING} in config/settings/base.py and this collector starts observing "
-            f"(docs/deployment.md)."
+            f"(docs/conda-sentinel/operations.md)."
         )
         raise LicenseChannelError(message)
     if len(entries) > MAX_MONITORED_CHANNELS:

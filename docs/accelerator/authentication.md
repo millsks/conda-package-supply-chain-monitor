@@ -195,7 +195,7 @@ audit. Django's own admin and the audited identity override are unaffected — b
 run on Django's permission system, which is a separate question.
 
 Group *permissions* remain sparse: the one grant is the audited identity
-override, held by leadership. `docs/development.md` has the developer-facing half
+override, held by leadership. `docs/accelerator/development.md` has the developer-facing half
 of this, under "Writing an API surface".
 
 **Renaming one of these variables after a deployment has migrated does nothing

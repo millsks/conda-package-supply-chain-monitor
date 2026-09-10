@@ -114,7 +114,7 @@ DOT_ENV_TOGGLE: Final[str] = "DJANGO_READ_DOT_ENV_FILE"
 #:
 #: `DJANGO_SETTINGS_MODULE` is deliberately absent. FR-38 makes configuration
 #: environmental and the settings module is the platform's to name (see
-#: `docs/deployment.md`): an `ENV DJANGO_SECRET_KEY` is a baked secret, while an
+#: `docs/accelerator/deployment.md`): an `ENV DJANGO_SECRET_KEY` is a baked secret, while an
 #: `ENV DJANGO_SETTINGS_MODULE` would merely be a default the platform overrides.
 FORBIDDEN_IMAGE_VARIABLES: Final[frozenset[str]] = BUILD_SCAFFOLDING_VARIABLES | {DOT_ENV_TOGGLE}
 

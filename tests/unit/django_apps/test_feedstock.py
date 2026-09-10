@@ -1361,7 +1361,7 @@ def test_the_conventional_call_answers_rather_than_raises_when_it_cannot_even_na
     it is the least likely and the worst if it were not: an exception from here
     would leave `translate` and turn an absence the search had already established
     into an `error` row and a `failed` run, which is precisely the invariant the
-    module docstring and `docs/deployment.md` both state.
+    module docstring and `docs/conda-sentinel/operations.md` both state.
 
     It is unreachable through `collect()` today -- `feedstock_name` is wide enough
     to hold any `canonical_name` once suffixed, which is what

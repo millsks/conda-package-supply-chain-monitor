@@ -85,7 +85,7 @@ holds build metadata and tool configuration only. The `default` environment
 carries runtime dependencies only; `dev` layers the toolchain on top. Tasks
 resolve to whichever environment defines them, so `-e` is rarely needed.
 
-See `docs/development.md` for database configuration and the full task list.
+See `docs/accelerator/development.md` for database configuration and the full task list.
 
 ## Architecture Overview
 
@@ -297,7 +297,7 @@ so nothing retries against a collector that isn't there.
 This matters for the evidence model: a collection run that fails partway is
 traceable to the request and task that performed it, which is what makes an
 `error` or `unknown` state auditable rather than merely recorded.
-See `docs/observability.md`.
+See `docs/accelerator/observability.md`.
 
 ## Data and Security Considerations
 

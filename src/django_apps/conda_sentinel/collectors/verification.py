@@ -42,7 +42,7 @@ would name a platform it was never asked to build on.
 no execution backend, `verification_backend()` refuses until an operator declares
 one, and `Py314VerificationCollector` is not swept across the inventory by
 anything -- so an undeclared component verifies nothing, claims nothing and writes
-nothing, rather than failing a package a day. `docs/deployment.md` tells an
+nothing, rather than failing a package a day. `docs/conda-sentinel/operations.md` tells an
 operator what the refusal looks like and what declaring one commits them to.
 
 ## What an adapter must do, beyond satisfying `Transport`
@@ -106,7 +106,7 @@ the daily sweeps -- which bounds *what it starves*, not *how long it may take*. 
 `fetch` that blocks for the length of a real build will meet the soft limit and the
 task will be killed with no row written. An adapter therefore either completes
 quickly or drives the build somewhere else and answers about a run that has already
-finished. This is stated here, and in `docs/deployment.md`, rather than left for a
+finished. This is stated here, and in `docs/conda-sentinel/operations.md`, rather than left for a
 first operator to discover; `CPM-PY314-S02` records it as deferred work, because
 resolving it means changing a limit `CPM-AD-9` owns.
 
@@ -174,7 +174,7 @@ class VerificationBackendError(ValueError):
     is why it is this class rather than an evidence row. A component with no
     execution backend has not built anything and cannot say anything about any
     package; a row recording that would be an observation nobody made. So the run
-    is refused before the ledger recorder opens, and `docs/deployment.md` tells an
+    is refused before the ledger recorder opens, and `docs/conda-sentinel/operations.md` tells an
     operator what the refusal looks like and what to do about it.
     """
 
@@ -295,7 +295,7 @@ def verification_backend() -> Transport:
             "none: verification means running somebody else's build and import, and nothing in this product's "
             "requirements or architecture decides how that is isolated -- so a backend nobody chose would run "
             "arbitrary code on whatever host the worker happens to be. Declare one with "
-            "declare_verification_backend(...) in an AppConfig.ready() (docs/deployment.md)."
+            "declare_verification_backend(...) in an AppConfig.ready() (docs/conda-sentinel/operations.md)."
         )
         raise VerificationBackendError(message)
     return adapter

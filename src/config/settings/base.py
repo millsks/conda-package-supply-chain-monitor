@@ -282,7 +282,7 @@ LOGIN_URL = reverse_lazy("openid_connect_login", kwargs={"provider_id": OIDC_PRO
 # claim, and the staff- and superuser-conferring groups, each read from a
 # COMPONENT_-prefixed variable with no default. Unset stays unset -- an empty
 # field means unconfigured, which is what Epic 4's startup check refuses on.
-# See config/authorization/claims.py and docs/authentication.md.
+# See config/authorization/claims.py and docs/accelerator/authentication.md.
 CLAIMS_CONTRACT = load_claims_contract(env)
 # The product's role contract (CPM-FR-30): the names of the three groups that
 # confer the security-and-compliance-reviewer, packaging-engineer and leadership
@@ -302,7 +302,7 @@ CLAIMS_CONTRACT = load_claims_contract(env)
 # application, and `roles.py` imports nothing from `django.apps` or
 # `django.contrib.auth`, so it loads before the app registry exists.
 # See src/django_apps/conda_sentinel/core/roles.py and
-# docs/authentication.md.
+# docs/accelerator/authentication.md.
 ROLE_CONTRACT = load_role_contract(env)
 
 # CPM-NFR-5's latency budget for the current package-health view, in milliseconds
@@ -399,7 +399,7 @@ INVENTORY_WATCHLIST_PATH = watchlist_path(local=is_local())
 # surface, permanently, in an append-only log nothing may correct. So the
 # mechanism ships, the declaration ships empty, and a collection refuses --
 # loudly, naming the setting -- until an operator declares both. See
-# docs/deployment.md.
+# docs/conda-sentinel/operations.md.
 #
 # Declared here rather than read from the environment, on the same terms the
 # watchlist is a reviewed file rather than a variable: which surfaces this
@@ -692,7 +692,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # deploy -- the scheduler rewrites every entry it finds here on each beat start,
 # so a value edited in the admin is live only until beat restarts. Cadence as data
 # is what lets a *later* schedule be added or changed in the tables; these seven
-# are the declaration, and changing one is a pull request. docs/deployment.md says
+# are the declaration, and changing one is a pull request. docs/conda-sentinel/operations.md says
 # the same thing to an operator.
 #
 # So the schedule and the collector each state a cadence independently, and the
@@ -717,7 +717,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # I/O, and the collections they enqueue are then bounded by each collector's own
 # rate limiter, which is where the real pacing lives (CPM-AD-20). The three
 # security entries are the group worth naming: each asks its own source and each
-# spends its own allowance -- docs/deployment.md states what that costs against
+# spends its own allowance -- docs/conda-sentinel/operations.md states what that costs against
 # CPM-NFR-1's inventory. Two of them carry a countdown for reasons their own
 # comments give; offsetting an entry any other way would need a crontab, which the
 # reconciliation below deliberately cannot read as an interval.
@@ -774,7 +774,7 @@ CELERY_BEAT_SCHEDULE = {
         # at ten thousand packages the vulnerability sweep spends most of a day
         # inside its own allowance -- and `collectors/kev.py`'s KEV_DISPATCH_OFFSET
         # says so, `tests/unit/test_settings.py` reconciles the two, and
-        # `docs/deployment.md` states the residual to an operator.
+        # `docs/conda-sentinel/operations.md` states the residual to an operator.
         "options": {"countdown": 60 * 60},
     },
     "cpm-sweep-license": {
@@ -791,7 +791,7 @@ CELERY_BEAT_SCHEDULE = {
         # Deliberately a different number from the KEV entry's: two entries sharing
         # a phase would fire together again and the offset would buy nothing.
         # `collectors/license.py`'s LICENSE_DISPATCH_OFFSET is the declaration,
-        # `tests/unit/test_settings.py` reconciles the two, and docs/deployment.md
+        # `tests/unit/test_settings.py` reconciles the two, and docs/conda-sentinel/operations.md
         # states what the two sweeps cost that host to an operator.
         "options": {"countdown": 2 * 60 * 60},
     },
@@ -807,7 +807,7 @@ CELERY_BEAT_SCHEDULE = {
         # entries sharing a phase fire together and the offset buys nothing.
         # collectors/python_readiness.py's READINESS_DISPATCH_OFFSET is the
         # declaration, tests/unit/test_settings.py reconciles the two, and
-        # docs/deployment.md states what the two sweeps cost that host.
+        # docs/conda-sentinel/operations.md states what the two sweeps cost that host.
         #
         # **Weekly rather than daily**, which no other collect entry is except the
         # feedstock one. What this collector reads is a project's declared metadata,
@@ -976,7 +976,7 @@ REST_FRAMEWORK = {
     # These two are the whole credential surface (FR-6, Story 2.8): the
     # locally minted static-token path is deleted, app and class alike, so every
     # credential a component accepts is one the IdP owns, plus the session those
-    # flows establish. See docs/authentication.md, "Retired surfaces".
+    # flows establish. See docs/accelerator/authentication.md, "Retired surfaces".
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "config.authorization.authentication.OIDCBearerAuthentication",
         "rest_framework.authentication.SessionAuthentication",

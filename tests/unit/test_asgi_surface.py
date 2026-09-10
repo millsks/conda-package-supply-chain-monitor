@@ -33,7 +33,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 PIXI_TOML = REPO_ROOT / "pixi.toml"
 SONAR_PROPERTIES = REPO_ROOT / "sonar-project.properties"
 ASGI_SOURCE = REPO_ROOT / "src" / "config" / "asgi.py"
-DEVELOPMENT_DOC = REPO_ROOT / "docs" / "development.md"
+DEVELOPMENT_DOC = REPO_ROOT / "docs" / "accelerator" / "development.md"
 
 SECTION_TITLE = "Protocols below the URL resolver"
 SECTION_HEADING = f"## {SECTION_TITLE}"
@@ -374,7 +374,7 @@ class TestCoverageExclusionsAreClosed:
 
     There are three carriers, not one: `[tool.coverage.run] omit` drives the
     gate, `sonar.coverage.exclusions` drives SonarCloud, and the Coverage section
-    of `docs/development.md` is the human-readable restatement -- the one the
+    of `docs/accelerator/development.md` is the human-readable restatement -- the one the
     original `websocket.py` residue was found in. `sonar.exclusions` is a fourth
     and stronger exemption, since a path dropped from analysis is dropped from
     coverage with it. A module excluded by any of them is a module whose coverage

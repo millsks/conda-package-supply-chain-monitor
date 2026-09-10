@@ -278,7 +278,7 @@ READINESS_TIMEOUT: Final[float] = 5.0
 #: than in each collector and says nothing about how an allowance is scoped, and
 #: `core/rate_limit.py` keys the counter by *collector*, so two collectors reading
 #: one host spend two allowances. That is a property of the shipped limiter rather
-#: than a decision this module may cite an `AD-` for; `docs/deployment.md` says so
+#: than a decision this module may cite an `AD-` for; `docs/conda-sentinel/operations.md` says so
 #: to an operator, and `READINESS_DISPATCH_OFFSET` is what keeps the two sweeps from
 #: starting at one instant.
 READINESS_RATE_LIMIT: Final[RateLimit] = RateLimit(calls=60, per=timedelta(minutes=1))

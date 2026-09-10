@@ -41,7 +41,7 @@ processes, so `web` will not boot against a database nobody has migrated. The
 harness therefore performs the release stage itself, as a separate non-serving
 invocation of the same image, running exactly the steps `component.toml`
 declares through `pixi run manage <step>` -- which is what
-`docs/deployment.md` tells a deployment repository to do. The *image* still
+`docs/accelerator/deployment.md` tells a deployment repository to do. The *image* still
 declares no migrating instruction, which is what AD-22 forbids and what
 `tests/unit/test_release_stage.py` holds.
 
@@ -452,7 +452,7 @@ def released(image: str, network: str, database: str) -> str:
     """Run the release stage against the database, exactly as `component.toml` declares it.
 
     One invocation per declared step, each through `pixi run manage <step>` --
-    the form `docs/deployment.md` gives a deployment repository, and the form
+    the form `docs/accelerator/deployment.md` gives a deployment repository, and the form
     those steps are shaped for (arguments to `manage.py`, never a shell command).
     A serving process refuses to start against a schema nobody has recognized
     (`_refuse_unapplied_migrations`), so without this the `web` runs below would
@@ -611,7 +611,7 @@ def test_liveness_answers_immediately_and_readiness_answers_once_the_database_do
 
     Both, in one case, because the pair is the assertion: two probes that both
     answered unconditionally would pass a liveness-only check, and
-    `docs/deployment.md` records at length what swapping them costs.
+    `docs/accelerator/deployment.md` records at length what swapping them costs.
     """
     assert _probe(read_only_container, LIVENESS_PATH) == OK, (
         "liveness did not answer 200. It is unconditional and consults nothing; a non-200 here is the "

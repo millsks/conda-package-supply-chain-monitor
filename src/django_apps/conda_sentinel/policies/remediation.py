@@ -49,7 +49,7 @@ Two things would make `blocked` reachable, and neither is this story's:
 The vocabulary, the reduction and the two check constraints keep `blocked` even
 so: the epic's AC 2 requires the value to exist and be distinct from `ready` and
 `unknown`, and the day either gap above closes, the value and the rules that
-guard it are already in place. `policies/data/README.md` and `docs/deployment.md`
+guard it are already in place. `policies/data/README.md` and `docs/conda-sentinel/operations.md`
 say the same where an operator would look.
 
 It is `policies/licence.py`'s central property turned round. There, `allowed` must

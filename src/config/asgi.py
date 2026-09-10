@@ -29,7 +29,7 @@ configure_observability()
 # This application object is used by any ASGI server configured to use this file.
 # Django's own handler, exposed directly: every request it serves is resolved by
 # the URL resolver, so nothing reaches the network that the route allowlist
-# cannot see. See docs/development.md, "Protocols below the URL resolver".
+# cannot see. See docs/accelerator/development.md, "Protocols below the URL resolver".
 application = get_asgi_application()
 
 # After the binding, deliberately (AD-22). The handler flips readiness to 503 on

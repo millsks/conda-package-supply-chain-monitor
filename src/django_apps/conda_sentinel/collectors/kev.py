@@ -188,7 +188,7 @@ the adapter's business.** The base is per-package (`CPM-AD-7`, `CPM-AD-23`) and
 this collector declares no response cache, for the reason `CPM-SECURITY-S01`
 declares none: a remembered security answer is the one this product should be
 slowest to replay. An adapter reading a large catalog over the network on every
-package would spend `CPM-NFR-1`'s inventory doing it; `docs/deployment.md` tells an
+package would spend `CPM-NFR-1`'s inventory doing it; `docs/conda-sentinel/operations.md` tells an
 operator so.
 
 **On the `AD-` prefix.** A bare `AD-n` in this repository is an *inherited*
@@ -334,7 +334,7 @@ KEV_CADENCE: Final[timedelta] = timedelta(days=1)
 #: **It reduces the window and does not close it**, and that is stated rather than
 #: implied: at `CPM-NFR-1`'s ten thousand packages the vulnerability sweep spends
 #: most of a day inside its own allowance, so an hour buys the small inventories
-#: and not the large ones. `docs/deployment.md` says so to an operator, and the
+#: and not the large ones. `docs/conda-sentinel/operations.md` says so to an operator, and the
 #: residual is a `deferred` entry on `CPM-SECURITY-S02`.
 KEV_DISPATCH_OFFSET: Final[timedelta] = timedelta(hours=1)
 
@@ -397,7 +397,7 @@ KEV_TIMEOUT: Final[float] = 5.0
 #: because the two security sweeps run on the same day and each asks its own
 #: source. The first operator to declare a KEV source against a full inventory is
 #: expected to raise this against what that source actually publishes, and
-#: `docs/deployment.md` says the same number to them.
+#: `docs/conda-sentinel/operations.md` says the same number to them.
 KEV_RATE_LIMIT: Final[RateLimit] = RateLimit(calls=30, per=timedelta(minutes=1))
 
 #: What this collector's source expects on every request (`CPM-AD-20`,
@@ -423,7 +423,7 @@ KEV_HEADERS: Final[Mapping[str, str]] = MappingProxyType(
 #: kind this product should be slowest to replay -- it is the answer whose
 #: staleness `CPM-NFR-3` is written about. What it costs is one call per package
 #: for a catalog that is the same document every time, which is stated in this
-#: module's docstring and in `docs/deployment.md` rather than hidden: an adapter
+#: module's docstring and in `docs/conda-sentinel/operations.md` rather than hidden: an adapter
 #: that holds the catalog itself pays it once.
 KEV_CACHE_TTL: Final[timedelta] = NO_CACHE
 
@@ -655,7 +655,7 @@ SHORTENED_DETAIL: Final[str] = "[shortened by this collector]"
 #: the log at all. It is emitted where the sentinel row is shaped, which is once per
 #: package rather than once per dispatch; that is noisier than the other by design,
 #: because it is the failure a reader of the rows would most easily mistake for an
-#: answer. `docs/deployment.md` tells an operator to alert on both by name.
+#: answer. `docs/conda-sentinel/operations.md` tells an operator to alert on both by name.
 NO_KEV_SOURCE_EVENT: Final[str] = "kev.no_kev_source"
 CATALOG_ABSENT_EVENT: Final[str] = "kev.catalog_absent"
 
@@ -1072,7 +1072,7 @@ def kev_source() -> Transport:
             "component ships with none: which KEV sources are licensed for use is PRD Open Question 1, and a "
             "catalog nobody chose would record which advisories are being exploited from a source an "
             "organisation never agreed to act on. Declare one with declare_kev_source(...) in an "
-            "AppConfig.ready() (docs/deployment.md)."
+            "AppConfig.ready() (docs/conda-sentinel/operations.md)."
         )
         raise KevSourceError(message)
     return adapter
@@ -1857,7 +1857,7 @@ def _nothing_to_collect() -> Iterator[int]:
         detail=(
             f"{COLLECTOR_NAME} has no declared KEV source, so no package was selected and nothing will be "
             f"observed about whether any advisory this product records is known to be exploited. Adapters are "
-            f"declared and never discovered (AD-8, CPM-AD-29); see docs/deployment.md."
+            f"declared and never discovered (AD-8, CPM-AD-29); see docs/conda-sentinel/operations.md."
         ),
     )
     # `yield from ()` rather than `return; yield`: both make this a generator and
@@ -1935,7 +1935,7 @@ class KevCollector(Collector):
         What that costs is one collection per package per day for packages with
         nothing to cross-reference, and the cost is accepted for the reason the
         sibling accepts it: "we had nothing to ask" is the observation `CPM-FR-6`
-        asks for rather than a reason not to look. `docs/deployment.md` tells an
+        asks for rather than a reason not to look. `docs/conda-sentinel/operations.md` tells an
         operator that the selection is the whole inventory and what that spends.
 
         Returns:
@@ -2125,7 +2125,7 @@ class KevCollector(Collector):
                     f"the declared KEV source reports that {KEV_SOURCE_LOCATOR} does not exist, so this run "
                     f"recorded {OutcomeState.NOT_FOUND.value!r} under a succeeded ledger row. That is a "
                     f"withdrawn or misconfigured catalog rather than a package with nothing known-exploited "
-                    f"against it; see docs/deployment.md."
+                    f"against it; see docs/conda-sentinel/operations.md."
                 ),
             )
         # `state.value` rather than this vocabulary's own constant, and the two are
