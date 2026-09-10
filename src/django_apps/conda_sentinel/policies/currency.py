@@ -21,7 +21,7 @@ at all.
 
 **What equality cannot do -- and this paragraph is the one statement of it.** The
 same limits are load-bearing in five other places (the `detail` column, the
-outcome vocabulary's missing `ahead` member, `docs/deployment.md`'s operator
+outcome vocabulary's missing `ahead` member, `docs/conda-sentinel/operations.md`'s operator
 section, and both test modules), and each of those points here rather than
 restating, because a rule stated six times is a rule that holds in one of them.
 

@@ -14,7 +14,7 @@ configured attaches a batch processor to an exporter that defaults to
 `http://localhost:4318`. The attachment is what `configure_observability()`
 does; the outbound connection is made by the exporter's own background thread
 shortly after boot. That is a deliberate opt-in, documented at
-`docs/development.md` under "Running with no external services", and the one
+`docs/accelerator/development.md` under "Running with no external services", and the one
 supported way to make boot reach the network -- which is why the boot probe
 excludes it from the child's environment rather than inheriting it.
 

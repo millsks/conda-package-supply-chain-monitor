@@ -30,10 +30,20 @@ markdown_extensions:
   - toc:
       permalink: true
 
+# Two trees, and the split is the point (CPM-DOCS-S01). This component is
+# Conda-Sentinel, built on a Django service platform; a reader asking how package
+# health is decided should not be handed a chapter on 15-factor process models, and
+# a reader deploying a component should not have to read about advisory sources.
 nav:
   - Home: index.md
-  - Technology Stack: technology-stack.md
-  - Development: development.md
-  - Observability: observability.md
-  - Authentication: authentication.md
-  - Deployment: deployment.md
+  - Conda-Sentinel:
+      - Overview: conda-sentinel/index.md
+      - Developing: conda-sentinel/development.md
+      - Operating: conda-sentinel/operations.md
+  - The platform:
+      - Overview: accelerator/index.md
+      - Developing: accelerator/development.md
+      - Deploying: accelerator/deployment.md
+      - Authentication: accelerator/authentication.md
+      - Observability: accelerator/observability.md
+      - Technology stack: accelerator/technology-stack.md

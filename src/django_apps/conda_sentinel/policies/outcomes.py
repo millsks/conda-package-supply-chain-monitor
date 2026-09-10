@@ -1221,7 +1221,7 @@ BLOCKED_MEMBER: Final[tuple[str, str]] = ("BLOCKED", "blocked")
 #:
 #: Named `RemediationReadiness` rather than `ReadinessOutcome`, because
 #: "readiness" alone is what `config/` already calls an HTTP probe and what
-#: `docs/deployment.md` has a whole section about. The two are unrelated and a
+#: `docs/conda-sentinel/operations.md` has a whole section about. The two are unrelated and a
 #: shared name would make "which readiness does this mean" a question about
 #: imports.
 RemediationReadiness: Final[type[models.TextChoices]] = outcome_type(

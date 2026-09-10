@@ -158,7 +158,7 @@ class AdvisorySourceError(ValueError):
     advisory source has not looked and cannot say anything about any package; a
     row recording that would be an observation nobody made, and one recorded for
     every package in the inventory on every sweep. So the run is refused before
-    the ledger recorder opens, and `docs/deployment.md` tells an operator what
+    the ledger recorder opens, and `docs/conda-sentinel/operations.md` tells an operator what
     the refusal looks like and what to do about it.
     """
 
@@ -282,7 +282,7 @@ def advisory_source() -> Transport:
             "Adapters are declared and never discovered (AD-8, CPM-AD-29), and this component ships with "
             "none: which advisory sources are licensed for use is PRD Open Question 1, and a source nobody "
             "chose would record security findings an organisation never agreed to act on. Declare one with "
-            "declare_advisory_source(...) in an AppConfig.ready() (docs/deployment.md)."
+            "declare_advisory_source(...) in an AppConfig.ready() (docs/conda-sentinel/operations.md)."
         )
         raise AdvisorySourceError(message)
     return adapter

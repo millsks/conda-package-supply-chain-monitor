@@ -272,7 +272,7 @@ def test_the_database_refuses_a_second_item_for_one_finding() -> None:
     # backends this suite runs on word the refusal differently: PostgreSQL names the
     # constraint, and sqlite implements a `UniqueConstraint` as a unique index and
     # names the columns. Matching the constraint name would pass in the gate and fail
-    # on every developer's machine -- see docs/development.md on the parity gap.
+    # on every developer's machine -- see docs/accelerator/development.md on the parity gap.
     # The constraint's own name is asserted against the model's declaration in
     # `test_the_uniqueness_rule_is_declared_once`.
     with pytest.raises(IntegrityError, match=r"finding_key"), transaction.atomic():

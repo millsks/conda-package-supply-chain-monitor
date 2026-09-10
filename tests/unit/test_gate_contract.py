@@ -313,7 +313,7 @@ def test_the_gate_task_is_reachable_from_exactly_one_environment(manifest: dict[
 
 
 def test_every_task_with_a_command_pins_its_environment(manifest: dict[str, Any]) -> None:
-    """`docs/development.md`'s "you never need `-e` for a task" has to be true of every task.
+    """`docs/accelerator/development.md`'s "you never need `-e` for a task" has to be true of every task.
 
     The gate's own five steps are checked by the sibling above this one, and the
     spike task by its own test -- six of the manifest's tasks. The other twelve

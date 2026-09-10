@@ -154,7 +154,7 @@ development_status:
   # requirement commissions documentation; every story's acceptance criteria were
   # drafted by the implementing agent, and each story file leads with that caveat.
   epic-docs: backlog
-  cpm-docs-s01-two-trees-and-every-reference-resolves: ready-for-dev
+  cpm-docs-s01-two-trees-and-every-reference-resolves: done
   cpm-docs-s02-the-site-wears-the-products-skin: ready-for-dev
   cpm-docs-s03-what-it-does-and-how-it-was-built: ready-for-dev
   cpm-docs-s04-running-it-and-keeping-it-running: ready-for-dev

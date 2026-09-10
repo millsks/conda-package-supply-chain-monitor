@@ -21,7 +21,7 @@ LockLoader: Any = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PIXI_MANIFEST = REPO_ROOT / "pixi.toml"
 PIXI_LOCK = REPO_ROOT / "pixi.lock"
-DEVELOPMENT_DOCS = REPO_ROOT / "docs" / "development.md"
+DEVELOPMENT_DOCS = REPO_ROOT / "docs" / "accelerator" / "development.md"
 
 # The project's own editable install is not a supply-chain exception -- it is
 # how the source tree reaches the environment. Every other entry is.
@@ -96,7 +96,7 @@ RECORDED_VERDICT = "proven with a stated bound"
 # make it run.
 BOUND_PHRASES = ("bound", "round-trip", "spike_storage_round_trip", "aws_s3_endpoint_url")
 
-# The heading the same verdict is repeated under in `docs/development.md`. Two
+# The heading the same verdict is repeated under in `docs/accelerator/development.md`. Two
 # copies exist because a reader who never opens `pixi.toml` still has to be able
 # to find the verdict, and two copies drift: when the bound is later closed, the
 # manifest and this module move together by design while the docs are free to
@@ -184,7 +184,7 @@ TESTED_AGAINST_ENTRY = re.compile(r"([a-z0-9][a-z0-9._-]*)\s+(\d[\w.]*)")
 
 # What ends a listing and starts the prose explaining it. Both dash spellings
 # count: `pixi.toml`'s comment block is plain text and writes `--`, while
-# `docs/development.md` is prose and writes both -- a real em dash after the
+# `docs/accelerator/development.md` is prose and writes both -- a real em dash after the
 # "Tested against:" listing, `--` after the disclaimer. So does the end of the
 # sentence, which is what keeps the reader off a *quoted* mention of a label:
 # the out-of-scope note in `pixi.toml` says in prose when "Tested against:"
@@ -659,7 +659,7 @@ def manifest_lines() -> list[str]:
 
 @pytest.fixture(scope="module")
 def docs() -> str:
-    """Return `docs/development.md` as text, for the second copy of the R-1 verdict."""
+    """Return `docs/accelerator/development.md` as text, for the second copy of the R-1 verdict."""
     return DEVELOPMENT_DOCS.read_text(encoding="utf-8")
 
 
@@ -1171,7 +1171,7 @@ def _named_versions(rationale: str, prefix: str) -> dict[str, str]:
 
     A listing runs from its label to the end of that record: the dash break both
     files use to separate a listing from the prose about it -- `pixi.toml` writes
-    ``--``, `docs/development.md` writes a real em dash after "Tested against:"
+    ``--``, `docs/accelerator/development.md` writes a real em dash after "Tested against:"
     and ``--`` after the disclaimer -- or the end of the sentence, whichever
     comes first. The sentence bound is what keeps a *quoted* label out of the
     result: `pixi.toml`'s out-of-scope note says in prose when "Tested against:"
@@ -1441,7 +1441,7 @@ def test_the_storage_spike_is_staged_rather_than_committed_to(
         f"longer covers the runtime this project locks -- and {SPIKE_PACKAGE} is nevertheless declared in "
         f"{tables}. A disclaimed verdict is not evidence and may not be built on: re-run "
         "`pixi run spike-storage` against the locked versions, re-record the verdict in pixi.toml and "
-        "docs/development.md, and delete the disclaimer. Only then does the declaration move."
+        "docs/accelerator/development.md, and delete the disclaimer. Only then does the declaration move."
     )
 
 
@@ -1592,9 +1592,9 @@ def test_the_recorded_verdict_names_the_versions_the_lock_resolves(
     assert not failures, (
         f"the R-1 verdict and pixi.lock disagree about the runtime it is a statement about: "
         f"{sorted(set(failures))}. Either re-run `pixi run spike-storage` against the locked versions and "
-        f"re-record the verdict in pixi.toml and docs/development.md, or record what it no longer covers on "
-        f"an {OUT_OF_SCOPE_PREFIX!r} line beside the declaration. A verdict is not inherited across a version "
-        "bump, and a disclaimer is deleted when the spike catches up with it."
+        f"re-record the verdict in pixi.toml and docs/accelerator/development.md, or record what it no longer "
+        f"covers on an {OUT_OF_SCOPE_PREFIX!r} line beside the declaration. A verdict is not inherited across a "
+        "version bump, and a disclaimer is deleted when the spike catches up with it."
     )
 
 
@@ -1627,7 +1627,7 @@ def test_every_shared_package_resolves_to_one_version_across_environments(lock: 
 def test_the_docs_copy_of_the_verdict_matches_the_manifest(manifest_lines: list[str], docs: str) -> None:
     """The verdict is recorded twice, so the two copies are reconciled.
 
-    `docs/development.md` carries the verdict for "a reader who never opens
+    `docs/accelerator/development.md` carries the verdict for "a reader who never opens
     `pixi.toml`" -- which is exactly the reader a stale copy misleads. When the
     bound is later closed, `pixi.toml` and this module move together by design,
     and nothing would have made the docs move with them.
@@ -2001,7 +2001,7 @@ def test_a_second_listing_is_not_invisible_to_the_reader() -> None:
     the gate ever seeing it. Merging every occurrence is what closes that, and
     the sentence bound is what keeps the merge honest: `pixi.toml`'s own
     out-of-scope note *mentions* the other label in prose, and a mention is not a
-    listing. The em-dash spelling is here too, because `docs/development.md`
+    listing. The em-dash spelling is here too, because `docs/accelerator/development.md`
     writes one where `pixi.toml` writes ``--``.
     """
     two_lines = (

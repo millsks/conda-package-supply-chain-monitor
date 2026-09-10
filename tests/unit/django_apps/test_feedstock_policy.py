@@ -624,7 +624,7 @@ def test_a_feedstock_pushed_to_exactly_the_threshold_ago_is_maintained() -> None
     not arbitrary is that it is written down. The threshold is *how long a
     feedstock may go without a push*, so inactivity begins strictly after it --
     which is what `policies/data/README.md` tells a reviewer choosing a number,
-    and what `docs/deployment.md` tells an operator reading a report.
+    and what `docs/conda-sentinel/operations.md` tells an operator reading a report.
 
     Asserted as an exact equality on the age as well as on the verdict, or the
     case would be about a fixture that merely happened to be near the boundary.

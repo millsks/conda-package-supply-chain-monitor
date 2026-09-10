@@ -35,7 +35,7 @@ names, and `src/django_apps` maps onto the wheel root, which is what makes it a
 root of its own. The editable install generated from that table is what resolves
 those three names at runtime — a redirecting finder rather than directories on
 `sys.path`, which is why `django_apps` is not importable even in a working tree.
-See [Technology stack](technology-stack.md#build-and-packaging) for the mechanism.
+See [Technology stack](accelerator/technology-stack.md#build-and-packaging) for the mechanism.
 Nothing else declares them — no `sys.path` insert in `manage.py`, `asgi.py` or
 `wsgi.py`, no `--app-dir` in any pixi task, and no `pythonpath` in the pytest
 configuration.
@@ -60,5 +60,5 @@ pixi run runserver
 ```
 
 The application boots against sqlite by default. See
-[Development](development.md) for the database configuration and the full task
+[Development](accelerator/development.md) for the database configuration and the full task
 list.

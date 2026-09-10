@@ -1821,7 +1821,7 @@ def verify_py314_build(*, package_id: int) -> str:
     meets the inherited soft limit and is killed with no row written, so a backend
     drives the work elsewhere and answers about a run that has already finished.
     `collectors/verification.py` states it as part of the adapter contract,
-    `docs/deployment.md` states it to an operator, and `CPM-PY314-S02` records it as
+    `docs/conda-sentinel/operations.md` states it to an operator, and `CPM-PY314-S02` records it as
     deferred work because resolving it means changing a limit `CPM-AD-9` owns.
 
     **A misconfiguration leaves this task the same way a transient failure does, and

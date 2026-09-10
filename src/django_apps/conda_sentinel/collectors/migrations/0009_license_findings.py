@@ -43,7 +43,7 @@
 # There is no unique constraint of any kind (CPM-AD-2): two observations of one
 # package's licence on one channel are two rows. There is no data step: the table
 # starts empty, and it stays empty until an operator declares CPM_MONITORED_CHANNELS
-# (docs/deployment.md).
+# (docs/conda-sentinel/operations.md).
 
 import django.db.models.deletion
 from django.db import migrations, models

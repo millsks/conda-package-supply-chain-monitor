@@ -256,7 +256,7 @@ THREE_METHODS: Final[int] = 3
 #: What one collection really sends against `api.anaconda.org` at the declared
 #: ceiling: four channels, each a call plus its retry. Written out rather than
 #: recomputed, so the case asserting it is asserting a number a reader can compare
-#: with `docs/deployment.md` rather than an expression that agrees with itself.
+#: with `docs/conda-sentinel/operations.md` rather than an expression that agrees with itself.
 EIGHT_REQUESTS_A_COLLECTION: Final[int] = 8
 
 #: A valid trace context the correlation cases run inside. The values are the W3C

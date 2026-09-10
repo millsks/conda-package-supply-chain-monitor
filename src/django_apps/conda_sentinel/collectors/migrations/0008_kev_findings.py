@@ -43,7 +43,7 @@
 #
 # There is no unique constraint of any kind (CPM-AD-2): two cross-references of one
 # advisory are two rows. There is no data step: the table starts empty, and it
-# stays empty until an operator declares a KEV source (docs/deployment.md).
+# stays empty until an operator declares a KEV source (docs/conda-sentinel/operations.md).
 
 import django.db.models.deletion
 from django.db import migrations, models

@@ -136,7 +136,7 @@ class CollectorsConfig(AppConfig):
         an assignment, so a component that refused to start over it would refuse
         to start as designed. What it costs instead is a collector whose sweep
         selects nothing and whose task refuses by name, which
-        `docs/deployment.md` tells an operator to expect.
+        `docs/conda-sentinel/operations.md` tells an operator to expect.
 
         **Two slots and not one**, because they are two sources: an advisory
         database and a KEV catalog are different products with different licences,

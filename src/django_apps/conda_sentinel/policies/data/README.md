@@ -125,7 +125,7 @@ anything while looking to a reviewer as though it did.
 
 `CPM-FR-20` assigns a priority bucket by top-down, first-match rules and computes
 a 1–100 score from the internal usage signals the inventory observes. Both are
-recorded here, both ship empty, and `docs/deployment.md` is where an operator is
+recorded here, both ship empty, and `docs/conda-sentinel/operations.md` is where an operator is
 told what filling either one in commits them to.
 
 The rule shape, in the order the rules are matched:
