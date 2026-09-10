@@ -268,8 +268,16 @@ body{margin:0}
 .facet .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
   font-variant-numeric:tabular-nums}
 .facet.on{color:var(--accent);font-weight:500}
+/* The name search in the facet rail. The rule came from the mockups and sat unused
+ * until CPM-APP-S17 put a box under it -- which is why it is here rather than beside
+ * the story's other changes. `appearance:none` removes Safari's inset search styling,
+ * which otherwise ignores the border and the radius and makes this one control look
+ * like it belongs to a different product. */
 .searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:4px;
-  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink)}
+  background:var(--surface);font-family:var(--sans);font-size:12px;color:var(--ink);
+  appearance:none;-webkit-appearance:none;box-sizing:border-box}
+.searchbox:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.searchbox::placeholder{color:var(--muted)}
 /* The health table's container. It had `min-width:0` and no `overflow-x` -- so the
  * pane could shrink, and the table inside it simply spilled over the page instead of
  * scrolling. `.panel` below has carried the pair since the mockups; this had half. */

@@ -55,6 +55,7 @@ from conda_sentinel.identity.models import Package
 from conda_sentinel.policies.models import PackageVulnerability
 from conda_sentinel.policies.outcomes import PRIORITY_STATUS_UNKNOWN
 from conda_sentinel.surface.health import COLUMNS
+from conda_sentinel.surface.search import MAX_TERM_LENGTH
 from conda_sentinel.surface.tone import PLAIN
 from conda_sentinel.surface.tone import tone_of
 from conda_sentinel.surface.views import SORT_PARAM
@@ -665,3 +666,238 @@ def test_the_view_offers_no_write_method(method: str) -> None:
     response = getattr(a_reader(), method)(health_url())
 
     assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+
+def a_named_inventory(*names: str, confidence: str = IdentityConfidence.VERIFIED) -> None:
+    """Create packages under the names given and run the policy engine over them.
+
+    `an_inventory` above numbers its packages, which is what a pagination or a query
+    count wants and exactly what a *search* cannot use: every name it generates
+    contains every other name's prefix.
+
+    Args:
+        *names: The canonical names to create.
+        confidence: The identity confidence each is resolved at.
+
+    """
+    from django.utils import timezone  # noqa: PLC0415 - a fixture's own instant, not a module's clock read
+
+    instant = timezone.now()
+    an_ended_collection_run(instant)
+    for name in names:
+        Package.objects.create(canonical_name=name, resolved_at=instant, confidence=confidence)
+    execute_policy_run(policy_version=A_POLICY_VERSION, clock=FixedClock(instant=instant))
+
+
+def named(response: object) -> set[str]:
+    """Return the canonical names a rendered health response is showing.
+
+    Args:
+        response: The response, whose context carries the projected rows.
+
+    Returns:
+        The names, as a set -- order is `test_the_orderings_are_stable`'s subject.
+
+    """
+    return {row.canonical_name for row in response.context["rows"]}  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+def test_a_name_fragment_narrows_the_table() -> None:
+    """`CPM-APP-S17` AC 1, and the reason the story exists.
+
+    Nine facets narrow by what the policy engine *decided*, and none of them answers
+    "where is django" -- so before this the only way to a package's detail page was
+    to page to it. At `CPM-NFR-1`'s ten thousand that is two hundred pages.
+    """
+    a_named_inventory("django", "djangorestframework", "flask", "scikit-learn")
+
+    response = a_reader().get(health_url(q="django"))
+
+    assert named(response) == {"django", "djangorestframework"}
+
+
+@pytest.mark.django_db
+def test_a_fragment_matches_without_regard_to_case() -> None:
+    """Nobody types a package name the way a channel spells it."""
+    a_named_inventory("django", "flask")
+
+    assert named(a_reader().get(health_url(q="DJANGO"))) == {"django"}
+
+
+@pytest.mark.django_db
+def test_a_fragment_matches_the_middle_of_a_name() -> None:
+    """The half of a name somebody remembers is frequently not the first half."""
+    a_named_inventory("scikit-learn", "umap-learn", "imbalanced-learn", "numpy")
+
+    assert named(a_reader().get(health_url(q="learn"))) == {"scikit-learn", "umap-learn", "imbalanced-learn"}
+
+
+@pytest.mark.django_db
+def test_an_underscore_finds_the_hyphenated_name() -> None:
+    """The import name a reader has in their head, spelled the way conda-forge spells it."""
+    a_named_inventory("scikit-learn", "numpy")
+
+    assert named(a_reader().get(health_url(q="scikit_learn"))) == {"scikit-learn"}
+
+
+@pytest.mark.django_db
+def test_a_fragment_nothing_matches_is_an_empty_result_and_not_a_refusal() -> None:
+    """`CPM-APP-S17` AC 3, and the whole design decision in one case.
+
+    `?vuln=criticl` is a 400 because `CPM-AD-24`'s vocabularies are closed and a
+    stale bookmark must not read as a filtered all-clear. A package name is not a
+    closed vocabulary, so `?q=djangoo` is a search that matched nothing -- which is a
+    result, and refusing it would be exactly as wrong as absorbing the other.
+
+    The contrast is asserted here rather than in two cases, so that reconciling the
+    two rules in either direction fails.
+    """
+    a_named_inventory("django")
+    client = a_reader()
+
+    found_nothing = client.get(health_url(q="djangoo"))
+    refused = client.get(health_url(vuln="criticl"))
+
+    assert found_nothing.status_code == status.HTTP_200_OK
+    assert named(found_nothing) == set()
+    assert refused.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+def test_a_search_and_a_facet_narrow_the_same_result() -> None:
+    """`CPM-APP-S17` AC 4: AND, not replacement.
+
+    A search that discarded the facets -- or facets that discarded the search --
+    would leave a reader whose URL says both is in force reading a result that
+    honours one, with the summary above it claiming otherwise.
+    """
+    a_named_inventory("django", "djangorestframework", confidence=IdentityConfidence.VERIFIED)
+    a_named_inventory("django-unmapped", confidence=IdentityConfidence.UNMAPPED)
+    client = a_reader()
+
+    both = client.get(health_url(q="django", confidence=IdentityConfidence.UNMAPPED))
+
+    assert named(both) == {"django-unmapped"}
+
+
+@pytest.mark.django_db
+def test_the_count_beside_the_table_is_the_number_of_matches() -> None:
+    """`CPM-AD-12`: the search narrows the queryset the paginator counts.
+
+    A search applied after pagination would page the whole inventory and then hide
+    rows from each page -- so a reader would see "100 packages match" above four
+    rows, and page two of a one-page result.
+    """
+    a_named_inventory("django", "flask", "numpy", "scipy")
+
+    response = a_reader().get(health_url(q="django"))
+
+    assert response.context["paginator"].count == 1
+    assert response.context["page_obj"].paginator.num_pages == 1
+
+
+@pytest.mark.django_db
+def test_the_normalised_fragment_is_what_goes_back_into_the_box() -> None:
+    """Or the input disagrees with the result and neither says what the URL means.
+
+    A reader who types `scikit_learn` gets `scikit-learn` rows; a box still reading
+    `scikit_learn` invites them to conclude the search is matching something other
+    than what they asked for.
+    """
+    a_named_inventory("scikit-learn")
+
+    response = a_reader().get(health_url(q="  scikit_learn  "))
+
+    assert response.context["search"] == "scikit-learn"
+
+
+@pytest.mark.django_db
+def test_a_search_counts_as_a_filter_for_what_the_page_says_about_itself() -> None:
+    """The heading says "filtered" and the rail offers "Clear" only when something is.
+
+    `applied` holds the facet selection and nothing else, deliberately -- it is what
+    the condition was built from. So a page asking "is anything in force" has to ask
+    for both, and a template that asked only the first would show an unfiltered
+    heading over a searched table.
+    """
+    a_named_inventory("django", "flask")
+
+    response = a_reader().get(health_url(q="django"))
+    body = response.content.decode()
+
+    assert response.context["applied"] == {}
+    assert response.context["search"] == "django"
+    assert "filtered" in body
+    assert "Clear" in body
+
+
+@pytest.mark.django_db
+def test_the_search_box_is_rendered_carrying_the_current_fragment() -> None:
+    """The control exists on the page, in the same form as the facets.
+
+    Being in that form is what makes AC 5 true without any JavaScript: applying a
+    facet submits the search with it, and clearing the search submits the ticked
+    facets with it, so neither has to be re-entered to change the other.
+    """
+    a_named_inventory("django")
+
+    body = a_reader().get(health_url(q="django")).content.decode()
+    # The *facet* form, not any form: the chrome carries the theme control's own, and
+    # a search box that landed in that one would submit the theme and lose the query.
+    rail = re.search(r"<form method=\"get\">(.*?)</form>", body, re.DOTALL)
+
+    assert rail is not None, "the facet form is gone, so nothing here is measuring what it says"
+    assert 'name="q"' in rail.group(1)
+    assert 'value="django"' in rail.group(1)
+    assert 'name="vuln"' in rail.group(1), "the search left the form the facets are in"
+
+
+@pytest.mark.django_db
+def test_the_api_spells_the_search_the_same_way_and_means_the_same_thing() -> None:
+    """`CPM-APP-S17` AC 2, and `CPM-AD-24` in the small.
+
+    Both surfaces read `?q=` out of the one queryset builder, so there is no way for
+    the screen and the API to disagree about whether a request was a search. A URL a
+    reviewer sends an integrator works.
+    """
+    a_named_inventory("django", "djangorestframework", "flask")
+    client = a_reader()
+
+    screen = named(client.get(health_url(q="django")))
+    api = client.get(f"{reverse('conda_sentinel_api:package-health')}?q=django")
+
+    assert api.status_code == status.HTTP_200_OK
+    assert {row["canonical_name"] for row in api.json()["results"]} == screen
+
+
+@pytest.mark.django_db
+def test_the_api_answers_an_unmatched_fragment_with_an_empty_page_not_a_400() -> None:
+    """The rule holds on the surface where absorbing it would be worse.
+
+    An integrator reading a 400 for a name that simply is not in the inventory writes
+    a retry, or a bug report. `?vuln=criticl` stays a 400 on this surface too, for
+    the reason `health_queryset` states.
+    """
+    a_named_inventory("django")
+    client = a_reader()
+
+    empty = client.get(f"{reverse('conda_sentinel_api:package-health')}?q=djangoo")
+
+    assert empty.status_code == status.HTTP_200_OK
+    assert empty.json()["results"] == []
+
+
+@pytest.mark.django_db
+def test_the_box_enforces_the_same_length_bound_the_server_does() -> None:
+    """Written twice they drift, and the drift is silent in the worse direction.
+
+    An input that accepts more than `search_term` will keep turns a long paste into
+    "no search at all" -- the whole inventory comes back, under a box still showing
+    the text the reader typed.
+    """
+    a_named_inventory("django")
+
+    body = a_reader().get(health_url(q="django")).content.decode()
+
+    assert f'maxlength="{MAX_TERM_LENGTH}"' in body

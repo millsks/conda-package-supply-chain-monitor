@@ -40,6 +40,9 @@ from conda_sentinel.policies.outcomes import PRIORITY_BUCKETS
 from conda_sentinel.surface.filters import UnknownFacetValueError
 from conda_sentinel.surface.filters import applied_filters
 from conda_sentinel.surface.filters import filter_condition
+from conda_sentinel.surface.search import SEARCH_PARAM
+from conda_sentinel.surface.search import name_condition
+from conda_sentinel.surface.search import search_term
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -94,11 +97,19 @@ def ordering_key(requested: str) -> str:
 def health_queryset(params: Mapping[str, Sequence[str]], *, sort: str = "") -> QuerySet[PackageHealth]:
     """Return the rollup rows a filtered, ordered read of current health asks for.
 
+    The **name search is read out of `params`** rather than taken as an argument, and
+    that is deliberately unlike `sort` beside it. `sort` is a keyword because the view
+    needs the resolved ordering for the template as well, so it resolves it once and
+    passes it in. Nothing needs `?q=` resolved before the query runs -- so reading it
+    here means both surfaces get it from the one line that builds the queryset, and
+    there is no way for the screen and the API to disagree about whether a request was
+    a search. `CPM-AD-24` in the small.
+
     Args:
         params: The query string as a multi-value mapping -- `request.GET.lists()` on
             either surface. A mapping rather than a `QueryDict` so this module needs
             nothing from Django's request layer and both a Django view and a DRF one
-            can call it with what they already hold.
+            can call it with what they already hold. `?q=` is read from here.
         sort: The requested ordering key. Unrecognised values fall back rather than
             refusing; see `DEFAULT_ORDERING`.
 
@@ -114,11 +125,23 @@ def health_queryset(params: Mapping[str, Sequence[str]], *, sort: str = "") -> Q
             an unfiltered ten thousand rows as a filtered result is the worse half of
             that failure.
 
+            **A name fragment that matches nothing is not one of these.** See
+            `surface/search.py`: a closed vocabulary and an open one want opposite
+            answers to a value nobody recognises, and both are right.
+
     """
     try:
         condition = filter_condition(applied_filters(dict(params)))
     except UnknownFacetValueError as refusal:
         raise BadRequest(str(refusal)) from refusal
+
+    # AND, so a search and a set of facets narrow the same result rather than
+    # replacing one another -- and so the paginator counts matches, which is what
+    # `CPM-AD-12` means by pagination being structural.
+    condition &= name_condition(
+        search_term(next(iter(params.get(SEARCH_PARAM, ())), "")),
+        field="package__canonical_name",
+    )
 
     return (
         PackageHealth.objects.select_related("package")

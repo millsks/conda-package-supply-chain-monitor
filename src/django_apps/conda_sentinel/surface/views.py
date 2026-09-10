@@ -87,6 +87,9 @@ from conda_sentinel.surface.queues import queue_rows
 from conda_sentinel.surface.reports import REPORTS
 from conda_sentinel.surface.reports import REPORTS_BY_SLUG
 from conda_sentinel.surface.reports import report_page
+from conda_sentinel.surface.search import MAX_TERM_LENGTH
+from conda_sentinel.surface.search import SEARCH_PARAM
+from conda_sentinel.surface.search import search_term
 from conda_sentinel.surface.theming import THEME_COOKIE
 from conda_sentinel.surface.theming import THEME_COOKIE_MAX_AGE
 from conda_sentinel.surface.theming import THEME_PARAMETER
@@ -220,6 +223,17 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
         context.update(
             columns=COLUMNS,
             rows=rows,
+            # The *normalised* fragment, not the raw parameter: what goes back into
+            # the box has to be what was actually matched, or a reader who typed
+            # `scikit_learn` and got `scikit-learn` sees a box that disagrees with the
+            # result and cannot tell which one the URL means.
+            search=search_term(self.request.GET.get(SEARCH_PARAM, "")),
+            search_param=SEARCH_PARAM,
+            # The bound the browser enforces is the one the server applies. Written
+            # twice, they drift -- and the drift is silent in the worse direction: a
+            # box that accepts more than `search_term` will keep turns a long paste
+            # into "no search at all" while the input still shows the text.
+            search_max_length=MAX_TERM_LENGTH,
             facets=[
                 {
                     "facet": facet,
@@ -227,6 +241,10 @@ class PackageHealthView(RoleRequiredMixin, ListView):  # type: ignore[type-arg]
                 }
                 for facet in FACETS
             ],
+            # Facet selection only. The search is beside it rather than folded in:
+            # `applied` is what `filter_condition` was built from, and a template
+            # asking "is anything in force" wants `applied or search`, which is a
+            # different question and is asked as one.
             applied=selected,
             ordering=self.ordering_key(),
             orderings=tuple(ORDERINGS),

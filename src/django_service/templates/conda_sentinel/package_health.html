@@ -13,7 +13,8 @@
         {% plural %}
           {{ total }} packages match
         {% endblocktranslate %}
-        {% if applied %}&middot; {% translate "filtered" %}{% endif %}
+        {% if applied or search %}&middot; {% translate "filtered" %}{% endif %}
+        {% if search %}&middot; {% blocktranslate trimmed %}name contains &ldquo;{{ search }}&rdquo;{% endblocktranslate %}{% endif %}
       </div>
     </div>
   </div>
@@ -40,6 +41,21 @@
            ticks a facet wants the first page of the new result, not page seven of
            a result that may have fewer than seven pages. {% endcomment %}
         <input type="hidden" name="sort" value="{{ ordering }}" />
+        {% comment %} The name search sits above the facets because it is the coarser cut and
+           because it is what a reader arrives wanting. It is in the same form, so
+           applying a facet keeps the search and clearing the search keeps the
+           facets -- neither has to be re-entered to change the other. {% endcomment %}
+        <div class="grp">
+          <h5>{% translate "Package name" %}</h5>
+          <input class="searchbox"
+                 type="search"
+                 name="{{ search_param }}"
+                 value="{{ search }}"
+                 maxlength="{{ search_max_length }}"
+                 autocomplete="off"
+                 placeholder="{% translate 'contains…' %}"
+                 aria-label="{% translate 'Filter by package name' %}" />
+        </div>
         {% for entry in facets %}
           <div class="grp">
             <h5>{{ entry.facet.label }}</h5>
@@ -55,7 +71,7 @@
           </div>
         {% endfor %}
         <button class="btn primary" type="submit">{% translate "Apply filters" %}</button>
-        {% if applied %}
+        {% if applied or search %}
           <a class="btn ghost" href="{% url 'conda_sentinel:package-health' %}">{% translate "Clear" %}</a>
         {% endif %}
       </form>
@@ -115,7 +131,13 @@
           {% empty %}
             <tr>
               <td colspan="11">
-                {% translate "No package matches these filters." %}
+                {% if search %}
+                  {% blocktranslate trimmed %}
+                    No package name contains &ldquo;{{ search }}&rdquo;.
+                  {% endblocktranslate %}
+                {% else %}
+                  {% translate "No package matches these filters." %}
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
