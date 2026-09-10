@@ -16,6 +16,13 @@ module name and says what each prevents. A renamed or deleted audit leaves the p
 recommending a gate that is gone, which is worse than not listing it: a reader plans
 around a check that will never run.
 
+**A URL is the same kind of claim, and was missed once.** `running-it.md` sent a
+reader to `http://localhost:8000/local-signin/` for the persona sign-in. The real path
+is `/_local/`. Nothing failed -- the command sweep below reads `pixi run`, not links --
+and the error survived until somebody asked where the personas were. Documented paths
+are resolved against the URLconf now, for the same reason the commands are checked:
+both are pasted rather than read.
+
 **It deliberately checks existence, not behaviour.** Whether `pixi run test-cov`
 enforces the floor is `test_gate_contract.py`'s question. Whether the documentation
 names something real is this one's.
@@ -51,6 +58,21 @@ NOT_TASKS: Final[frozenset[str]] = frozenset({"python", "install"})
 
 #: An audit named in prose, as the roster writes it.
 AN_AUDIT: Final[re.Pattern[str]] = re.compile(r"`(test_[a-z_]+)`")
+
+#: A local URL the documentation sends somebody to.
+#:
+#: Only `localhost:8000`, which is this application. A link to `127.0.0.1:5555` is
+#: flower's and a link to `:8888` is mkdocs' own -- neither is in this URLconf, and
+#: matching them would make the sweep fail on correct documentation.
+A_DOCUMENTED_PATH: Final[re.Pattern[str]] = re.compile(r"https?://localhost:8000(/[A-Za-z0-9_\-/]*)")
+
+#: Paths that carry a placeholder rather than a real segment.
+#:
+#: `<name>` and `<slug>` are how the documentation writes a parameterised route, and a
+#: resolver cannot be asked about one. The route they stand for is covered by the
+#: application's own tests; what this sweep is for is a path written wrongly, and a
+#: wrong *literal* is the one that gets pasted.
+A_PLACEHOLDER: Final[str] = "<"
 
 
 def declared_tasks() -> set[str]:
@@ -118,6 +140,56 @@ def test_the_instructional_pages_exist(page: Path) -> None:
 
     """
     assert page.is_file(), page
+
+
+def documented_paths() -> dict[str, list[str]]:
+    """Return every `localhost:8000` path the documentation sends somebody to.
+
+    Returns:
+        Path to the pages naming it, placeholders excluded.
+
+    """
+    found: dict[str, list[str]] = {}
+    for page in INSTRUCTIONAL_PAGES:
+        for path in A_DOCUMENTED_PATH.findall(page.read_text(encoding="utf-8")):
+            if A_PLACEHOLDER not in path:
+                found.setdefault(path or "/", []).append(page.name)
+    return found
+
+
+def test_every_documented_url_resolves() -> None:
+    """A link in documentation is followed, and a wrong one wastes somebody's afternoon.
+
+    `running-it.md` sent readers to `/local-signin/` for the persona sign-in. The real
+    path is `/_local/`. Nothing in the suite failed -- the command sweep reads
+    `pixi run`, not links -- and it survived until somebody asked where the personas
+    were.
+    """
+    import django  # noqa: PLC0415 - the resolver needs the app registry
+
+    django.setup()
+    from django.urls import Resolver404  # noqa: PLC0415 - as above
+    from django.urls import resolve  # noqa: PLC0415 - as above
+
+    broken: dict[str, list[str]] = {}
+    for path, pages in documented_paths().items():
+        try:
+            resolve(path)
+        except Resolver404:
+            broken[path] = pages
+
+    assert broken == {}, (
+        f"these paths are documented and this application does not serve them: {broken}. A link in "
+        f"documentation is followed rather than read."
+    )
+
+
+def test_the_sweep_found_urls_to_check() -> None:
+    """So the case above cannot pass by matching nothing."""
+    paths = documented_paths()
+
+    assert paths, "no localhost:8000 path was found in the instructional pages"
+    assert "/_local/" in paths, sorted(paths)
 
 
 def test_every_audit_the_roster_names_is_a_real_module() -> None:
