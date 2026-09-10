@@ -2084,12 +2084,25 @@ management, `/about/`, and the 403, 404 and 500 pages
 
 **Satisfies:** nothing directly. Completes `CPM-RENAME-S02`.
 **Governed by:** `CPM-AD-13` (the shell is shared; role scoping stays below the nav).
-**Constrained:** a path prefix was considered and rejected. Mounting the product's
-pages under `/conda-sentinel/` would move `/packages/` and its siblings while leaving
-`/`, `/about/`, `/accounts/` and every error page exactly where they are — the product
-would live in two places and the accelerator would still own the front door.
-`FORCE_SCRIPT_NAME` is the mechanism for a deployment that genuinely needs a prefix,
-and it moves every route together with no code change.
+**Constrained:** a path prefix was considered twice and is **deferred**, not rejected.
+
+The first framing — that it would make the root this product's — it does not answer:
+mounting the pages under `/conda-sentinel/` moves `/packages/` and its siblings while
+leaving `/`, `/about/`, `/accounts/` and every error page where they are, so the
+product would live in two places and the accelerator would still own the front door.
+This story answers that directly instead.
+
+The second framing is stronger and is the one left open: a prefix says which
+application a page belongs to, if this platform ever hosts more than one. It does not
+today — the six apps under `django_apps/` are this product's own domains, which is
+what `CPM-AD-19` means by "one app per domain" — and the deferral rests on one
+measured fact: every product page is mounted by a **single line** in `config/urls.py`,
+and nothing anywhere reverses by path, because `CPM-AD-19` routes centrally and every
+template goes through the `conda_sentinel:` namespace. Adding the prefix the day a
+second product arrives is that one line.
+
+`FORCE_SCRIPT_NAME` remains the mechanism for a deployment that needs a prefix on
+*everything*, including `/api/` and the accounts flows, with no code change at all.
 
 ### Open questions this epic raises
 

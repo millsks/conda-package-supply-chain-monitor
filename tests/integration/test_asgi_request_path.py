@@ -29,6 +29,7 @@ import os
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 
 import pytest
 from asgiref.sync import async_to_sync
@@ -40,6 +41,16 @@ import config.asgi
 
 if TYPE_CHECKING:
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+#: A page that renders for a visitor with no session.
+#:
+#: These cases are about the logging middleware and the ASGI path, not about
+#: which page they drive -- any 200 would do. It was `home` until
+#: `CPM-APP-S12` moved this product's own home page to the root and gated it
+#: behind a role, which turned every one of them into an assertion about a
+#: redirect to the sign-in page. Named once here so the next such move is one
+#: edit rather than nine.
+A_PUBLIC_PAGE: Final[str] = "about"
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 
@@ -200,7 +211,7 @@ class TestRequestsResolveThroughTheUrlResolver:
     """Django's resolver decides every response; nothing sits in front of it."""
 
     def test_a_known_route_is_served(self):
-        messages = async_to_sync(_drive)(reverse("home"))
+        messages = async_to_sync(_drive)(reverse(A_PUBLIC_PAGE))
 
         assert _status_of(messages) == HTTPStatus.OK
 
@@ -249,7 +260,7 @@ class TestAsgiRequestsAreStillTraced:
         satisfied by a database span while the request span -- the only one
         FR-47 is about -- is missing entirely.
         """
-        async_to_sync(_drive)(reverse("home"))
+        async_to_sync(_drive)(reverse(A_PUBLIC_PAGE))
 
         kinds = [span.kind for span in recorded_spans.get_finished_spans()]
         assert SpanKind.SERVER in kinds, f"the ASGI request produced no server span: {kinds}{_span_absence_hint()}"
@@ -261,15 +272,23 @@ class TestAsgiRequestsAreStillTraced:
         """The span *name* is the only field the resolver produces.
 
         `http.method` and friends are copied out of the scope this test builds,
-        so they say nothing about whether resolution happened. The name is
-        `"GET home"` only because the instrumentor read the resolved URL name
-        off the request -- a handler that answered without consulting the
-        resolver could not produce it.
+        so they say nothing about whether resolution happened. The name carries the
+        resolved route only because the instrumentor read it off the request -- a
+        handler that answered without consulting the resolver could not produce it.
+
+        Derived from `A_PUBLIC_PAGE` rather than written out: the literal was
+        `"GET home"` and `CPM-APP-S12` retired that route name, which is the second
+        time this assertion has had to move for a reason that has nothing to do with
+        tracing.
         """
-        async_to_sync(_drive)(reverse("home"))
+        async_to_sync(_drive)(reverse(A_PUBLIC_PAGE))
 
         names = {span.name for span in recorded_spans.get_finished_spans()}
-        assert "GET home" in names, f"no span named for the resolved route: {names}{_span_absence_hint()}"
+        resolved = {name for name in names if name.startswith("GET ")}
+        assert resolved, f"no span named for the resolved route: {names}{_span_absence_hint()}"
+        assert any(A_PUBLIC_PAGE in name for name in resolved), (
+            f"the span name carries no resolved route: {resolved}{_span_absence_hint()}"
+        )
 
     def test_an_unresolved_path_produces_a_span_without_a_route_name(
         self,

@@ -32,10 +32,19 @@ from conda_sentinel.surface.views import ThemeView
 app_name = "conda_sentinel"
 
 urlpatterns = [
-    # Not mounted at `/`: the root belongs to the platform's own template, and taking
-    # it would mean this product decided what an accelerator-built component's front
-    # page is. `home` is the product's front page and the nav points at it.
-    path("home/", HomeView.as_view(), name="home"),
+    # **The root**, since `CPM-APP-S12`. It was `home/`, and the note here read: "the
+    # root belongs to the platform's own template, and taking it would mean this
+    # product decided what an accelerator-built component's front page is."
+    #
+    # That was the right call for a reusable accelerator and the wrong one for a
+    # deployment of this product. Nobody visiting this service is looking for the
+    # template it was generated from, and `/` is the URL somebody types when they have
+    # been told the name of a system and nothing else.
+    #
+    # One canonical URL rather than two: `home/` is not kept as an alias, because two
+    # addresses for one page is what makes a link somebody pastes into a ticket
+    # disagree with the one in the nav.
+    path("", HomeView.as_view(), name="home"),
     path("coverage/", CoverageView.as_view(), name="coverage"),
     path("packages/", PackageHealthView.as_view(), name="package-health"),
     # Keyed on the canonical name so a link pasted into a ticket says which package

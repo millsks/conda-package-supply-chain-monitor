@@ -32,74 +32,7 @@
   </head>
   <body>
     <div class="app">
-      <div class="app-top">
-        <div class="brand">
-          <span class="glyph">cs</span> {% translate "Conda Sentinel" %}
-        </div>
-        {% comment %} Flat, and every entry readable by all three roles. The UX contract:
-           role scoping happens below the nav -- at the deep queue URL, at the item
-           and at the transition -- never by hiding an entry, because a nav that
-           differs per role makes a shared link look broken to whoever it was sent
-           to. Entries with no story yet are marked and inert rather than absent, so
-           the shape of the product is visible from the first screen. {% endcomment %}
-        <nav class="app-nav">
-          <a href="{% url 'conda_sentinel:package-health' %}"
-             {% if request.resolver_match.url_name == 'package-health' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Packages" %}
-          </a>
-          <a href="{% url 'conda_sentinel:home' %}"
-             {% if request.resolver_match.url_name == 'home' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Home" %}
-          </a>
-{% comment %}
-            Every entry is shown to every role, and a queue that is not yours refuses
-            when you open it. The UX contract is explicit that role scoping happens
-            *below* the nav -- hiding an entry per role makes a shared link look
-            broken to whoever it was sent to, and tells them nothing about why.
-          {% endcomment %}
-          {% for queue in nav_queues %}
-            <a href="{% url 'conda_sentinel:queue' queue %}"
-               {% if request.resolver_match.kwargs.queue == queue %}class="on" aria-current="page"{% endif %}>
-              {{ queue }}
-            </a>
-          {% endfor %}
-          <a href="{% url 'conda_sentinel:report' nav_first_report %}"
-             {% if request.resolver_match.url_name == 'report' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Reports" %}
-          </a>
-          <a href="{% url 'conda_sentinel:coverage' %}"
-             {% if request.resolver_match.url_name == 'coverage' %}class="on" aria-current="page"{% endif %}>
-            {% translate "Coverage" %}
-          </a>
-        </nav>
-        {% comment %} CPM-APP-S11. Three states and not a toggle: `auto` is what a
-           reader picks when they want the product to follow the machine, and a
-           two-state control can only record where somebody was when they last
-           touched it.
-
-           A form rather than links, because this changes state and a GET that set a
-           cookie would let a prefetch or a shared URL change somebody's preference.
-           `next` sends them back to the page they were reading; the view validates it
-           against this host, so it cannot become an open redirect. {% endcomment %}
-        <form class="themeset" method="post" action="{% url 'conda_sentinel:theme' %}">
-          {% csrf_token %}
-          <input type="hidden" name="next" value="{{ request.get_full_path }}" />
-          {% for option in themes %}
-            <button type="submit"
-                    name="theme"
-                    value="{{ option.value }}"
-                    {% if option.value == theme %}class="on" aria-current="true"{% endif %}>
-              {{ option.label }}
-            </button>
-          {% endfor %}
-        </form>
-        <div class="who">
-          {% if request.user.is_authenticated %}
-            <span class="av">{{ request.user.username|slice:":2"|upper }}</span>
-            {{ request.user.username }}
-          {% endif %}
-        </div>
-      </div>
+      {% include "conda_sentinel/_chrome.html" %}
       <div class="app-body">
         {% block content %}{% endblock content %}
       </div>
