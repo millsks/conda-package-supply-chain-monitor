@@ -43,6 +43,7 @@ from django.db.models import Q
 from conda_sentinel.core.models import PackageHealth
 from conda_sentinel.core.outcomes import OutcomeState
 from conda_sentinel.identity.confidence import IdentityConfidence
+from conda_sentinel.surface.labels import display_label
 from conda_sentinel.surface.search import name_condition
 
 if TYPE_CHECKING:
@@ -260,6 +261,31 @@ class ReportPage:
     #: report of nothing was produced from nothing.
     evidence_cutoff: datetime | None
     policy_versions: tuple[str, ...]
+
+    def readable_rows(self) -> tuple[tuple[str, ...], ...]:
+        """Return the rows as the **screen** shows them, statuses labelled.
+
+        `rows` stays what it is -- the values, in `columns` order -- because that is
+        what the CSV writes and what `CPM-AD-24` binds. This is the HTML's view of the
+        same rows, and the two differ in exactly one way: a cell in a column declared
+        `is_status` is rendered through `display_label`.
+
+        **Only status columns.** A report's other cells are package names, timestamps
+        and policy versions, and sentence-casing those would turn `django` into
+        `Django` and a version into prose -- which is why this pairs each cell with
+        its column rather than mapping over the row.
+
+        Returns:
+            One tuple per row, in `columns` order, ready to print.
+
+        """
+        return tuple(
+            tuple(
+                display_label(cell) if column.is_status else cell
+                for cell, column in zip(row, self.columns, strict=True)
+            )
+            for row in self.rows
+        )
 
 
 def report_values(report: Report, *, search: str = "") -> QuerySet[PackageHealth, tuple[object, ...]]:

@@ -30,12 +30,14 @@ from __future__ import annotations
 from typing import Final
 
 import pytest
+from django.db import models
 
 from conda_sentinel.core.outcomes import OutcomeState
 from conda_sentinel.core.permissions import PRODUCT_ROLES
 from conda_sentinel.surface.labels import COLLECTOR_STATUS_LABELS
 from conda_sentinel.surface.labels import ROLE_LABELS
 from conda_sentinel.surface.labels import collector_status_label
+from conda_sentinel.surface.labels import display_label
 from conda_sentinel.surface.labels import labelled_queues
 from conda_sentinel.surface.labels import queue_label
 from conda_sentinel.surface.labels import role_label
@@ -188,3 +190,73 @@ def test_no_outcome_state_acquires_a_collector_label() -> None:
 def test_an_undeclared_collector_status_falls_back_rather_than_raising() -> None:
     """The same choice `queue_label` and `role_label` make: a label is not worth a 500."""
     assert collector_status_label("something-nobody-declared") == "something-nobody-declared"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("advisories_matched", "Advisories matched"),
+        ("present_and_maintained", "Present and maintained"),
+        ("never_run", "Never run"),
+        ("fix_vulnerability", "Fix vulnerability"),
+        # Sentence case, not title case. Django's automatic `TextChoices` label
+        # title-cases every word and gives `Not Listed`, which is a heading rather
+        # than something somebody says.
+        ("not_listed", "Not listed"),
+        # A hyphen inside a value is a hyphen in the words; an underscore is this
+        # product's separator standing in for a space.
+        ("inventory-derived", "Inventory-derived"),
+        # Delegated, not re-derived: these have labels of their own already.
+        ("identity_review", "Identity review"),
+        ("security_reviewer", "Security review"),
+        # Cannot derive: an initialism, a name spelled two ways, a version number.
+        ("kev", "KEV"),
+        ("pypi_release", "PyPI release"),
+        ("py314_verification", "Python 3.14 verification"),
+        ("ok", "OK"),
+    ],
+)
+def test_a_value_reads_the_way_somebody_says_it(value: str, expected: str) -> None:
+    """`CPM-APP-S20`: one entry point, four sources, specific before general.
+
+    Args:
+        value: The stored value.
+        expected: What a person should read.
+
+    """
+    assert display_label(value) == expected
+
+
+def test_no_label_carries_the_slug_separator() -> None:
+    """The tell this module opens with, applied to everything it can reach.
+
+    Every value in every vocabulary that reaches a screen, swept rather than sampled --
+    a vocabulary added later is covered the day it exists rather than the day somebody
+    remembers this file.
+    """
+    from conda_sentinel.core.registry import registered_collectors  # noqa: PLC0415 - after django.setup()
+    from conda_sentinel.policies import outcomes  # noqa: PLC0415 - as above
+
+    values = {collector.name for collector in registered_collectors()}
+    for name in dir(outcomes):
+        vocabulary = getattr(outcomes, name)
+        if isinstance(vocabulary, type) and issubclass(vocabulary, models.TextChoices):
+            values |= set(vocabulary.values)
+
+    assert values, "nothing was swept, so this case is measuring nothing"
+    unreadable = sorted(value for value in values if A_SLUG_SEPARATOR in display_label(value))
+
+    assert unreadable == [], f"these still read as slugs: {unreadable}"
+
+
+def test_a_label_is_never_blank_and_never_raises() -> None:
+    """A filter that could blank a status would be a second way to hide one.
+
+    `tone` is in the same module for the same reason: the only way a status becomes
+    invisible on a screen is an `{% if %}` somebody adds around it, and neither filter
+    may become a second.
+    """
+    for awkward in ("", "   ", "not-a-vocabulary", "P1"):
+        assert display_label(awkward) == awkward or display_label(awkward).strip() != ""
+    assert display_label(None) == "None"
+    assert display_label(7) == "7"

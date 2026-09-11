@@ -2836,6 +2836,71 @@ value must have a label and gives one to a status, undoing
 projection was never wrong — `last_status` is correct and is still on the row. What was
 wrong was what got printed, which is the one thing a test of the projection cannot
 see.
+
+### CPM-APP-S20: Every screen reads in sentence case
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> asked for by the product owner with five screenshots: go through each view and
+> identify which text is just the label or id of something, and give it a sentence-case
+> label.
+
+`CPM-APP-S15` fixed this in the navigation and `CPM-APP-S19` fixed one column of the
+coverage table, both after somebody noticed and reported it. Rendering every view and
+reading what is on it found **forty-seven distinct slugs reaching a reader across
+eleven views** — collector names, evidence table names, mapping kinds, work types,
+priority buckets, and every derived status.
+
+Fixing them one screenshot at a time is not a strategy.
+
+As anybody reading any screen,
+I want what I read to be written the way somebody would say it,
+So that I am reading a product rather than its database.
+
+**Acceptance Criteria:**
+
+**Given** any view a person reads
+**When** it is rendered
+**Then** no stored value reaches them spelled with this product's slug separator
+
+**Given** a value that carries an acronym, a name or a version number
+**When** it is labelled
+**Then** it is spelled out rather than derived — `KEV`, `PyPI release`, `Python 3.14
+verification`
+
+**Given** any other value
+**When** it is labelled
+**Then** it derives from the value itself, in **sentence** case and not title case
+
+**Given** the JSON API and the CSV export
+**When** the same status appears there
+**Then** it is the value, unchanged
+
+**Given** a template that renders a status chip
+**When** it picks a tone and prints a label
+**Then** it takes both from the value and derives neither from the other
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-24`, **clarified** by this story. Its rule names three
+surfaces — "API, export, and governed view" — and all three are machine-read. The
+screen was never among them; it rendered values because a template prints what it is
+handed, not because the rule said to. The clarification is recorded in the spine: the
+projected **value** is the same everywhere, and only its rendering differs.
+
+**Constrained: the label derives from the value**, so the two cannot drift. A
+hand-written map of forty labels would be forty chances to disagree with the value and
+a file the next person to add a status has to find. What cannot derive is spelled out,
+and that list is ten entries.
+
+**Constrained: sentence case, not Django's automatic title case.** Every one of these
+vocabularies is a `TextChoices` and already carries a generated label — but it is
+`Not Listed`, which is a heading rather than a thing anybody says. Deriving here is
+what makes the whole product read one way.
+
+**Constrained:** `finding_facts` is **out of scope and it is recorded rather than
+missed.** `advisory_id=CVE-2026-48588 affected_range=>=6.0.0,<6.0.7` is one stored
+string whose *values* may themselves contain spaces — a licence expression is
+`Apache-2.0 OR BSD-3-Clause` — so it cannot be split reliably at render time. Making it
+readable means changing what is stored, which is a story of its own.
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was

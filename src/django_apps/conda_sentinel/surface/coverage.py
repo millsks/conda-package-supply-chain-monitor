@@ -45,6 +45,7 @@ from typing import Final
 from django.db.models import Count
 from django.db.models import Max
 from django.db.models import Q
+from django.utils.translation import ngettext
 
 from conda_sentinel.core.models import CollectionRun
 from conda_sentinel.core.models import PackageHealth
@@ -174,6 +175,27 @@ class CollectorHealth:
     #: dashboard most often renders as blank -- and blank, next to nine green rows,
     #: reads as fine.
     inside_target: bool
+
+    @property
+    def freshness_label(self) -> str:
+        """Return the freshness target the way somebody would say it.
+
+        A `timedelta` printed by a template is `str(timedelta)`, which is
+        `2 days, 0:00:00` -- a repr, in a column whose other rows say `14 days` and
+        `30 days` with the same trailing zeros. Every target this product declares is
+        a whole number of days, so the hours are noise on every row.
+
+        Returns:
+            The number of days, or the raw value where a target is not whole days --
+            which no registered collector declares, and which should still render.
+
+        """
+        target = self.freshness_target
+        if target is None:
+            return "—"
+        if target.seconds == 0 and target.microseconds == 0:
+            return ngettext("%(count)d day", "%(count)d days", target.days) % {"count": target.days}
+        return str(target)
 
     @property
     def status_label(self) -> str:

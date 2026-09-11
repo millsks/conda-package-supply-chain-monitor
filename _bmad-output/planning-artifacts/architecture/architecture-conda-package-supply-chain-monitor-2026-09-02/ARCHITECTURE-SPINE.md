@@ -384,6 +384,15 @@ violation yet.
     API, export, and governed view. Blank is reserved for a field with no value and is
     never used for a status. PRD Appendix A.1's "blank means missing" applies to identity
     fields only.
+  - **The HTML renders that value's label, and carries the value beside it.** Clarified
+    by `CPM-APP-S20`; the three surfaces above are all machine-read, and the screen was
+    never among them — it printed values because a template prints what it is handed,
+    not because this rule said to. So a reader sees *Advisories matched* on the table
+    and `advisories_matched` in the CSV they export from it: **the projected value is
+    the same everywhere, and only its rendering differs.** The label is derived from the
+    value (`surface/labels.py`), so the two cannot drift, and
+    `tests/integration/django_apps/test_no_slug_reaches_a_reader.py` asserts both
+    halves — no slug reaches a reader, and the machine surfaces still speak in values.
   - Every derived-status column in the rollup appears in the governed views, enforced by a
     test that diffs the two column sets.
   - The reporting projection maps **names only** — never values, never formatting.

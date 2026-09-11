@@ -1,8 +1,13 @@
 """The template's half of `CPM-AD-24`: values in, no decisions taken.
 
-Two filters and nothing else. `tone` looks a status up in `core/tone.py`, and
-`querystring` rebuilds a URL with one parameter changed so the pager and the sort
-links keep the filters a reader has applied.
+Three filters and nothing else. `tone` looks a status up in `surface/tone.py`, `label`
+looks it up in `surface/labels.py`, and `querystring` rebuilds a URL with one parameter
+changed so the pager and the sort links keep the filters a reader has applied.
+
+**`tone` and `label` take the same value and answer different questions**, which is why
+a chip passes it to both: the value picks the colour, the label is what is printed, and
+neither is derived from the other. `CPM-APP-S19` is what happens when a template
+derives one from the other -- it printed the value because that is what it had.
 
 **Neither filter can produce a blank status**, which is the point of both being here
 rather than inline in the template: `{{ cell.status }}` is already verbatim, and the
@@ -17,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from django import template
 
+from conda_sentinel.surface.labels import display_label
 from conda_sentinel.surface.tone import tone_of
 
 if TYPE_CHECKING:
@@ -37,6 +43,29 @@ def tone(status: str) -> str:
 
     """
     return tone_of(status)
+
+
+@register.filter(name="label")
+def label(value: object) -> str:
+    """Return what a stored value is called where a person reads it.
+
+    The one filter every template uses for this, so no template author has to know
+    which vocabulary a value came from -- `surface/labels.py` decides, and the
+    templates ask.
+
+    **It never blanks.** `tone` is here for the same reason: a status becomes invisible
+    on a screen only through an `{% if %}` somebody adds around it, and a filter that
+    could return `""` would be a second way. An unrecognised value comes back as
+    itself.
+
+    Args:
+        value: The stored value.
+
+    Returns:
+        The label, never blank for a value that was not blank.
+
+    """
+    return display_label(value)
 
 
 @register.simple_tag

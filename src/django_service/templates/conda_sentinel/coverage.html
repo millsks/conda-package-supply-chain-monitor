@@ -67,7 +67,7 @@
               monitoring, and there is a different thing to do about each.
             {% endcomment %}
             <div class="ev">
-              {{ gap.answered_negatively }} {% translate "answered not_found or not_applicable" %}
+              {{ gap.answered_negatively }} {% translate "answered not found or not applicable" %}
             </div>
           {% endif %}
         </div>
@@ -93,8 +93,8 @@
       <tbody>
         {% for collector in collectors %}
           <tr>
-            <td class="pkg">{{ collector.name }}</td>
-            <td class="mono">{{ collector.freshness_target|default:"—" }}</td>
+            <td class="pkg">{{ collector.name|label }}</td>
+            <td>{{ collector.freshness_label }}</td>
             <td class="mono">
               {% if collector.has_ever_run %}
                 {{ collector.last_finished_at|date:"Y-m-d H:i" }}Z

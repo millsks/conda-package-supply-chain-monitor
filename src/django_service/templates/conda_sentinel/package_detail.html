@@ -9,7 +9,7 @@
       <h2>
         {{ package.canonical_name }}
         <span class="pbucket {{ health.priority_status|tone }}">{{ health.priority_status }}</span>
-        <span class="chip tone-plain sm">{% translate "work" %}: {{ health.work_type_status }}</span>
+        <span class="chip tone-plain sm">{% translate "work" %}: {{ health.work_type_status|label }}</span>
       </h2>
       <div class="sub">
         {% if package.display_name %}{{ package.display_name }} &middot; {% endif %}
@@ -55,9 +55,9 @@
             <tbody>
               <tr>
                 <td class="pkg">{{ trace.label }}</td>
-                <td><span class="chip {{ trace.status|tone }}">{{ trace.status }}</span></td>
+                <td><span class="chip {{ trace.status|tone }}">{{ trace.status|label }}</span></td>
                 <td class="mono">
-                  {{ trace.produced_from }}
+                  {{ trace.produced_from|label }}
                   {% if trace.observation_count %}
                     <div class="ev">
                       {% blocktranslate count total=trace.observation_count trimmed %}
@@ -85,7 +85,7 @@
                       <span class="conf">{% translate "superseded" %}</span>
                     {% endif %}
                   </td>
-                  <td><span class="chip {{ observation.state|tone }}">{{ observation.state }}</span></td>
+                  <td><span class="chip {{ observation.state|tone }}">{{ observation.state|label }}</span></td>
                   <td class="mono">
                     {{ observation.observed_at|date:"Y-m-d H:i" }}Z
                     <div class="ev">{{ observation.source|default:observation.table }}</div>
@@ -178,8 +178,8 @@
             <tbody>
               {% for mapping in identity.mappings %}
                 <tr>
-                  <td class="mono">{{ mapping.kind }}</td>
-                  <td><span class="chip {{ mapping.outcome|tone }}">{{ mapping.outcome }}</span></td>
+                  <td>{{ mapping.kind|label }}</td>
+                  <td><span class="chip {{ mapping.outcome|tone }}">{{ mapping.outcome|label }}</span></td>
                   <td class="mono">{{ mapping.resolved_at|date:"Y-m-d H:i" }}Z</td>
                 </tr>
               {% endfor %}
@@ -204,8 +204,8 @@
             <tbody>
               {% for entry in work %}
                 <tr>
-                  <td class="pkg">{{ entry.item.queue }}</td>
-                  <td><span class="chip {{ entry.item.state|tone }}">{{ entry.item.state }}</span></td>
+                  <td class="pkg">{{ entry.item.queue|label }}</td>
+                  <td><span class="chip {{ entry.item.state|tone }}">{{ entry.item.state|label }}</span></td>
                   <td class="mono">
                     {{ entry.item.finding_facts }}
                     {% for move in entry.history %}
