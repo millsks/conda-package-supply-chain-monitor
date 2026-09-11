@@ -54,6 +54,7 @@ from conda_sentinel.core.runs import RunState
 from conda_sentinel.identity.confidence import IdentityConfidence
 from conda_sentinel.identity.models import Package
 from conda_sentinel.surface.health import COLUMNS
+from conda_sentinel.surface.labels import collector_status_label
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -173,6 +174,26 @@ class CollectorHealth:
     #: dashboard most often renders as blank -- and blank, next to nine green rows,
     #: reads as fine.
     inside_target: bool
+
+    @property
+    def status_label(self) -> str:
+        """Return what this collector's health is called where somebody reads it.
+
+        Beside `last_status` rather than instead of it, for the reason
+        `test_the_navigation_gets_the_value_and_the_label` gives: the template needs
+        the *value* to pick a tone and the *label* to print, and a template deriving
+        either from the other is what produced the defect this fixes.
+
+        `never_run` was reaching the screen spelled the way this product spells
+        values, on a row whose neighbouring column already said `never run` in
+        English. Same row, same fact, two spellings.
+
+        Returns:
+            The label, or the value itself for a status `surface/labels.py` does not
+            declare.
+
+        """
+        return collector_status_label(self.last_status)
 
     @property
     def has_ever_run(self) -> bool:

@@ -33,7 +33,9 @@ import pytest
 
 from conda_sentinel.core.outcomes import OutcomeState
 from conda_sentinel.core.permissions import PRODUCT_ROLES
+from conda_sentinel.surface.labels import COLLECTOR_STATUS_LABELS
 from conda_sentinel.surface.labels import ROLE_LABELS
+from conda_sentinel.surface.labels import collector_status_label
 from conda_sentinel.surface.labels import labelled_queues
 from conda_sentinel.surface.labels import queue_label
 from conda_sentinel.surface.labels import role_label
@@ -139,3 +141,50 @@ def test_an_undeclared_name_falls_back_rather_than_raising() -> None:
     """
     assert queue_label("not-a-queue") == "not-a-queue"
     assert role_label("not-a-role") == "not-a-role"
+
+
+@pytest.mark.parametrize("status", ["ok", "failing", "never_run"])
+def test_every_collector_status_survives_being_labelled(status: str) -> None:
+    """The coverage screen's own vocabulary, held to the rule the module opens with.
+
+    `surface/coverage.py` reports `ok`, `failing` or `never_run`, and none of them is
+    an `OutcomeState` -- its docstring argues that `never_run` is deliberately not
+    `unknown`, because `unknown` is an answer about a package and this is a statement
+    about a collector. So the rule applies: a value a person reads is either a status
+    this product asserts, or it has a label.
+
+    Args:
+        status: The collector status under test.
+
+    """
+    assert A_SLUG_SEPARATOR not in collector_status_label(status), status
+
+
+def test_only_the_slug_shaped_collector_status_is_given_a_label() -> None:
+    """`ok` and `failing` are already what a person would say.
+
+    Spelling them into the map would make it look like a translation table for a
+    vocabulary that mostly does not need one -- which is how a later reader concludes
+    every value must have a label and gives one to a status, undoing
+    `test_no_outcome_state_acquires_a_label` from the other direction.
+    """
+    assert set(COLLECTOR_STATUS_LABELS) == {"never_run"}
+
+
+def test_no_outcome_state_acquires_a_collector_label() -> None:
+    """`ok` is both a collector status and an `OutcomeState`, so it is the risk here.
+
+    A label for it would reach the coverage screen only, and `CPM-AD-24`'s guarantee
+    is that the five states read the same wherever they appear -- including beside a
+    collector.
+    """
+    states = {state.value for state in OutcomeState}
+
+    assert {*COLLECTOR_STATUS_LABELS} & states == set()
+    for state in states:
+        assert collector_status_label(state) == state, state
+
+
+def test_an_undeclared_collector_status_falls_back_rather_than_raising() -> None:
+    """The same choice `queue_label` and `role_label` make: a label is not worth a 500."""
+    assert collector_status_label("something-nobody-declared") == "something-nobody-declared"

@@ -115,8 +115,13 @@
               {% if collector.failures %}<div class="ev stale">{{ collector.failures }} {% translate "failed" %}</div>{% endif %}
             </td>
             <td>
+              {% comment %}
+                The value picks the tone and the label is what is printed. Rendering
+                the value was the defect: `never_run` appeared here beside a column
+                that already said `never run`, one row, one fact, two spellings.
+              {% endcomment %}
               <span class="chip {% if collector.last_status == 'ok' %}tone-ok{% elif collector.last_status == 'failing' %}tone-error{% else %}tone-unknown{% endif %}">
-                {{ collector.last_status }}
+                {{ collector.status_label }}
               </span>
             </td>
           </tr>
