@@ -50,6 +50,9 @@ COMPOSE: Final[Path] = REPO_ROOT / "compose.yaml"
 #: The tasks that make up the local stack and must stay outside the process group.
 OUTSIDE_THE_PROCESS_GROUP: Final[tuple[str, ...]] = (
     "local-stack",
+    "stack-migrate",
+    "stack-personas",
+    "stack-seed",
     "flower",
     "docker-up",
     "docker-down",
@@ -62,6 +65,25 @@ OUTSIDE_THE_PROCESS_GROUP: Final[tuple[str, ...]] = (
 
 #: The variable that makes a task a member of the deployment's process group.
 THE_MEMBERSHIP_MARKER: Final[str] = "COMPONENT_PROCESS"
+
+#: Every task that runs *against* the local stack's containers.
+#:
+#: They are a set rather than one task because `CPM-PLATFORM-S06`: `migrate`,
+#: `seed-personas` and `seed-demo` run against whatever the default environment
+#: resolves -- SQLite -- while `local-stack` runs against the compose PostgreSQL. Two
+#: databases, and nothing said so, so the documented first-run sequence seeded one and
+#: started the other: a hundred packages in a file nothing was reading, and no personas
+#: in the database serving the screens, which left no way to sign in and find out.
+#:
+#: The fix was three tasks carrying the stack's own environment, and the risk the fix
+#: creates is four copies of one database URL. That is the shape the defect had, so
+#: `test_every_stack_task_names_the_same_database` reconciles them.
+AGAINST_THE_STACK: Final[tuple[str, ...]] = (
+    "local-stack",
+    "stack-migrate",
+    "stack-personas",
+    "stack-seed",
+)
 
 #: Host ports the compose services must **not** publish on.
 #:
@@ -245,6 +267,49 @@ def test_the_stack_points_at_the_containers_it_started() -> None:
         "the web process quietly did their work."
     )
     assert "docker-up" in stack.get("depends-on", []), stack
+
+
+@pytest.mark.parametrize("task", AGAINST_THE_STACK)
+def test_every_stack_task_names_the_same_database(task: str) -> None:
+    """Four copies of one URL, which is the shape the defect this prevents had.
+
+    `migrate` and the two seeders run against the *default* environment -- SQLite --
+    and `local-stack` runs against the compose PostgreSQL. Following the documented
+    first-run sequence and then starting the stack produced a product with no packages
+    and no personas: nothing to look at, and no way to sign in and discover that.
+
+    A fifth task added later that seeded the wrong database would reproduce it exactly,
+    and nothing else in this suite would notice -- the seeding would succeed, the stack
+    would start, and the screens would simply be empty.
+
+    Args:
+        task: The task under test.
+
+    """
+    env = tasks()[task].get("env", {})
+
+    assert "5433" in env.get("DATABASE_URL", ""), f"{task} does not run against the stack's PostgreSQL: {env}"
+    assert "6380" in env.get("REDIS_URL", ""), f"{task} does not point at the stack's Redis: {env}"
+
+
+def test_the_stack_migrates_before_it_serves() -> None:
+    """So a fresh clone's first `local-stack` finds a schema rather than no tables.
+
+    The containers come up empty. Without this, the first command somebody runs after
+    cloning starts four processes against a database with none of this product's
+    fifty-two tables, and every one of them fails in a different way.
+    """
+    assert "stack-migrate" in tasks()["local-stack"].get("depends-on", [])
+
+
+def test_seeding_is_not_something_the_stack_does_on_every_start() -> None:
+    """Evidence is append-only, so seeding twice appends rather than replacing.
+
+    A stack that seeded on start-up would add a second observation of every seeded fact
+    on every restart -- which is realistic behaviour for the seeder and absurd
+    behaviour for a start-up task.
+    """
+    assert "stack-seed" not in tasks()["local-stack"].get("depends-on", [])
 
 
 @pytest.mark.parametrize("path", [PIXI, PROCFILE, COMPOSE], ids=lambda path: path.name)

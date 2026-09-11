@@ -671,6 +671,62 @@ Neither is fixed here. A priority rule is `CPM-AD-8` policy and changing one mea
 recording a new version, which is a decision for whoever owns PRD Open Question 8 —
 not a side effect of improving a fixture.
 
+### CPM-PLATFORM-S06: The local stack seeds the database it runs against
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> raised by the product owner reading `CPM-DOCS-S06`'s first-run sequence: `runserver`
+> only starts the web server — should day one not start the whole stack?
+
+It should, and the question uncovered a worse problem than the one it asked about.
+
+`migrate`, `seed-personas` and `seed-demo` run against whatever the **default**
+environment resolves, which is SQLite. `local-stack` sets `DATABASE_URL` to the
+compose PostgreSQL on 5433. **They are two different databases and nothing said so.**
+
+So the documented first-run sequence seeded one database and then, at Part 4, told the
+reader to start the other. Measured: a hundred packages and six personas in SQLite,
+zero and zero in the PostgreSQL the stack serves. The screens would have been empty —
+and because the personas were in the other database too, there would have been **no way
+to sign in and find out why**.
+
+As somebody running this product for the first time,
+I want one command that starts the whole thing with something in it,
+So that my first look is at the product rather than at an empty database I cannot
+sign in to.
+
+**Acceptance Criteria:**
+
+**Given** a fresh clone with Docker running
+**When** `local-stack` is started
+**Then** it finds a migrated schema rather than no tables
+
+**Given** the same checkout
+**When** one seeding command is run
+**Then** the database the stack serves holds the demo inventory and the personas
+
+**Given** the stack
+**When** it is restarted
+**Then** it does not seed again
+
+**Given** any task that runs against the stack
+**When** it names a database
+**Then** it is the stack's, and a test fails if a later task names another
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-2` — which is why seeding is not part of starting. Evidence
+is append-only, so a stack that seeded on start-up would append a second observation of
+every seeded fact on every restart.
+
+**Constrained:** `runserver` against SQLite stays, and the documentation stops
+presenting it as the way in. It is the right tool when you are editing code and want
+autoreload; it is the wrong one for learning what the product is, because it hides the
+whole of `CPM-AD-9` — no worker, no queue, and no job ever visibly *queued*.
+
+**Constrained:** the fix is three tasks carrying the stack's environment, and the risk
+it creates is **four copies of one database URL** — which is the shape the original
+defect had. `test_local_stack.py` reconciles them, so a fifth task added later that
+seeded the wrong database fails there rather than in somebody's first hour.
+
 ## CPM-EP-EVIDENCE: An evidence log that cannot lie
 
 Delivers the shared kernel every later epic builds on. Nothing here is user-facing, and
