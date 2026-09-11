@@ -106,10 +106,24 @@ MIGRATION_INVOCATION: Final[re.Pattern[str]] = re.compile(r"(?<![\w.-])(?:migrat
 
 # The tasks this manifest is supposed to have that migrate, and the complete
 # list of them. `migrate` is the release stage's own invocation and
-# `makemigrations` authors migrations in development; a third name matching the
-# detector is either an aggregate of the declared steps or an entrypoint in
-# waiting.
-MIGRATION_TASKS: Final[tuple[str, ...]] = ("makemigrations", "migrate")
+# `makemigrations` authors migrations in development; a name matching the
+# detector that is neither is either an aggregate of the declared steps or an
+# entrypoint in waiting.
+#
+# `stack-migrate` is the third and `CPM-PLATFORM-S06` added it. It is the same
+# category as `migrate` -- a developer applying migrations locally -- and differs
+# only in which database: `migrate` resolves the default environment, which is
+# SQLite, and this one carries the compose PostgreSQL the local stack serves. It
+# is not an aggregate: it runs one step and no other.
+#
+# What keeps the addition safe is not this list. It is
+# `test_no_serving_process_migrates_directly_or_through_a_dependency`, which
+# walks `depends-on` from every task declaring `COMPONENT_PROCESS` --
+# `local-stack` declares none, so the one `depends-on` that reaches a migration
+# cannot be reached from a deployed process. `test_every_migrating_task_is_a_
+# local_one` below states the other half, so a migrating task that later declared
+# itself a process fails here as well as there.
+MIGRATION_TASKS: Final[tuple[str, ...]] = ("makemigrations", "migrate", "stack-migrate")
 
 # The release-stage and build-stage steps. Neither is a serving process, and the
 # consequence of declaring either one to be is not cosmetic -- see the module
@@ -589,6 +603,38 @@ def test_the_only_tasks_that_migrate_are_the_two_the_manifest_is_supposed_to_hav
         f"the tasks that migrate are {migrating}, not {sorted(MIGRATION_TASKS)}. `migrate` is the release "
         f"stage's own invocation and `makemigrations` authors migrations in development; a third is either "
         f"an aggregate of the steps component.toml declares or an entrypoint in waiting."
+    )
+
+
+def test_every_migrating_task_is_a_local_one(manifest: dict[str, Any]) -> None:
+    """The half that makes a third migrating task safe rather than merely permitted.
+
+    `CPM-PLATFORM-S06` added one, and the list above is a roster rather than a
+    guard -- widening it is one line, and a widened roster with nothing behind it is
+    how a migration ends up somewhere it runs on every boot.
+
+    So the property is asserted rather than the membership: **no task that migrates
+    may declare itself a serving process.** A `COMPONENT_PROCESS` on one would put a
+    migration inside the group `component.toml` reconciles, where the platform starts
+    it on every replica -- and on a rolling deploy, on every replica at once.
+
+    `test_no_serving_process_migrates_directly_or_through_a_dependency` walks the
+    other direction, from processes outward. Both are needed: that one would miss a
+    migrating task nothing depends on but which the deployment starts by name.
+
+    Args:
+        manifest: The parsed `pixi.toml`.
+
+    """
+    offenders = sorted(
+        f"{name} in {table}"
+        for table, name, definition in tasks(manifest)
+        if _migrates(task_command(definition)) and PROCESS_ENV_VAR in task_env(definition)
+    )
+
+    assert offenders == [], (
+        f"these tasks migrate and declare themselves serving processes: {offenders}. A migration in the "
+        f"process group runs on every replica at every start, and on a rolling deploy on every replica at once."
     )
 
 

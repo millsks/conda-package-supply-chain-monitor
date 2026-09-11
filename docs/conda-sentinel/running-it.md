@@ -47,7 +47,14 @@ diverge. `reader-persona` and `staff-persona` hold no product role, so neither o
 any of them.
 
 Each row has a **Sign in** button; one click and you are that persona. If the page
-lists none, run `pixi run -e dev seed-personas` first.
+lists none, run `pixi run -e dev seed-personas` first — or `pixi run -e dev
+stack-seed` if you are running the full stack, which uses a different database.
+
+!!! note "The page labels a row by the persona's *key*"
+
+    The table above names the **accounts** — `operations-persona`. The sign-in page
+    shows the keys, so the row you click reads `operations`. Same persona, two
+    spellings, and the shorter one is what is on screen.
 
 `reader-persona` exists to be refused. Somebody signed in and holding no role is a
 real state — the zero-groups sign-in — and it is worth being able to see what they
@@ -196,19 +203,20 @@ starting one.
 
 ## The full local stack
 
-The five commands above give you the product with tasks running **inline** — no
-broker, no worker. That is the right default for reading screens, and it is not the
+The commands at the top of this page give you the product with tasks running
+**inline** — no broker, no worker. That is the right default for reading screens, and it is not the
 product's real shape: `CPM-AD-9` sends collectors, policy runs and large exports out
 of the request, and inline execution hides every consequence of that.
 
 For the real shape:
 
 ```bash
-pixi run local-stack
+pixi run -e dev stack-seed    # containers, migrations, personas and demo data
+pixi run local-stack          # web, worker, beat, flower
 ```
 
-One command. It brings up Redis and PostgreSQL in containers, waits for both to be
-healthy, then runs four processes together under
+`local-stack` brings up Redis and PostgreSQL in containers, waits for both to be
+healthy, **migrates**, and then runs four processes together under
 [honcho](https://github.com/nickstenning/honcho):
 
 | Process | Is |
@@ -220,6 +228,22 @@ healthy, then runs four processes together under
 
 `Ctrl-C` stops all four. The containers keep running — `pixi run docker-down` stops
 them, `pixi run docker-down-v` also discards their data.
+
+!!! warning "The stack is a different database, and it has to be seeded separately"
+
+    `migrate`, `seed-personas` and `seed-demo` run against whatever the **default**
+    environment resolves, which is SQLite. The stack runs against the container's
+    **PostgreSQL** on 5433. They are two databases.
+
+    Seeding one and starting the other gives you a product with no packages and — more
+    confusingly — **no personas**, so there is no way to sign in and discover that it
+    is empty. That is what `stack-seed` is for: it migrates and seeds the database the
+    stack is about to serve, in one command.
+
+    `local-stack` migrates on its own (`depends-on`), so a fresh clone finds a schema.
+    It deliberately does **not** seed: evidence is append-only, so a stack that seeded
+    on every start would append a second observation of every seeded fact each time
+    you restarted it.
 
 ### It uses its own containers, on its own ports
 

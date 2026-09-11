@@ -54,6 +54,7 @@ development_status:
   cpm-platform-s03-one-command-local-stack: done
   cpm-platform-s04-one-persona-reaches-every-screen: done
   cpm-platform-s05-a-hundred-packages-real-advisories: done
+  cpm-platform-s06-the-stack-seeds-what-it-serves: done
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie

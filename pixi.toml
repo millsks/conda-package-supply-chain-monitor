@@ -671,7 +671,27 @@ docker-redis = { cmd = "docker compose exec redis redis-cli", default-environmen
 # somebody on the same network can read.
 flower = { cmd = "celery -A config.celery_app flower --address=127.0.0.1 --port=5555", default-environment = "dev", description = "Celery monitor at http://127.0.0.1:5555" }
 
-local-stack = { cmd = "honcho start", default-environment = "dev", env = { CELERY_TASK_ALWAYS_EAGER = "0", REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["docker-up"], description = "Redis, PostgreSQL, web, worker, beat and flower" }
+# The stack runs against the PostgreSQL its compose file brings up, and `migrate`,
+# `seed-personas` and `seed-demo` above run against whatever the *default* environment
+# resolves -- SQLite, unless a `.env` says otherwise. Those are two different
+# databases, and nothing said so: following the documented first-run sequence and then
+# starting the stack produced a product with no packages and, worse, no personas, so
+# there was not even a way to sign in and see that it was empty.
+#
+# So the three tasks below carry the stack's own environment. They are the reason
+# `local-stack` can be somebody's first command rather than their fourth.
+# `test_local_stack.py` reconciles the four `env` blocks against each other: four
+# copies of one database URL is exactly the shape that produced the defect, and a
+# fifth task added later that seeds the wrong database would reproduce it.
+stack-migrate = { cmd = "python manage.py migrate", default-environment = "dev", env = { REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["docker-up"], description = "Apply migrations to the local stack's PostgreSQL" }
+stack-seed = { cmd = "python -m config.local_dev.seed_demo", default-environment = "dev", env = { CELERY_TASK_ALWAYS_EAGER = "1", REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["stack-personas"], description = "Seed personas and the demo inventory into the local stack" }
+stack-personas = { cmd = "python -m config.local_dev.seed", default-environment = "dev", env = { REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["stack-migrate"], description = "Seed the local development personas into the local stack" }
+
+# `depends-on` carries the migration, so a fresh clone's first `local-stack` finds a
+# schema rather than fifty-two missing tables. Seeding stays a separate command: it
+# writes append-only demo evidence, and a task that did it every time the stack came
+# up would append a second observation of every fact on every restart.
+local-stack = { cmd = "honcho start", default-environment = "dev", env = { CELERY_TASK_ALWAYS_EAGER = "0", REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["docker-up", "stack-migrate"], description = "Redis, PostgreSQL, web, worker, beat and flower" }
 
 docs-serve = { cmd = "mkdocs serve --dev-addr 0.0.0.0:8888", default-environment = "dev", description = "Serve the documentation with live reload" }
 changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }

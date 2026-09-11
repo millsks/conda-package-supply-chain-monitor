@@ -38,20 +38,39 @@ Nearly every rule in this codebase falls out of keeping those two things apart.
 
 ## Part 1 — Day one: get it running
 
-### 1.1 Install and start
+### 1.1 Install and start the whole thing
+
+You need Docker running. Three commands:
 
 ```console
 pixi install
-pixi run migrate
-pixi run -e dev seed-personas
-pixi run -e dev seed-demo
-pixi run -e dev runserver
+pixi run -e dev stack-seed
+pixi run local-stack
 ```
 
-Then open **<http://localhost:8000/_local/>** and sign in as
-**`operations-persona`** — the one persona that reaches every screen. (There is no
-identity provider locally; that page is the substitute. [Why, and what the other five
-personas are for](development.md#local-personas).)
+That is the **real product**: Redis and PostgreSQL in containers, then gunicorn with
+the deployed worker class, a Celery worker draining all four queues, beat scheduling
+the sweeps, and flower watching it. `stack-seed` brings the containers up, migrates
+the database and puts a hundred packages and six personas in it; `local-stack` starts
+the four processes.
+
+!!! tip "Start with the whole stack, not just the web process"
+
+    `pixi run -e dev runserver` starts **only** the web process, against SQLite, with
+    Celery running tasks inline. Everything renders, and you learn nothing about the
+    request boundary — no worker, no queue, and no job that is ever visibly *queued*.
+
+    Use it when you are editing code and want autoreload. Use `local-stack` when you
+    want to understand what you are maintaining. Note that they are **two different
+    databases**: `runserver` and the plain `migrate` / `seed-demo` tasks use SQLite,
+    and the stack tasks use the container's PostgreSQL. Seed the one you are about to
+    run.
+
+Then open **<http://localhost:8000/_local/>** and sign in as **`operations`** — the
+one persona that reaches every screen. (There is no identity provider locally; that
+page is the substitute. Each row is labelled by the persona's *key*, so the row you
+want reads `operations` and the account behind it is `operations-persona`. [Why, and
+what the other five are for](development.md#local-personas).)
 
 Now open each of these and look at it:
 
@@ -62,6 +81,7 @@ Now open each of these and look at it:
 | <http://localhost:8000/conda-sentinel/coverage/> | What the monitor **cannot** see |
 | <http://localhost:8000/conda-sentinel/queues/remediation/> | Work somebody has to do |
 | <http://localhost:8000/conda-sentinel/reports/kev/> | One recurring question |
+| <http://127.0.0.1:5555/> | flower — the worker, its queues, and what has run |
 
 **Exercise.** On the packages screen, find a row with a red chip and click the package
 name. The detail page shows you *which observation* the verdict was computed from —
@@ -234,10 +254,23 @@ Then read [Asynchronous work](asynchronous-work.md) — the four queues, all thi
 tasks, what beat actually fires, and the two tasks **nothing fires**, which is the
 single most surprising thing in this system.
 
-**Exercise.** Start `pixi run local-stack`, open <http://127.0.0.1:5555/>, and watch
-the worker's banner. It should name `collect`, `policy`, `verify` and `export`. If it
-names an `amqp://` transport instead, you have found the failure that took a session
-to diagnose once already.
+**Exercise.** You started this in Part 1. Read the worker's banner in that terminal
+— it names the queues it is consuming and, one line above them, its transport:
+
+```
+- ** ---------- .> transport:   redis://localhost:6380/0
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                .> collect          exchange=collect(direct) key=collect
+                .> export           exchange=export(direct) key=export
+                .> policy           exchange=policy(direct) key=policy
+                .> verify           exchange=verify(direct) key=verify
+```
+
+If that transport line ever reads `amqp://guest@localhost:5672`, the worker has
+resolved the wrong settings: it will start cleanly, print exactly the banner above,
+and consume nothing, because it is connected to a RabbitMQ that is not running. That
+took a session to diagnose once, with every test green.
 
 !!! warning "Learn this one early"
 
