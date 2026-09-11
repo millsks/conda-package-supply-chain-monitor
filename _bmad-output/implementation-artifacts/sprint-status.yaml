@@ -55,6 +55,7 @@ development_status:
   cpm-platform-s04-one-persona-reaches-every-screen: done
   cpm-platform-s05-a-hundred-packages-real-advisories: done
   cpm-platform-s06-the-stack-seeds-what-it-serves: done
+  cpm-platform-s07-a-sign-in-goes-somewhere-that-exists: done
   epic-platform-retrospective: optional
 
   # CPM-EP-EVIDENCE: An evidence log that cannot lie

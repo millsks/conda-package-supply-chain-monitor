@@ -1,7 +1,10 @@
 import sys
 
+from django.urls import reverse_lazy
+
 from conda_sentinel.core.roles import RoleContract
 from config.authorization.claims import ClaimsContract
+from config.local_dev.constants import LOCAL_SIGNIN_URL_NAME
 from config.local_dev.keys import DEV_KEY_DIR
 from config.local_dev.keys import JWKS_FILENAME
 from config.startup import run_stage_one
@@ -260,8 +263,37 @@ OIDC_JWKS_URL = OIDC_JWKS_URL.strip() or _DEV_JWKS_LOCATION
 # these values are verified as strings and are never fetched. Nothing here reaches
 # `SOCIALACCOUNT_PROVIDERS`, which `base.py` already built from the issuer it read
 # there.
-OIDC_ISSUER = OIDC_ISSUER.strip() or "https://local-dev.invalid/realms/component"
+_CONFIGURED_ISSUER = OIDC_ISSUER.strip()
+OIDC_ISSUER = _CONFIGURED_ISSUER or "https://local-dev.invalid/realms/component"
 OIDC_AUDIENCE = OIDC_AUDIENCE.strip() or "local-dev-component-api"
+
+# Where an unauthenticated request to a gated page is sent, **when there is no
+# identity provider to send it to**.
+#
+# `base.py` points `LOGIN_URL` at allauth's OIDC login view, which is right in every
+# deployment and is a dead end here. The line above is why: the fallback issuer is a
+# string the Bearer path verifies against and never fetches, and it deliberately does
+# not reach `SOCIALACCOUNT_PROVIDERS` -- which `base.py` had already built, from the
+# issuer it read there. So in a local run with nothing configured the provider's
+# `server_url` is `""`, and allauth asks `requests` for
+# `"" + "/.well-known/openid-configuration"`.
+#
+# That is not a redirect to a provider that is down. It is a `MissingSchema` out of
+# `requests`, which surfaces as a **500 with a traceback** on the first gated page
+# anybody opens -- before they have found the local sign-in page, and with nothing
+# in the error to suggest that the sign-in page is where they were supposed to go.
+#
+# The persona page *is* the local substitute for the provider, so it is what
+# `LOGIN_URL` names. A developer who exports `COMPONENT_OIDC_ISSUER` to point at a
+# real provider keeps the OIDC flow, because in that case `base.py` built the provider
+# block from the same value and the flow works.
+#
+# Reversed rather than written as a path: `config/urls.py` mounts the local sign-in
+# at `LOCAL_SIGNIN_PATH_PREFIX`, `test_local_dev_urls.py` pins that prefix to one
+# module, and two spellings of one path is how a renamed prefix becomes a redirect
+# to a 404.
+if not _CONFIGURED_ISSUER:
+    LOGIN_URL = reverse_lazy(f"{LOCAL_SIGNIN_URL_NAME}_index")
 
 # Stage 1 of the refusal contract (AD-26, FR-12). The last statement of this
 # module, deliberately: it runs after the AD-8 composition step by construction,

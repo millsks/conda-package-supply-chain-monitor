@@ -330,6 +330,7 @@ failure looks like.
 | Question | Where you look |
 |---|---|
 | Is the service up? | `/livez` and `/readyz` |
+| Why does Coverage say every collector has *never run*? | Expected on a fresh stack — [beat's first fire is one interval away](asynchronous-work.md#a-running-beat-does-not-mean-anything-has-run) |
 | Is anything not being collected? | The **Coverage** screen |
 | Did last night's sweeps run? | Coverage, and the run ledger |
 | Is the queue backing up? | flower |

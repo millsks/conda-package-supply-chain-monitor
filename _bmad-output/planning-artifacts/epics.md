@@ -727,6 +727,65 @@ it creates is **four copies of one database URL** — which is the shape the ori
 defect had. `test_local_stack.py` reconciles them, so a fifth task added later that
 seeded the wrong database fails there rather than in somebody's first hour.
 
+### CPM-PLATFORM-S07: A local run sends a sign-in somewhere that exists
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> raised by the product owner pasting a `local-stack` log and asking what the errors
+> were.
+
+Opening any gated page in a local run, before signing in, returned a **500 with a
+traceback**:
+
+```
+requests.exceptions.MissingSchema: Invalid URL '/.well-known/openid-configuration':
+No scheme supplied.
+```
+
+The chain: `base.py` points `LOGIN_URL` at allauth's OIDC login view, which is right in
+every deployment. `local.py` supplies a fallback issuer — but deliberately does not
+reach `SOCIALACCOUNT_PROVIDERS`, which `base.py` had already built from the issuer it
+read *there*, because the fallback exists for the Bearer path, which verifies the
+string and never fetches it. So in a local run with nothing configured the provider's
+`server_url` is `""`, and allauth asks `requests` for that joined to the discovery
+path.
+
+It is not a redirect to a provider that is down. It is a stack trace on the first page
+anybody opens, before they have found the local sign-in page, with nothing in the error
+to suggest that is where they were going.
+
+As somebody running this locally,
+I want an unauthenticated page to send me somewhere I can sign in,
+So that my first click is not a traceback.
+
+**Acceptance Criteria:**
+
+**Given** a local run with no identity provider configured
+**When** an unauthenticated request reaches a gated page
+**Then** it is redirected to the local sign-in page, carrying where it was going
+
+**Given** the same run
+**When** the redirect is followed
+**Then** it reaches a page that exists
+
+**Given** a local run where `COMPONENT_OIDC_ISSUER` **is** configured
+**When** an unauthenticated request reaches a gated page
+**Then** the OIDC flow is kept, because there is now something to redirect to
+
+**Satisfies:** nothing directly.
+**Governed by:** inherited `AD-23` — the issuer stays the single trust anchor, and
+nothing here changes what the Bearer path verifies against. This is only where a
+*browser* is sent when there is no provider to send it to.
+
+**Constrained: the provider block is left alone.** Making `local.py` rewrite
+`SOCIALACCOUNT_PROVIDERS` to carry the fallback issuer would turn a `MissingSchema`
+into a DNS failure against a `.invalid` host — a different 500, not a fix — and would
+undo a separation `local.py` argues for at length. The local sign-in page *is* the
+substitute for the provider, so it is what `LOGIN_URL` names.
+
+**Constrained:** the path is reversed from the URL name rather than written out. The
+prefix is pinned to one module by an audit, and that audit reads comments too — which
+is how the first draft of this change failed it, three times, in prose.
+
 ## CPM-EP-EVIDENCE: An evidence log that cannot lie
 
 Delivers the shared kernel every later epic builds on. Nothing here is user-facing, and
