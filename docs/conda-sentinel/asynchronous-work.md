@@ -134,6 +134,51 @@ collector, or a freshness target that is not strictly greater than its cadence i
 schedule against a daily-derived target would make the whole inventory read stale five
 days out of seven with every gate green.
 
+### A running beat does not mean anything has run
+
+The eight entries above are **intervals, not clock times**. `django_celery_beat` gives a
+new entry a `last_run_at` of "now" when it first registers it, so **the first fire is one
+whole interval later** — a day for the six daily sweeps, a week for the two weekly ones.
+
+So on a stack you started a minute ago:
+
+```
+cpm-sweep-source-release   enabled=True  interval=every 86400 seconds  last_run=None  total_runs=0
+cpm-sweep-vulnerability    enabled=True  interval=every 86400 seconds  last_run=None  total_runs=0
+…
+```
+
+Everything is healthy. Nothing has run. The Coverage screen will say **never run** for
+all ten collectors, and that is the screen working: the only runs in the ledger are the
+seeder's, filed under `local-dev-demo-seed`, which is deliberately not a registered
+collector name so that seeding cannot make a real collector look healthy.
+
+To confirm the worker actually works without waiting a day, enqueue something by hand:
+
+```python
+# pixi run -e dev python manage.py shell
+from config.celery_app import app
+from conda_sentinel.policies.parameters import parameters_file, parameters_from
+
+source = parameters_file()
+version = sorted(parameters_from(source.read_text(encoding="utf-8"), source=source))[-1]
+app.send_task("cpm.policy.run", args=[version])
+```
+
+A policy run is the right thing to send: it is pure computation over evidence that is
+already there, it makes no outbound call, and it is one of the two tasks nothing fires
+anyway. Watch it in flower, then look at the home page's "rollup computed" stamp.
+
+!!! danger "Do not hand-trigger a collector sweep against the demo inventory"
+
+    `app.send_task("cpm.collect.sweep", kwargs={"collector": "source_release"})` will
+    do exactly what it says: make **real HTTP requests** about the demo packages. Their
+    repository URLs are fixtures (`https://github.com/demo/<name>`), so the collector
+    will correctly record `not_found` for all of them — **permanently, in an
+    append-only log**, on top of the demo evidence you were looking at.
+
+    Send a sweep when you have a real watchlist. Not before.
+
 ### Two tasks nothing fires
 
 !!! warning "This is the most surprising thing in the system"

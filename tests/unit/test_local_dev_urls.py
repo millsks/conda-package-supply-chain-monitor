@@ -39,6 +39,12 @@ the source tree is read as text, with no database, socket or template render.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from types import ModuleType
+
 
 import pytest
 from django.conf import settings
@@ -52,8 +58,11 @@ from config.local_dev import views
 from config.local_dev.constants import LOCAL_SIGNIN_PATH_PREFIX
 from config.local_dev.constants import LOCAL_SIGNIN_URL_NAME
 from config.local_dev.personas import persona_keys
+from config.locality import LOCAL as LOCAL_RUNTIME
 from config.locality import RUNTIME_ENV_VAR
 from config.urls import local_signin_urlpatterns
+from tests.settings_import import evicted_settings_modules
+from tests.settings_import import import_settings
 
 # The module Epic 4's predicate resolves against. Spelled here because it is the
 # thing being asserted, not a way of naming something that could be imported.
@@ -247,3 +256,88 @@ def test_both_urlconfs_reference_the_imported_constants() -> None:
     """
     assert project_urls.LOCAL_SIGNIN_PATH_PREFIX is LOCAL_SIGNIN_PATH_PREFIX
     assert local_dev_urls.LOCAL_SIGNIN_URL_NAME is LOCAL_SIGNIN_URL_NAME
+
+
+@pytest.fixture
+def _fresh_settings() -> Iterator[None]:
+    """Evict the settings modules around each case, and restore structlog after.
+
+    Without it `importlib.import_module` hands back the copy the previous case
+    imported, and the second of the two cases below reads the first one's
+    environment -- which is how it first passed while asserting the opposite of
+    what it says.
+
+    Yields:
+        Control to the test.
+
+    """
+    yield from evicted_settings_modules()
+
+
+def _local_settings(monkeypatch: pytest.MonkeyPatch, **environment: str) -> ModuleType:
+    """Import `config.settings.local` fresh, under a stated environment.
+
+    Fresh rather than reading `django.conf.settings`: the suite runs under
+    `config.settings.test`, so the running configuration is not the one these cases
+    are about. What is under test is what `local.py` *composes* at import time.
+
+    Args:
+        monkeypatch: The environment is set through it, so it is restored.
+        **environment: Variables to set for the import.
+
+    Returns:
+        The freshly imported module.
+
+    """
+    return import_settings(
+        "config.settings.local",
+        monkeypatch,
+        environment=environment,
+        runtime_variable=RUNTIME_ENV_VAR,
+        runtime=LOCAL_RUNTIME,
+    )
+
+
+@pytest.mark.usefixtures("_fresh_settings")
+def test_an_unconfigured_local_run_sends_a_sign_in_to_the_persona_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`CPM-PLATFORM-S07`: the local substitute for the provider is where login goes.
+
+    `base.py` points `LOGIN_URL` at allauth's OIDC login view, which is right in every
+    deployment and a dead end here. `local.py`'s fallback issuer is a string the Bearer
+    path verifies against and never fetches, and it deliberately does not reach
+    `SOCIALACCOUNT_PROVIDERS` -- which `base.py` had already built from the issuer it
+    read there. So the provider's `server_url` is `""`, allauth asks `requests` for
+    that value joined to the discovery path, and the result is a `MissingSchema`.
+
+    Not a redirect to a provider that is down: **a 500 with a traceback**, on the first
+    gated page anybody opens, before they have found the sign-in page and with nothing
+    in the error to suggest that is where they were going.
+
+    Args:
+        monkeypatch: pytest's patcher, which restores the environment.
+
+    """
+    composed = _local_settings(monkeypatch)
+
+    assert str(composed.LOGIN_URL) == f"/{LOCAL_SIGNIN_PATH_PREFIX}"
+
+
+@pytest.mark.usefixtures("_fresh_settings")
+def test_a_configured_local_run_keeps_the_real_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer pointing at a real provider is not redirected away from it.
+
+    The substitution is for the case where there is nothing to redirect *to*. When
+    `COMPONENT_OIDC_ISSUER` is set, `base.py` built the provider block from the same
+    value and the flow works -- so sending that developer to the persona page instead
+    would be the component overriding a configuration they supplied on purpose.
+
+    This is the half that makes the case above a condition rather than a removal.
+
+    Args:
+        monkeypatch: pytest's patcher, which restores the environment.
+
+    """
+    composed = _local_settings(monkeypatch, COMPONENT_OIDC_ISSUER="https://idp.example.test/realms/dev")
+
+    assert str(composed.LOGIN_URL) != f"/{LOCAL_SIGNIN_PATH_PREFIX}"
+    assert "oidc" in str(composed.LOGIN_URL)
