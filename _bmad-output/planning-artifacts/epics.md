@@ -2773,6 +2773,69 @@ reads as a bug in the two that lack it, and the three small ones are only small 
 **Constrained:** the coverage screen is **excluded, deliberately**. It has one row per
 collector rather than per package, so a box that looked like the others would answer a
 different question. Not an oversight; recorded so it is not later "completed".
+
+### CPM-APP-S19: One row, one fact, one spelling
+
+> **Added after the epic was written**, on the terms `CPM-APP-S09` established, and
+> raised by the product owner with a screenshot of the coverage screen: *Last finished*
+> says `never run` and *Status* says `never_run` — shouldn't they both be "never run"?
+
+They should. `CPM-APP-S15` fixed exactly this in the navigation — a stored value
+rendered where a label belonged — and the coverage table had the same defect in a
+sharper form, because here the two spellings sit **on the same row**:
+
+| Last finished | Status |
+|---|---|
+| `never run` | `never_run` |
+
+The left column had no timestamp to print and wrote a sentence. The right column
+rendered the value it had. To the one person most likely to be reading — somebody
+wondering why nothing has run — that is two different states.
+
+`surface/labels.py` already draws the line and already decides this case. Its rule is
+not "labels everywhere": *a value a person reads is either a status this product
+asserts, or it has a label*, and an underscore is the tell. `never_run` is not an
+`OutcomeState` — `surface/coverage.py` argues at length that it is deliberately not
+`unknown`, because `unknown` is an answer about a package and this is a statement about
+a collector. So it is a slug, and it needed a label.
+
+As anybody reading the coverage screen,
+I want one fact to be spelled one way,
+So that I am not left wondering whether two columns disagree.
+
+**Acceptance Criteria:**
+
+**Given** a collector nothing has run
+**When** its row is rendered
+**Then** both columns say the same thing, the way a person says it
+
+**Given** the status value
+**When** the row picks its tone
+**Then** it still uses the value, because that is what a tone is chosen from
+
+**Given** a collector status this product declares
+**When** it is rendered anywhere
+**Then** it carries no slug separator
+
+**Given** one of the five outcome states
+**When** it appears on the coverage screen
+**Then** it is emitted verbatim, as `CPM-AD-24` requires
+
+**Satisfies:** nothing directly.
+**Governed by:** `CPM-AD-24` — and the constraint is which half of it applies. The five
+states survive verbatim to every surface; a collector's health is a different
+vocabulary and does not.
+
+**Constrained:** `ok` and `failing` are **not** given labels. They are already what a
+person would say, and a map spelling them out would look like a translation table for a
+vocabulary that mostly does not need one — which is how a later reader concludes every
+value must have a label and gives one to a status, undoing
+`test_no_outcome_state_acquires_a_label` from the other direction.
+
+**Constrained:** asserted over the **rendered page**, not the projection. The
+projection was never wrong — `last_status` is correct and is still on the row. What was
+wrong was what got printed, which is the one thing a test of the projection cannot
+see.
 ### Open questions this epic raises
 
 - **Does the coverage screen deserve a functional requirement?** `CPM-APP-S09` was

@@ -169,15 +169,46 @@ A policy run is the right thing to send: it is pure computation over evidence th
 already there, it makes no outbound call, and it is one of the two tasks nothing fires
 anyway. Watch it in flower, then look at the home page's "rollup computed" stamp.
 
+### Making the collectors actually run
+
+Waiting a day is one option. The other is to enqueue a dispatch yourself:
+
+```python
+# pixi run -e dev python manage.py shell
+from config.celery_app import app
+
+app.send_task("cpm.collect.sweep", kwargs={"collector": "pypi_release"})
+```
+
+**On a component you have configured with a real watchlist, that is the answer.** Each
+dispatch selects the packages its collector can be asked about, enqueues one
+per-package task each, and the Coverage screen stops saying `never run` for it.
+
+On a *demo* component it is mostly not, and it is worth knowing why before you try it:
+
+| Collector | Against the seeded demo inventory |
+|---|---|
+| `inventory` | **Fails.** `watchlist.csv` ships with no rows, on purpose |
+| `source_release` | Records `not_found` for every package — the demo's repository URLs are fixtures (`https://github.com/demo/<name>`) |
+| `pypi_release`, `python_readiness` | Genuinely work. The demo's purls are real (`pkg:pypi/django`), so these query pypi.org and get real answers |
+| `feedstock` | Mostly works — the demo's feedstock URLs follow conda-forge's real naming |
+| `conda_package`, `license` | Observe nothing. Both need `CPM_MONITORED_CHANNELS`, which is empty |
+| `vulnerability`, `kev`, `py314_verification` | Observe nothing. Each needs a source you declare |
+
+So a sweep over the demo gives you a Coverage screen that is *partly* honest and an
+evidence log with real observations mixed into fixtures.
+
 !!! danger "Do not hand-trigger a collector sweep against the demo inventory"
 
-    `app.send_task("cpm.collect.sweep", kwargs={"collector": "source_release"})` will
-    do exactly what it says: make **real HTTP requests** about the demo packages. Their
-    repository URLs are fixtures (`https://github.com/demo/<name>`), so the collector
-    will correctly record `not_found` for all of them — **permanently, in an
-    append-only log**, on top of the demo evidence you were looking at.
+    Every one of those rows writes **real observations into an append-only log**, on
+    top of the demo evidence you were looking at. `CPM-AD-2` means none of it can be
+    taken back: the `not_found` a `source_release` sweep records about
+    `github.com/demo/django` is permanent, and every replayed policy run reads it.
 
-    Send a sweep when you have a real watchlist. Not before.
+    If you want to see collection work, the honest way is a **real watchlist** — even
+    a three-row one — and a `cpm.collect.inventory` run before any sweep. If you only
+    wanted to prove the worker is alive, send `cpm.policy.run` instead: it computes,
+    and it writes no evidence at all.
 
 ### Two tasks nothing fires
 

@@ -31,6 +31,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -453,3 +454,44 @@ def test_the_view_offers_no_write_method(route: str) -> None:
 
     """
     assert a_reader().post(reverse(route)).status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+
+@pytest.mark.django_db
+def test_the_collector_table_says_never_run_the_way_a_person_says_it() -> None:
+    """`CPM-APP-S19`: one row, one fact, one spelling.
+
+    On a component nothing has collected with, every row of this table is the
+    never-run row -- so the two columns that say so sit beside each other. *Last
+    finished* wrote a sentence, because it had no timestamp to print; *Status* wrote
+    `never_run`, because it rendered the value it had. The result read as two
+    different states to the one person most likely to be looking: somebody wondering
+    why nothing has run.
+
+    Asserted over the **rendered page** rather than over the projection, because the
+    projection was never wrong. The value is still on the row, and still picks the
+    tone; what changed is what gets printed.
+    """
+    body = a_reader().get(reverse("conda_sentinel:coverage")).content.decode()
+
+    assert "never run" in body
+    assert "never_run" not in body, "the stored slug reached the screen beside a column spelling it in English"
+
+
+@pytest.mark.django_db
+def test_no_collector_status_reaches_the_screen_as_a_slug() -> None:
+    """The general form, so a fourth status added later cannot arrive unlabelled.
+
+    `surface/labels.py` draws the line at the separator: an underscore is how this
+    product spells a *value*, and nothing a person reads is spelled that way. The five
+    `OutcomeState` values are the deliberate exception and do not appear in this
+    table -- a collector's health is a different vocabulary, which is the argument
+    `surface/coverage.py` makes for `never_run` not being `unknown`.
+    """
+    from conda_sentinel.surface.coverage import collector_health  # noqa: PLC0415 - read beside the claim
+
+    body = a_reader().get(reverse("conda_sentinel:coverage")).content.decode()
+    statuses = {health.last_status for health in collector_health(now=timezone.now())}
+
+    assert statuses, "no collector is registered, so this case is measuring nothing"
+    slugs = [status_value for status_value in statuses if "_" in status_value]
+    assert [slug for slug in slugs if slug in body] == [], f"these reached the page as slugs: {slugs}"

@@ -22,6 +22,19 @@ label existed or should have.
 status this product asserts, or it has a label.** `tests/unit/django_apps/
 test_display_vocabulary.py` holds it.
 
+**The coverage screen has a fourth vocabulary, and it needed the same treatment.**
+`surface/coverage.py` reports a collector as `ok`, `failing` or `never_run`, and those
+are *not* `OutcomeState` values -- its own docstring argues that `never_run` is
+deliberately not `unknown`, because `unknown` is an answer about a package and this is
+a statement about a collector. So the rule above applies to them, and one of the three
+falls foul of it.
+
+It showed as two spellings of one idea on a single row: the *Last finished* column said
+`never run`, because the template had nothing to render and wrote a sentence, while
+*Status* beside it said `never_run`, because it rendered what it had. `ok` and
+`failing` need no label and are not given one -- a map that spelled them out would be
+the "labels everywhere" rule this module opens by rejecting.
+
 **Two sources underneath, one module on top.** A queue's label is `Queue`'s own --
 that is what a `TextChoices` label is for, and a second mapping beside it would be a
 second thing to keep true. Roles have no label anywhere: `core/roles.py` is imported
@@ -48,7 +61,24 @@ from conda_sentinel.workflow.states import Queue
 if TYPE_CHECKING:
     from django.utils.functional import _StrPromise
 
-__all__ = ["ROLE_LABELS", "labelled_queues", "queue_label", "role_label"]
+__all__ = [
+    "COLLECTOR_STATUS_LABELS",
+    "ROLE_LABELS",
+    "collector_status_label",
+    "labelled_queues",
+    "queue_label",
+    "role_label",
+]
+
+#: What a collector's health is called where somebody reads it.
+#:
+#: One entry, on purpose. `ok` and `failing` are what a person would say already; the
+#: slug is the only one spelled the way this product spells *values* rather than the
+#: way anybody reads them, and it was appearing beside a column that said the same
+#: thing in English.
+COLLECTOR_STATUS_LABELS: Final[dict[str, _StrPromise]] = {
+    "never_run": _("never run"),
+}
 
 #: What each role is called on a screen.
 #:
@@ -100,6 +130,26 @@ def role_label(role: str) -> str:
 
     """
     return str(ROLE_LABELS.get(role, role))
+
+
+def collector_status_label(status: str) -> str:
+    """Return what a collector's health is called on the coverage screen.
+
+    Only `never_run` has an entry. `ok` and `failing` are already what a person would
+    say, and spelling them into a map would make the map look like a translation table
+    for a vocabulary that mostly does not need one -- which is how a later reader
+    concludes that every value must have a label, and gives one to a status.
+
+    Args:
+        status: What `surface/coverage.py` concluded about the collector.
+
+    Returns:
+        Its label, or the value itself for anything not declared here -- the fallback
+        `queue_label` and `role_label` make for the same reason: a label is not worth
+        a 500.
+
+    """
+    return str(COLLECTOR_STATUS_LABELS.get(status, status))
 
 
 def labelled_queues() -> list[dict[str, str]]:
