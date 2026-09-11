@@ -154,6 +154,7 @@ development_status:
   cpm-app-s17-finding-a-package-by-name: done
   cpm-app-s18-queues-and-reports-are-searchable: done
   cpm-app-s19-one-row-one-fact-one-spelling: done
+  cpm-app-s20-every-screen-reads-in-sentence-case: done
   epic-app-retrospective: optional
 
   # CPM-EP-DOCS: Documentation that says which product it is about

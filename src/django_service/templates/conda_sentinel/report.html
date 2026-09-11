@@ -104,7 +104,7 @@
           <tr>{% for column in page.columns %}<th>{{ column.heading }}</th>{% endfor %}</tr>
         </thead>
         <tbody>
-          {% for row in page.rows %}
+          {% for row in page.readable_rows %}
             <tr>
               {% comment %}
                 A status is printed with no `{% if %}` around it: CPM-AD-24 emits it
@@ -112,7 +112,7 @@
                 surface whose export leaves the system, so it is where that rule
                 matters most.
               {% endcomment %}
-              {% for cell in row %}<td class="mono">{{ cell }}</td>{% endfor %}
+              {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
             </tr>
           {% empty %}
             <tr><td colspan="{{ page.columns|length }}">{% translate "Nothing matches this report." %}</td></tr>

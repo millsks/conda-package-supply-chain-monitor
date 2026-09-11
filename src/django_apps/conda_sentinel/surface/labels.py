@@ -4,12 +4,18 @@ Three of this product's vocabularies reach a reader: derived statuses, queue nam
 and role names. **They are not treated the same, and the difference is the whole of
 this module.**
 
-**A derived status is emitted verbatim, and giving it a label would be a defect.**
-`CPM-AD-24` says a status appears as its `OutcomeState` value on every read surface,
-and `CPM-APP-S07`'s `StatusField` refuses anything else. `unknown` means the same
-thing on a screen, in a CSV and in a JSON response precisely because nobody translated
-it, and a reader who has learned the five states can carry them between surfaces. A
-blanket "never show a raw value" rule would take that away.
+**A derived status is emitted verbatim on every surface `CPM-AD-24` names, and the
+HTML is not one of them.** That decision's rule lists three — "API, export, and
+governed view" — and all three are read by machines. `unknown` means the same thing in
+a CSV and in a JSON response precisely because nobody translated it, and an integrator
+who has learned the five states can carry them between those surfaces.
+
+The screen was never in that list. It rendered values because a template prints what it
+is handed, not because a rule said to, and `CPM-APP-S20` made that a decision instead
+of a default: **the HTML renders a value's label and carries the value beside it**, so
+the export a reader downloads still says `advisories_matched` while the table they
+downloaded it from says `Advisories matched`. The value is what is projected; the label
+is how it is read.
 
 **A queue name and a role name are the opposite case.** `identity_review` and
 `security_reviewer` are storage: nobody says them aloud, they are not a vocabulary a
@@ -64,7 +70,9 @@ if TYPE_CHECKING:
 __all__ = [
     "COLLECTOR_STATUS_LABELS",
     "ROLE_LABELS",
+    "SPELLED_OUT",
     "collector_status_label",
+    "display_label",
     "labelled_queues",
     "queue_label",
     "role_label",
@@ -163,3 +171,71 @@ def labelled_queues() -> list[dict[str, str]]:
 
     """
     return [{"value": queue.value, "label": str(queue.label)} for queue in Queue]
+
+
+#: The values whose label is not their words with the separators taken out.
+#:
+#: Everything else derives, and deriving is what keeps this map short: a vocabulary of
+#: forty values with forty hand-written labels is forty chances to disagree with the
+#: value, and the next person to add a status would have to find this file. What cannot
+#: derive is a value carrying a name, an acronym or a version number -- `kev` is an
+#: initialism, `pypi` is spelled two ways and neither is `Pypi`, and `py314` is a
+#: Python version with the dot taken out.
+SPELLED_OUT: Final[dict[str, _StrPromise]] = {
+    # Two letters, and deriving makes them `Ok`, which nobody writes.
+    "ok": _("OK"),
+    "kev": _("KEV"),
+    "kev_findings": _("KEV findings"),
+    "pypi_release": _("PyPI release"),
+    "pypi_release_snapshots": _("PyPI release snapshots"),
+    "py314_verification": _("Python 3.14 verification"),
+    "python_verification_results": _("Python 3.14 verification results"),
+    "validate_python_314": _("Validate Python 3.14"),
+    "conda_package": _("Conda package"),
+    "conda_artifact": _("Conda artifact"),
+    "conda_package_snapshots": _("Conda package snapshots"),
+}
+
+
+def display_label(value: object) -> str:
+    """Return what one stored value is called where a person reads it.
+
+    **The one entry point the templates use**, so a template author never has to know
+    which vocabulary a value came from. Four sources, in order, and the order is the
+    specific before the general:
+
+    1. A queue, whose label is `Queue`'s own -- that is what a `TextChoices` label is
+       for, and a second mapping beside it would be a second thing to keep true.
+    2. A role, from `ROLE_LABELS`, because `core/roles.py` is imported at settings time
+       and deliberately imports almost nothing.
+    3. `SPELLED_OUT`, for the values whose label cannot be derived.
+    4. Derivation: separators out, first letter up, the rest left alone.
+
+    **Sentence case, not title case.** Django's automatic `TextChoices` label
+    title-cases every word and produces `Not Listed`, which is a heading rather than a
+    thing somebody says. Deriving here rather than reading those labels is what makes
+    the whole product read one way.
+
+    Args:
+        value: The stored value. Anything not a string is returned as its own text,
+            so a template handing this a number or `None` renders rather than raising.
+
+    Returns:
+        The label. The value's own text where nothing is declared and nothing derives,
+        which is the fallback `queue_label` and `role_label` already make: a label is
+        not worth a 500.
+
+    """
+    if not isinstance(value, str) or not value.strip():
+        return str(value)
+    if (labelled := queue_label(value)) != value:
+        return labelled
+    if (labelled := role_label(value)) != value:
+        return labelled
+    if value in SPELLED_OUT:
+        return str(SPELLED_OUT[value])
+    # Underscores only. A hyphen inside a value is usually a hyphen in the words --
+    # `inventory-derived` is *inventory-derived*, not "inventory derived" -- while an
+    # underscore is always this product's separator standing in for a space.
+    words = value.replace("_", " ").strip()
+    return words[:1].upper() + words[1:]

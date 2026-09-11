@@ -1,5 +1,5 @@
 {% extends "conda_sentinel/base.html" %}
-{% load i18n %}
+{% load i18n health %}
 
 {% block title %}{% translate "Home" %}{% endblock title %}
 
@@ -82,7 +82,7 @@
         {% for collector in collectors %}
           {% if not collector.has_ever_run or not collector.inside_target or collector.failures %}
             <tr>
-              <td class="pkg">{{ collector.name }}</td>
+              <td class="pkg">{{ collector.name|label }}</td>
               <td class="mono">
                 {% if not collector.has_ever_run %}
                   {% translate "has never run" %}

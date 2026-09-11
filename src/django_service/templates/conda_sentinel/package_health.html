@@ -58,7 +58,7 @@
                        name="{{ entry.facet.param }}"
                        value="{{ value }}"
                        {% if value in entry.selected %}checked{% endif %} />
-                {{ value }}
+                {{ value|label }}
               </label>
             {% endfor %}
           </div>
@@ -99,13 +99,13 @@
               <td class="pkg">
                 <a href="{% url 'conda_sentinel:package-detail' row.canonical_name %}">{{ row.canonical_name }}</a>
               </td>
-              <td><span class="pbucket {{ row.priority|tone }}">{{ row.priority }}</span></td>
+              <td><span class="pbucket {{ row.priority|tone }}">{{ row.priority|label }}</span></td>
               {% comment %} `default_if_none` rather than an `{% if %}`: a score of zero is a real score
                  and is falsy, so a truthiness test would blank the package nothing has
                  raised the priority of -- which is the row a reader is most likely to
                  misread as missing data. {% endcomment %}
               <td class="num">{{ row.score|default_if_none:"" }}</td>
-              <td>{{ row.work_type }}</td>
+              <td>{{ row.work_type|label }}</td>
               {% comment %} CPM-APP-S02 AC 4, and it is why every cell below prints
                  `cell.status` with no `{% if %}` around it: a status renders as
                  itself, never as blank and never as clean. The tone filter cannot
@@ -113,13 +113,13 @@
                  new outcome from arriving as an undecorated chip. {% endcomment %}
               {% for cell in row.cells %}
                 <td>
-                  <span class="chip {{ cell.status|tone }}">{{ cell.status }}</span>
+                  <span class="chip {{ cell.status|tone }}">{{ cell.status|label }}</span>
                   <div class="ev">
                     {{ cell.note }}{% if cell.observed_at %} &middot; {{ cell.observed_at|date:"m-d H:i" }}Z{% endif %}
                   </div>
                 </td>
               {% endfor %}
-              <td><span class="conf {{ row.confidence|tone }}">{{ row.confidence }}</span></td>
+              <td><span class="conf {{ row.confidence|tone }}">{{ row.confidence|label }}</span></td>
             </tr>
           {% empty %}
             <tr>
