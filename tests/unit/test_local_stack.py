@@ -330,7 +330,9 @@ def test_the_way_down_is_the_script_and_the_script_is_scoped_to_this_checkout() 
     command name alone would kill that one too.
     """
     task = tasks()["local-stack-down"]
-    assert task["cmd"] == f"bash {STACK_DOWN.relative_to(REPO_ROOT)}", task
+    # `as_posix()`: the `cmd` is a literal with forward slashes, and `relative_to`
+    # alone renders a backslash on the Windows compatibility job.
+    assert task["cmd"] == f"bash {STACK_DOWN.relative_to(REPO_ROOT).as_posix()}", task
 
     script = STACK_DOWN.read_text(encoding="utf-8")
     assert ".pixi/envs/dev/bin/(gunicorn|celery)" in script, "the match is on this checkout's environment path"
