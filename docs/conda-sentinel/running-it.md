@@ -229,6 +229,12 @@ healthy, **migrates**, and then runs four processes together under
 `Ctrl-C` stops all four. The containers keep running — `pixi run docker-down` stops
 them, `pixi run docker-down-v` also discards their data.
 
+If honcho ended some other way — the terminal closed, `kill -9` — its four children
+outlive it: gunicorn keeps 8000, flower keeps 5555, and the next `local-stack` fails
+on both. `pixi run local-stack-down` finds those stragglers by this checkout's
+environment path, stops them (TERM, then KILL if a worker's warm shutdown does not
+finish), and then runs `docker-down`.
+
 !!! warning "The stack is a different database, and it has to be seeded separately"
 
     `migrate`, `seed-personas` and `seed-demo` run against whatever the **default**
@@ -283,6 +289,7 @@ not use your existing Redis or PostgreSQL, and it does not need you to stop them
 |---|---|
 | `pixi run docker-up` | start both, wait until healthy |
 | `pixi run docker-down` | stop them, keep the data |
+| `pixi run local-stack-down` | stop the stack's processes however honcho ended, then the containers |
 | `pixi run docker-down-v` | stop them, discard the data |
 | `pixi run docker-ps` | what is running |
 | `pixi run docker-logs` | follow both logs |

@@ -46,10 +46,12 @@ REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 PIXI: Final[Path] = REPO_ROOT / "pixi.toml"
 PROCFILE: Final[Path] = REPO_ROOT / "Procfile"
 COMPOSE: Final[Path] = REPO_ROOT / "compose.yaml"
+STACK_DOWN: Final[Path] = REPO_ROOT / "scripts" / "local-stack-down.sh"
 
 #: The tasks that make up the local stack and must stay outside the process group.
 OUTSIDE_THE_PROCESS_GROUP: Final[tuple[str, ...]] = (
     "local-stack",
+    "local-stack-down",
     "stack-migrate",
     "stack-personas",
     "stack-seed",
@@ -312,7 +314,49 @@ def test_seeding_is_not_something_the_stack_does_on_every_start() -> None:
     assert "stack-seed" not in tasks()["local-stack"].get("depends-on", [])
 
 
-@pytest.mark.parametrize("path", [PIXI, PROCFILE, COMPOSE], ids=lambda path: path.name)
+# ---------------------------------------------------------------------------
+# The way down when honcho did not take its children with it.
+# ---------------------------------------------------------------------------
+
+
+def test_the_way_down_is_the_script_and_the_script_is_scoped_to_this_checkout() -> None:
+    """`local-stack-down` finds stragglers by this checkout's environment, not by name.
+
+    Closing the terminal, or `kill -9` on honcho, reparents gunicorn, flower, beat
+    and the worker to PID 1, where they hold 8000 and 5555 until somebody finds them
+    by hand. The script is what finds them -- and it must match on the interpreter
+    path under *this* repository's `.pixi/envs/dev`, because the sibling repository's
+    stack runs a worker with the same `-A config.celery_app`, and a match on the
+    command name alone would kill that one too.
+    """
+    task = tasks()["local-stack-down"]
+    assert task["cmd"] == f"bash {STACK_DOWN.relative_to(REPO_ROOT)}", task
+
+    script = STACK_DOWN.read_text(encoding="utf-8")
+    assert ".pixi/envs/dev/bin/(gunicorn|celery)" in script, "the match is on this checkout's environment path"
+    assert "pkill -TERM" in script, "a warm shutdown first: an idle worker exits cleanly on TERM"
+    assert "pkill -KILL" in script, "a worker's warm shutdown waits for in-flight tasks, and a stuck one waits forever"
+    assert "pixi run docker-down" in script, "the containers come down last, so the worker is not left reconnecting"
+
+
+def test_the_way_down_does_not_discard_the_data() -> None:
+    """`docker-down`, not `docker-down-v`: stopping the stack is not resetting it.
+
+    The seeded inventory is append-only evidence that took a command to produce.
+    A stop that discarded it would make `stack-seed` a prerequisite of every
+    restart, which is the trap `local-stack` itself deliberately avoids.
+    """
+    commands = [
+        line.strip()
+        for line in STACK_DOWN.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert "pixi run docker-down" in commands, commands
+    assert not any("docker-down-v" in command for command in commands), commands
+
+
+@pytest.mark.parametrize("path", [PIXI, PROCFILE, COMPOSE, STACK_DOWN], ids=lambda path: path.name)
 def test_the_files_this_module_reads_are_where_it_thinks(path: Path) -> None:
     """So every case above cannot pass by parsing nothing.
 

@@ -693,6 +693,12 @@ stack-personas = { cmd = "python -m config.local_dev.seed", default-environment 
 # up would append a second observation of every fact on every restart.
 local-stack = { cmd = "honcho start", default-environment = "dev", env = { CELERY_TASK_ALWAYS_EAGER = "0", REDIS_URL = "redis://localhost:6380/0", DATABASE_URL = "postgres://conda_sentinel:local-development-only@localhost:5433/conda_sentinel" }, depends-on = ["docker-up", "stack-migrate"], description = "Redis, PostgreSQL, web, worker, beat and flower" }
 
+# `Ctrl-C` in the honcho terminal is the ordinary way down, and it works. This is for
+# the other way the stack ends -- the terminal closed, honcho killed -- when its
+# children are reparented to PID 1 and keep 8000 and 5555 for days. A script rather
+# than a `cmd`, on `gate-redis`'s terms: the TERM-wait-KILL escalation needs a loop.
+local-stack-down = { cmd = "bash scripts/local-stack-down.sh", default-environment = "dev", description = "Stop the stack's processes, however honcho ended, then the containers" }
+
 docs-serve = { cmd = "mkdocs serve --dev-addr 0.0.0.0:8888", default-environment = "dev", description = "Serve the documentation with live reload" }
 changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
 precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
