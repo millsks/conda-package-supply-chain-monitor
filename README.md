@@ -80,6 +80,7 @@ pixi run docs-serve        # documentation with live reload
 pixi run local-stack       # the whole stack, under honcho
 pixi run docker-up         # just the infrastructure
 pixi run docker-down       # stop it, keeping the data
+pixi run local-stack-down  # after honcho died without Ctrl-C: free 8000 and 5555
 ```
 
 `pixi run ci` is the gate, and it is the same sequence locally and in CI:
